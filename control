@@ -1,0 +1,8 @@
+Package: win.otcidor.matrixclient
+Name: Neo
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Native Matrix client for iOS 6
+Maintainer: otcidor
+Author: otcidor
+Section: Applications

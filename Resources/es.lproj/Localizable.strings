@@ -1,0 +1,85 @@
+/* Search */
+"Search" = "Buscar";
+
+/* Logout */
+"Logout" = "Cerrar sesión";
+"Are you sure you want to logout?" = "¿Seguro que quieres cerrar sesión?";
+
+/* Common */
+"Cancel" = "Cancelar";
+"OK" = "OK";
+"Deleted message" = "Mensaje eliminado";
+
+/* New Chat */
+"New Chat" = "Nuevo chat";
+"Enter user ID to start a chat" = "Ingresa ID de usuario para iniciar chat";
+"Start" = "Iniciar";
+
+/* Subtitle */
+"1 chat" = "1 chat";
+"%d chats" = "%d chats";
+
+/* Cell */
+"%d members" = "%d miembros";
+
+/* Relative date */
+"now" = "ahora";
+"%dm" = "%dm";
+"HH:mm" = "HH:mm";
+"yesterday" = "ayer";
+"dd/MM/yy" = "dd/MM/yy";
+
+/* Tabs */
+"Chats" = "Chats";
+"Networks" = "Redes";
+"Settings" = "Ajustes";
+"Select network" = "Seleccionar red";
+"Close" = "Cerrar";
+
+/* Settings */
+"Account" = "Cuenta";
+"Server" = "Servidor";
+"Bubble Style" = "Estilo de burbuja";
+"Archived" = "Archivados";
+
+/* Chat */
+"%d members" = "%d miembros";
+
+/* Date separators */
+"Today" = "Hoy";
+"Yesterday" = "Ayer";
+"Date format this year" = "EEEE, d 'de' MMMM";
+"Date format other year" = "EEEE, d 'de' MMMM 'de' yyyy";
+
+/* Wallpaper */
+"Chat Wallpaper" = "Fondo de chat";
+"Default" = "Predeterminado";
+"Abstract" = "Abstracto";
+"Particles" = "Partículas";
+"Flowers" = "Flores";
+"Leaves" = "Hojas";
+"Landscape" = "Paisaje";
+"Sunset" = "Atardecer";
+"Texture" = "Textura";
+"Bubbles" = "Burbujas";
+"Circles" = "Círculos";
+"Stripes" = "Rayas";
+"Hexagons" = "Hexágonos";
+"Triangles" = "Triángulos";
+"Fabric" = "Tela";
+"TG Classic" = "TG Clásico";
+"TG Blue" = "TG Azul";
+"TG Purple" = "TG Púrpura";
+"TG Dark" = "TG Oscuro";
+"TG Green" = "TG Verde";
+"TG Pink" = "TG Rosa";
+
+/* Login */
+"Connect to your server" = "Conéctate a tu servidor";
+"Username" = "Usuario";
+"Password" = "Contraseña";
+"Sign In" = "Iniciar sesión";
+"Error" = "Error";
+"Please enter username and password" = "Ingresa usuario y contraseña";
+"Signing in..." = "Iniciando sesión...";
+"Login Failed" = "Error de inicio de sesión";

@@ -1,0 +1,85 @@
+/* Search */
+"Search" = "Search";
+
+/* Logout */
+"Logout" = "Logout";
+"Are you sure you want to logout?" = "Are you sure you want to logout?";
+
+/* Common */
+"Cancel" = "Cancel";
+"OK" = "OK";
+"Deleted message" = "Deleted message";
+
+/* New Chat */
+"New Chat" = "New Chat";
+"Enter user ID to start a chat" = "Enter user ID to start a chat";
+"Start" = "Start";
+
+/* Subtitle */
+"1 chat" = "1 chat";
+"%d chats" = "%d chats";
+
+/* Settings */
+"Account" = "Account";
+"Server" = "Server";
+"Bubble Style" = "Bubble Style";
+"Archived" = "Archived";
+
+/* Cell */
+"%d members" = "%d members";
+
+/* Relative date */
+"now" = "now";
+"%dm" = "%dm";
+"HH:mm" = "HH:mm";
+"yesterday" = "yesterday";
+"dd/MM/yy" = "dd/MM/yy";
+
+/* Tabs */
+"Chats" = "Chats";
+"Networks" = "Networks";
+"Settings" = "Settings";
+"Select network" = "Select network";
+"Close" = "Close";
+
+/* Chat */
+"%d members" = "%d members";
+
+/* Date separators */
+"Today" = "Today";
+"Yesterday" = "Yesterday";
+"Date format this year" = "EEEE, MMMM d";
+"Date format other year" = "EEEE, MMMM d, yyyy";
+
+/* Wallpaper */
+"Chat Wallpaper" = "Chat Wallpaper";
+"Default" = "Default";
+"Abstract" = "Abstract";
+"Particles" = "Particles";
+"Flowers" = "Flowers";
+"Leaves" = "Leaves";
+"Landscape" = "Landscape";
+"Sunset" = "Sunset";
+"Texture" = "Texture";
+"Bubbles" = "Bubbles";
+"Circles" = "Circles";
+"Stripes" = "Stripes";
+"Hexagons" = "Hexagons";
+"Triangles" = "Triangles";
+"Fabric" = "Fabric";
+"TG Classic" = "TG Classic";
+"TG Blue" = "TG Blue";
+"TG Purple" = "TG Purple";
+"TG Dark" = "TG Dark";
+"TG Green" = "TG Green";
+"TG Pink" = "TG Pink";
+
+/* Login */
+"Connect to your server" = "Connect to your server";
+"Username" = "Username";
+"Password" = "Password";
+"Sign In" = "Sign In";
+"Error" = "Error";
+"Please enter username and password" = "Please enter username and password";
+"Signing in..." = "Signing in...";
+"Login Failed" = "Login Failed";
