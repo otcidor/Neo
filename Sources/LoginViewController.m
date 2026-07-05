@@ -2,6 +2,7 @@
 #import "NeoCompatibility.h"
 #import "LoginViewController.h"
 #import "MatrixAPIClient.h"
+#import "ThemeManager.h"
 #import "RoomListViewController.h"
 #import "TabBarController.h"
 #import <QuartzCore/QuartzCore.h>
@@ -10,19 +11,18 @@
 
 - (void)loadView {
     [super loadView];
-    self.view.backgroundColor = [UIColor groupTableViewBackgroundColor];
+    self.view.backgroundColor = [[ThemeManager sharedManager] backgroundColor];
 
-    self.navigationController.navigationBar.barStyle = UIBarStyleBlackTranslucent;
-    self.navigationItem.title = @"◈ Matrix";
+    self.navigationController.navigationBarHidden = YES;
 
     CGFloat w = self.view.bounds.size.width;
     CGFloat midY = self.view.bounds.size.height / 2 - 80;
 
     UILabel *logoLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, midY - 100, w, 50)];
-    logoLabel.text = @"◈ Matrix";
+    logoLabel.text = @"◈ Neo";
     logoLabel.font = [UIFont boldSystemFontOfSize:32];
     logoLabel.textAlignment = NSTextAlignmentCenter;
-    logoLabel.textColor = [UIColor colorWithRed:0.0 green:0.48 blue:1.0 alpha:1.0];
+    logoLabel.textColor = [[ThemeManager sharedManager] tintColor];
     logoLabel.backgroundColor = [UIColor clearColor];
     [self.view addSubview:logoLabel];
 
@@ -79,7 +79,7 @@
     self.loginButton.frame = CGRectMake(20, midY + 172, w - 40, 44);
     [self.loginButton setTitle:NSLocalizedString(@"Sign In", nil) forState:UIControlStateNormal];
     self.loginButton.titleLabel.font = [UIFont boldSystemFontOfSize:17];
-    self.loginButton.backgroundColor = [UIColor colorWithRed:0.0 green:0.48 blue:1.0 alpha:1.0];
+    self.loginButton.backgroundColor = [[ThemeManager sharedManager] tintColor];
     [self.loginButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     [self.loginButton setTitleColor:[UIColor colorWithWhite:1.0 alpha:0.5] forState:UIControlStateHighlighted];
     self.loginButton.layer.cornerRadius = 8;
@@ -98,6 +98,11 @@
     self.statusLabel.backgroundColor = [UIColor clearColor];
     self.statusLabel.text = @"";
     [self.view addSubview:self.statusLabel];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    self.navigationController.navigationBarHidden = YES;
 }
 
 - (void)loginTapped {

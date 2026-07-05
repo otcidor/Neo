@@ -4,6 +4,7 @@
 #import "MatrixAPIClient.h"
 #import "MatrixModels.h"
 #import "ChatViewController.h"
+#import "ThemeManager.h"
 #import <QuartzCore/QuartzCore.h>
 
 @implementation ArchivedChatsViewController {
@@ -15,7 +16,6 @@
 - (void)loadView {
     [super loadView];
     self.title = NSLocalizedString(@"Archived", nil);
-    self.view.backgroundColor = [UIColor colorWithWhite:0.93 alpha:1.0];
 
     CGFloat w = self.view.bounds.size.width;
     CGFloat h = self.view.bounds.size.height;
@@ -27,19 +27,28 @@
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth |
                                    UIViewAutoresizingFlexibleHeight;
     _tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
-    UIImage *bgPattern = [UIImage imageNamed:@"tableViewBackground"];
-    if (bgPattern) {
-        _tableView.backgroundColor = [UIColor colorWithPatternImage:bgPattern];
-    }
     [self.view addSubview:_tableView];
 
     _avatarCache = [NSMutableDictionary dictionary];
     _archivedRooms = [NSMutableArray array];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(applyTheme)
+                                                 name:NeoThemeDidChangeNotification
+                                               object:nil];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    [self applyTheme];
     [self loadArchivedRooms];
+}
+
+- (void)applyTheme {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    self.view.backgroundColor = [tm backgroundColor];
+    _tableView.backgroundColor = [tm backgroundColor];
+    [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
 }
 
 - (void)loadArchivedRooms {
@@ -106,11 +115,12 @@
          cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     static NSString *cellId = @"ArchivedCell";
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:cellId];
+    ThemeManager *tm = [ThemeManager sharedManager];
+
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle
                                       reuseIdentifier:cellId];
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        cell.backgroundColor = [UIColor whiteColor];
 
         UIImageView *avatarView = [[UIImageView alloc]
             initWithFrame:CGRectMake(8, 6, 48, 48)];
@@ -118,7 +128,7 @@
         avatarView.layer.cornerRadius = 24;
         avatarView.clipsToBounds = YES;
         avatarView.contentMode = UIViewContentModeScaleAspectFill;
-        avatarView.backgroundColor = [UIColor colorWithWhite:0.85 alpha:1.0];
+        avatarView.backgroundColor = [tm isDarkMode] ? [UIColor colorWithWhite:0.25 alpha:1.0] : [UIColor colorWithWhite:0.85 alpha:1.0];
         [cell.contentView addSubview:avatarView];
 
         UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectZero];
@@ -129,9 +139,10 @@
 
         UILabel *sep = [[UILabel alloc] initWithFrame:CGRectZero];
         sep.tag = 98;
-        sep.backgroundColor = [UIColor colorWithWhite:0.88 alpha:1.0];
         [cell.contentView addSubview:sep];
     }
+
+    cell.backgroundColor = [tm cellBackgroundColor];
 
     MatrixRoom *room = [_archivedRooms objectAtIndex:indexPath.row];
     CGFloat cellW = cell.contentView.bounds.size.width;
@@ -139,6 +150,7 @@
     UILabel *nameLabel = (UILabel *)[cell.contentView viewWithTag:91];
     nameLabel.frame = CGRectMake(64, 18, cellW - 84, 22);
     nameLabel.text = room.name;
+    nameLabel.textColor = [tm primaryTextColor];
 
     UIImageView *avatarView = (UIImageView *)[cell.contentView viewWithTag:99];
     UIImage *avatar = [_avatarCache objectForKey:room.roomId];
@@ -146,6 +158,7 @@
 
     UILabel *sep = (UILabel *)[cell.contentView viewWithTag:98];
     sep.frame = CGRectMake(64, 59, cellW - 64, 0.5);
+    sep.backgroundColor = [tm separatorColor];
 
     return cell;
 }
@@ -174,6 +187,10 @@
     ChatViewController *chat = [[ChatViewController alloc] init];
     chat.room = room;
     [self.navigationController pushViewController:chat animated:YES];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (BOOL)shouldAutorotate { return YES; }

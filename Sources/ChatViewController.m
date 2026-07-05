@@ -1222,20 +1222,6 @@
         [cell.contentView addSubview:reactionLabel];
     }
 
-    CGFloat bubbleH = [MatrixBubbleView cellHeightForText:msg.body
-                                                 showUser:showUser
-                                            showTimestamp:showTimestamp
-                                               isRedacted:msg.isRedacted];
-    if (hasMedia) {
-        bubbleH = [MatrixBubbleView cellHeightForMediaWithText:msg.body
-                                                      showUser:showUser
-                                                 showTimestamp:showTimestamp
-                                                    isRedacted:msg.isRedacted
-                                                   mediaHeight:130];
-    }
-
-    CGFloat reactionY = bubbleH + 2;
-    CGFloat cellW = tableView.bounds.size.width;
     if ([msg.reactions count] > 0) {
         NSMutableString *reactionStr = [NSMutableString string];
         for (NSString *emoji in msg.reactions) {
@@ -1248,10 +1234,16 @@
         }
         reactionLabel.text = reactionStr;
         CGSize reactionSize = [reactionStr sizeWithFont:[UIFont systemFontOfSize:14]];
-        CGFloat textOffset = [MatrixBubbleView textXOffsetForType:isSelf ? MatrixBubbleMessageTypeOutgoing : MatrixBubbleMessageTypeIncoming];
+
+        // Leer la geometría REAL de la burbuja ya dibujada — fuente
+        // única de verdad, sin fórmula duplicada que pueda desincronizarse.
+        CGRect bf = [cell.bubbleView bubbleFrame];
+        CGFloat reactionY = CGRectGetMaxY(bf) + 4;
+
         CGFloat reactionX = isSelf
-            ? (cellW - [MatrixBubbleView bubbleSizeForText:reactionStr].width - textOffset)
-            : textOffset;
+            ? (CGRectGetMaxX(bf) - reactionSize.width - 8)
+            : CGRectGetMinX(bf) + [MatrixBubbleView textXOffsetForType:MatrixBubbleMessageTypeIncoming];
+
         reactionLabel.frame = CGRectMake(reactionX, reactionY, reactionSize.width + 8, 20);
         reactionLabel.hidden = NO;
     } else {

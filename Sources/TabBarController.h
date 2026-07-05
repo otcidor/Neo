@@ -1,6 +1,6 @@
 #import <UIKit/UIKit.h>
 
 @interface TabBarController : UITabBarController
-    <UITabBarControllerDelegate, UIActionSheetDelegate>
+    <UITabBarControllerDelegate>
 - (void)showLogin;
 @end

@@ -4,7 +4,7 @@
 
 #define kMarginTop 4.0f
 #define kMarginBottom 2.0f
-#define kPaddingTop 4.0f
+#define kPaddingTop 8.0f
 #define kPaddingBottom 24.0f
 #define kBubblePaddingRight 35.0f
 #define kSenderHeight 22.0f

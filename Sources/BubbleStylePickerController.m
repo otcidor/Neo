@@ -1,4 +1,5 @@
 #import "BubbleStylePickerController.h"
+#import "ThemeManager.h"
 #import "NeoCompatibility.h"
 
 static NSString *const kBubbleStyleKey = @"neo_bubble_style";
@@ -15,7 +16,8 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
     // Incoming bubble (left side, gray)
     UIBezierPath *inPath = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, h * 0.15, w * 0.4, h * 0.7)
                                                       cornerRadius:6];
-    [[UIColor colorWithWhite:0.85 alpha:1.0] setFill];
+    ThemeManager *tm = [ThemeManager sharedManager];
+    [[tm isDarkMode] ? [UIColor colorWithWhite:0.3 alpha:1.0] : [UIColor colorWithWhite:0.85 alpha:1.0] setFill];
     [inPath fill];
 
     // Outgoing bubble (right side, colored)
@@ -36,7 +38,6 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
     [super viewDidLoad];
     self.title = @"Bubble Style";
     self.tableView.rowHeight = 60;
-    self.tableView.backgroundColor = [UIColor whiteColor];
 
     self.styles = @[
         @{@"key": @"neo",        @"name": @"Neo",        @"color": [UIColor colorWithRed:30/255.0  green:160/255.0 blue:80/255.0   alpha:1.0]},
@@ -49,6 +50,24 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
         @{@"key": @"neo-indigo", @"name": @"Indigo",     @"color": [UIColor colorWithRed:75/255.0  green:30/255.0  blue:130/255.0 alpha:1.0]},
         @{@"key": @"whatsapp",   @"name": @"WhatsApp",   @"color": [UIColor colorWithRed:0/255.0   green:100/255.0 blue:200/255.0 alpha:1.0]},
     ];
+
+    [self applyTheme];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(applyTheme)
+                                                 name:NeoThemeDidChangeNotification
+                                               object:nil];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self applyTheme];
+}
+
+- (void)applyTheme {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    self.tableView.backgroundColor = [tm backgroundColor];
+    self.tableView.separatorColor = [tm separatorColor];
+    [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
 }
 
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)section {
@@ -74,6 +93,9 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
         [cell.contentView addSubview:label];
     }
 
+    ThemeManager *tm = [ThemeManager sharedManager];
+    cell.backgroundColor = [tm cellBackgroundColor];
+
     NSDictionary *style = self.styles[ip.row];
     BubblePreview *preview = (BubblePreview *)[cell.contentView viewWithTag:99];
     preview.outgoingColor = style[@"color"];
@@ -81,6 +103,7 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
 
     UILabel *label = (UILabel *)[cell.contentView viewWithTag:100];
     label.text = style[@"name"];
+    label.textColor = [tm primaryTextColor];
 
     NSString *current = [[NSUserDefaults standardUserDefaults] stringForKey:kBubbleStyleKey];
     NSString *key = style[@"key"];
@@ -105,6 +128,10 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
     }
     [[NSUserDefaults standardUserDefaults] synchronize];
     [tv reloadData];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 @end

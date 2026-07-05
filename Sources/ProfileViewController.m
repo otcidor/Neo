@@ -1,6 +1,7 @@
 #import "NeoCompatibility.h"
 #import "ProfileViewController.h"
 #import "MatrixAPIClient.h"
+#import "ThemeManager.h"
 #import <QuartzCore/QuartzCore.h>
 
 @implementation ProfileViewController {
@@ -13,7 +14,8 @@
 
 - (void)loadView {
     [super loadView];
-    self.view.backgroundColor = [UIColor colorWithWhite:0.93 alpha:1.0];
+    ThemeManager *tm = [ThemeManager sharedManager];
+    self.view.backgroundColor = [tm backgroundColor];
 
     CGFloat w = self.view.bounds.size.width;
     CGFloat h = self.view.bounds.size.height;
@@ -69,7 +71,8 @@
     _tableView.dataSource = self;
     _tableView.delegate = self;
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _tableView.backgroundColor = [UIColor colorWithWhite:0.93 alpha:1.0];
+    _tableView.backgroundColor = [tm backgroundColor];
+    _tableView.backgroundView = nil;
     [self.view addSubview:_tableView];
 
     [self.view addSubview:headerView];
@@ -78,6 +81,12 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Perfil";
+
+    [self applyTheme];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(applyTheme)
+                                                 name:NeoThemeDidChangeNotification
+                                               object:nil];
 
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc]
         initWithTitle:@"Atrás"
@@ -120,6 +129,19 @@
     }
 }
 
+- (void)applyTheme {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    self.view.backgroundColor = [tm backgroundColor];
+    _tableView.backgroundColor = [tm backgroundColor];
+    _tableView.backgroundView = nil;
+    _tableView.separatorColor = [tm separatorColor];
+    [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
 - (void)backTapped {
     [self.navigationController popViewControllerAnimated:YES];
 }
@@ -158,8 +180,9 @@
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle
                                       reuseIdentifier:cellId];
     }
-    cell.accessoryType = UITableViewCellAccessoryNone;
-    cell.textLabel.textColor = [UIColor darkTextColor];
+    ThemeManager *tm_cell = [ThemeManager sharedManager];
+    cell.backgroundColor = [tm_cell cellBackgroundColor];
+    cell.textLabel.textColor = [tm_cell primaryTextColor];
     cell.imageView.image = nil;
     cell.selectionStyle = UITableViewCellSelectionStyleBlue;
 
@@ -171,12 +194,12 @@
                 cell.textLabel.text = self.room.roomId;
             }
             cell.textLabel.font = [UIFont systemFontOfSize:13];
-            cell.textLabel.textColor = [UIColor grayColor];
+            cell.textLabel.textColor = [tm_cell secondaryTextColor];
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else {
             cell.textLabel.text = @"Cambiar nombre";
             cell.textLabel.font = [UIFont systemFontOfSize:16];
-            cell.textLabel.textColor = [UIColor darkTextColor];
+            cell.textLabel.textColor = [tm_cell primaryTextColor];
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         }
     } else if (indexPath.section == 1) {
@@ -195,6 +218,15 @@
         }
     }
     return cell;
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    if ([view isKindOfClass:[UITableViewHeaderFooterView class]]) {
+        UITableViewHeaderFooterView *hv = (UITableViewHeaderFooterView *)view;
+        hv.textLabel.textColor = [tm secondaryTextColor];
+        hv.contentView.backgroundColor = [tm backgroundColor];
+    }
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {

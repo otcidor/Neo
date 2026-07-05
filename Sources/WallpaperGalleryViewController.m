@@ -1,4 +1,5 @@
 #import "WallpaperGalleryViewController.h"
+#import "ThemeManager.h"
 #import <QuartzCore/QuartzCore.h>
 
 static NSString *kWpNames[] = {
@@ -43,8 +44,24 @@ static NSString *kCellId = @"WPCell";
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.collectionView.backgroundColor = [UIColor colorWithWhite:0.93 alpha:1.0];
     [self.collectionView registerClass:[UICollectionViewCell class] forCellWithReuseIdentifier:kCellId];
+    [self applyTheme];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(applyTheme)
+                                                 name:NeoThemeDidChangeNotification
+                                               object:nil];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self applyTheme];
+}
+
+- (void)applyTheme {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    self.collectionView.backgroundColor = [tm backgroundColor];
+    [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
 }
 
 - (NSInteger)collectionView:(UICollectionView *)cv numberOfItemsInSection:(NSInteger)section {
@@ -71,7 +88,10 @@ static NSString *kCellId = @"WPCell";
     iv.clipsToBounds = YES;
     iv.layer.cornerRadius = 6;
     iv.layer.borderWidth = 1;
-    iv.layer.borderColor = [[UIColor colorWithWhite:0.85 alpha:1.0] CGColor];
+    ThemeManager *tm = [ThemeManager sharedManager];
+    iv.layer.borderColor = [tm isDarkMode]
+        ? [[UIColor colorWithWhite:0.35 alpha:1.0] CGColor]
+        : [[UIColor colorWithWhite:0.85 alpha:1.0] CGColor];
     iv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [cell.contentView addSubview:iv];
 
@@ -80,10 +100,12 @@ static NSString *kCellId = @"WPCell";
     if ([current isEqualToString:kWpImages[ip.row]]) {
         UILabel *check = [[UILabel alloc] initWithFrame:CGRectMake(cell.bounds.size.width - 28, 4, 24, 24)];
         check.text = @"✓";
-        check.textColor = [UIColor colorWithRed:0 green:0.48 blue:1 alpha:1];
+        check.textColor = [tm primaryTextColor];
         check.font = [UIFont boldSystemFontOfSize:20];
         check.textAlignment = NSTextAlignmentCenter;
-        check.backgroundColor = [UIColor colorWithWhite:1 alpha:0.8];
+        check.backgroundColor = [tm isDarkMode]
+            ? [UIColor colorWithWhite:0.2 alpha:0.85]
+            : [UIColor colorWithWhite:1 alpha:0.8];
         check.layer.cornerRadius = 12;
         check.clipsToBounds = YES;
         [cell.contentView addSubview:check];
@@ -94,8 +116,10 @@ static NSString *kCellId = @"WPCell";
     lbl.text = NSLocalizedString(kWpNames[ip.row], nil);
     lbl.font = [UIFont systemFontOfSize:11];
     lbl.textAlignment = NSTextAlignmentCenter;
-    lbl.backgroundColor = [UIColor colorWithWhite:1 alpha:0.7];
-    lbl.textColor = [UIColor darkGrayColor];
+    lbl.backgroundColor = [tm isDarkMode]
+        ? [UIColor colorWithWhite:0.15 alpha:0.8]
+        : [UIColor colorWithWhite:1 alpha:0.7];
+    lbl.textColor = [tm primaryTextColor];
     [cell.contentView addSubview:lbl];
 
     return cell;
@@ -105,6 +129,10 @@ static NSString *kCellId = @"WPCell";
     [[NSUserDefaults standardUserDefaults] setObject:kWpImages[ip.row] forKey:@"neo_wallpaper"];
     [[NSUserDefaults standardUserDefaults] synchronize];
     [self.navigationController popViewControllerAnimated:YES];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 @end
