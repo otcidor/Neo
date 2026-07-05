@@ -1223,8 +1223,15 @@
     }
 
     if ([msg.reactions count] > 0) {
+        // Top 5 reacciones por frecuencia
+        NSArray *sorted = [[msg.reactions allKeys] sortedArrayUsingComparator:^NSComparisonResult(NSString *e1, NSString *e2) {
+            return [msg.reactions[e2] compare:msg.reactions[e1]];
+        }];
+        NSInteger limit = MIN(5, (NSInteger)[sorted count]);
+
         NSMutableString *reactionStr = [NSMutableString string];
-        for (NSString *emoji in msg.reactions) {
+        for (NSInteger i = 0; i < limit; i++) {
+            NSString *emoji = sorted[i];
             NSNumber *count = msg.reactions[emoji];
             if ([count intValue] > 1) {
                 [reactionStr appendFormat:@"%@ %d  ", emoji, [count intValue]];
@@ -1235,10 +1242,9 @@
         reactionLabel.text = reactionStr;
         CGSize reactionSize = [reactionStr sizeWithFont:[UIFont systemFontOfSize:14]];
 
-        // Leer la geometría REAL de la burbuja ya dibujada — fuente
-        // única de verdad, sin fórmula duplicada que pueda desincronizarse.
         CGRect bf = [cell.bubbleView bubbleFrame];
-        CGFloat reactionY = CGRectGetMaxY(bf) + 4;
+        // Mitad dentro / mitad fuera del borde inferior de la burbuja
+        CGFloat reactionY = CGRectGetMaxY(bf) - 8;
 
         CGFloat reactionX = isSelf
             ? (CGRectGetMaxX(bf) - reactionSize.width - 8)
