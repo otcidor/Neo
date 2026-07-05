@@ -102,21 +102,46 @@
 
 #pragma mark - Drawing
 
-- (NSString *)bubbleImageName {
+- (BOOL)isNeoStyle {
     NSString *style = [[NSUserDefaults standardUserDefaults] stringForKey:@"neo_bubble_style"];
-    if ([style isEqualToString:@"telegram"]) {
-        return self.type == MatrixBubbleMessageTypeOutgoing ? @"tg-bubble-mine" : @"tg-bubble-someone";
-    }
-    return self.type == MatrixBubbleMessageTypeOutgoing ? @"bubble-square-outgoing" : @"bubble-square-incoming";
+    return (style == nil || [style hasPrefix:@"neo"]);
+}
+
+- (NSString *)outgoingName {
+    NSString *style = [[NSUserDefaults standardUserDefaults] stringForKey:@"neo_bubble_style"];
+    if (style == nil || [style isEqualToString:@"neo"]) return @"neo-bubble-mine-green";
+    if ([style isEqualToString:@"neo-cyan"])   return @"neo-bubble-mine-cyan";
+    if ([style isEqualToString:@"neo-purple"]) return @"neo-bubble-mine-purple";
+    if ([style isEqualToString:@"neo-pink"])   return @"neo-bubble-mine-pink";
+    if ([style isEqualToString:@"neo-orange"]) return @"neo-bubble-mine-orange";
+    if ([style isEqualToString:@"neo-red"])    return @"neo-bubble-mine-red";
+    if ([style isEqualToString:@"neo-teal"])   return @"neo-bubble-mine-teal";
+    if ([style isEqualToString:@"neo-indigo"]) return @"neo-bubble-mine-indigo";
+    return @"bubble-square-outgoing";
+}
+
+- (NSString *)incomingName {
+    NSString *style = [[NSUserDefaults standardUserDefaults] stringForKey:@"neo_bubble_style"];
+    if (style == nil || [style isEqualToString:@"neo"]) return @"neo-bubble-someone-green";
+    if ([style isEqualToString:@"neo-cyan"])   return @"neo-bubble-someone-cyan";
+    if ([style isEqualToString:@"neo-purple"]) return @"neo-bubble-someone-purple";
+    if ([style isEqualToString:@"neo-pink"])   return @"neo-bubble-someone-pink";
+    if ([style isEqualToString:@"neo-orange"]) return @"neo-bubble-someone-orange";
+    if ([style isEqualToString:@"neo-red"])    return @"neo-bubble-someone-red";
+    if ([style isEqualToString:@"neo-teal"])   return @"neo-bubble-someone-teal";
+    if ([style isEqualToString:@"neo-indigo"]) return @"neo-bubble-someone-indigo";
+    return @"bubble-square-incoming";
+}
+
+- (NSString *)bubbleImageName {
+    return self.type == MatrixBubbleMessageTypeOutgoing ? [self outgoingName] : [self incomingName];
 }
 
 - (UIImage *)bubbleImage {
     UIImage *img = [UIImage imageNamed:[self bubbleImageName]];
-    NSString *style = [[NSUserDefaults standardUserDefaults] stringForKey:@"neo_bubble_style"];
-    BOOL tg = [style isEqualToString:@"telegram"];
     NSInteger leftCap = self.type == MatrixBubbleMessageTypeOutgoing
-        ? (tg ? 15 : 14)
-        : (tg ? 21 : 20);
+        ? ([self isNeoStyle] ? 15 : 14)
+        : ([self isNeoStyle] ? 21 : 20);
     return [img stretchableImageWithLeftCapWidth:leftCap topCapHeight:14];
 }
 
@@ -267,18 +292,25 @@
     }
 
     CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString((__bridge CFAttributedStringRef)attrStr);
-    CGMutablePathRef path = CGPathCreateMutable();
-    CGPathAddRect(path, NULL, textFrame);
-    CTFrameRef ctFrame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0), path, NULL);
-
-    if (_ctFrame) CFRelease(_ctFrame);
-    _ctFrame = (CTFrameRef)CFRetain(ctFrame);
 
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     CGContextSaveGState(ctx);
     CGContextSetTextMatrix(ctx, CGAffineTransformIdentity);
     CGContextTranslateCTM(ctx, 0, self.bounds.size.height);
     CGContextScaleCTM(ctx, 1.0, -1.0);
+
+    // Path in flipped coordinate space
+    CGRect flippedFrame = CGRectMake(textFrame.origin.x,
+                                     self.bounds.size.height - textFrame.origin.y - textFrame.size.height,
+                                     textFrame.size.width,
+                                     textFrame.size.height);
+    CGMutablePathRef path = CGPathCreateMutable();
+    CGPathAddRect(path, NULL, flippedFrame);
+    CTFrameRef ctFrame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0), path, NULL);
+
+    if (_ctFrame) CFRelease(_ctFrame);
+    _ctFrame = (CTFrameRef)CFRetain(ctFrame);
+
     CTFrameDraw(ctFrame, ctx);
     CGContextRestoreGState(ctx);
 
@@ -369,9 +401,10 @@
 
 + (CGFloat)textXOffsetForType:(MatrixBubbleMessageType)type {
     NSString *style = [[NSUserDefaults standardUserDefaults] stringForKey:@"neo_bubble_style"];
+    BOOL isNeo = (style == nil || [style hasPrefix:@"neo"]);
     NSInteger leftCap = (type == MatrixBubbleMessageTypeOutgoing)
-        ? ([style isEqualToString:@"telegram"] ? 15 : 14)
-        : ([style isEqualToString:@"telegram"] ? 21 : 20);
+        ? (isNeo ? 15 : 14)
+        : (isNeo ? 21 : 20);
     return leftCap - 3.0f;
 }
 

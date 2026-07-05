@@ -6,6 +6,7 @@
 #import "WallpaperGalleryViewController.h"
 #import "ThemeManager.h"
 #import "ThemeSelectionViewController.h"
+#import "BubbleStylePickerController.h"
 #import "NeoAlert.h"
 #import "NeoCompatibility.h"
 
@@ -173,11 +174,14 @@ static NSString *kWpImages[] = {
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             cell.selectionStyle = UITableViewCellSelectionStyleBlue;
             NSString *style = [[NSUserDefaults standardUserDefaults] stringForKey:kBubbleStyleKey];
-            if ([style isEqualToString:@"telegram"]) {
-                cell.detailTextLabel.text = @"Telegram";
-            } else {
-                cell.detailTextLabel.text = @"Predeterminado";
-            }
+            NSDictionary *names = @{
+                @"neo": @"Neo", @"neo-cyan": @"Cyan",
+                @"neo-purple": @"Purple", @"neo-pink": @"Pink",
+                @"neo-orange": @"Orange", @"neo-red": @"Red",
+                @"neo-teal": @"Teal", @"neo-indigo": @"Indigo",
+                @"whatsapp": @"WhatsApp",
+            };
+            cell.detailTextLabel.text = names[style] ?: (style == nil ? @"Neo" : style);
         } else {
             cell.textLabel.text = @"Theme";
             cell.textLabel.textAlignment = NSTextAlignmentLeft;
@@ -214,7 +218,8 @@ static NSString *kWpImages[] = {
             WallpaperGalleryViewController *vc = [[WallpaperGalleryViewController alloc] init];
             [self.navigationController pushViewController:vc animated:YES];
         } else if (indexPath.row == 2) {
-            [self showBubbleStylePicker];
+            BubbleStylePickerController *vc = [[BubbleStylePickerController alloc] init];
+            [self.navigationController pushViewController:vc animated:YES];
         } else if (indexPath.row == 3) {
             ThemeSelectionViewController *vc = [[ThemeSelectionViewController alloc] init];
             [self.navigationController pushViewController:vc animated:YES];
@@ -243,23 +248,6 @@ static NSString *kWpImages[] = {
     _tableView.backgroundColor = [tm backgroundColor];
     [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
     if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
-}
-
-- (void)showBubbleStylePicker {
-    [NeoAlert showActionSheetWithTitle:NSLocalizedString(@"Bubble Style", nil)
-                           cancelTitle:NSLocalizedString(@"Cancel", nil)
-                      destructiveTitle:nil
-                           otherTitles:@[NSLocalizedString(@"Default", nil), @"Telegram"]
-                            controller:self
-                           sourceRect:CGRectZero
-                           sourceView:self.view
-                               handler:^(NSInteger index) {
-        if (index == 0) return;
-        NSString *style = (index == 2) ? @"telegram" : @"default";
-        [[NSUserDefaults standardUserDefaults] setObject:style forKey:kBubbleStyleKey];
-        [[NSUserDefaults standardUserDefaults] synchronize];
-        [_tableView reloadData];
-    }];
 }
 
 - (void)alertView:(UIAlertView *)alertView
