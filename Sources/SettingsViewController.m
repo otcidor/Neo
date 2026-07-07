@@ -136,7 +136,7 @@ static NSString *kWpImages[] = {
         } else {
             cell.textLabel.text = NSLocalizedString(@"Server", nil);
             BOOL demo = [DemoModeManager sharedManager].demoModeEnabled;
-            cell.detailTextLabel.text = demo ? @"https://neo.org" : (client.homeserver ?: @"—");
+            cell.detailTextLabel.text = demo ? @"https://matrix.org" : (client.homeserver ?: @"—");
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         }
     } else if (indexPath.section == 1) {
