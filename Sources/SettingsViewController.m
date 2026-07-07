@@ -130,11 +130,13 @@ static NSString *kWpImages[] = {
     if (indexPath.section == 0) {
         if (indexPath.row == 0) {
             cell.textLabel.text = NSLocalizedString(@"Username", nil);
-            cell.detailTextLabel.text = client.userId ?: @"—";
+            BOOL demo = [DemoModeManager sharedManager].demoModeEnabled;
+            cell.detailTextLabel.text = demo ? @"@user:neo.org" : (client.userId ?: @"—");
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else {
             cell.textLabel.text = NSLocalizedString(@"Server", nil);
-            cell.detailTextLabel.text = client.homeserver ?: @"—";
+            BOOL demo = [DemoModeManager sharedManager].demoModeEnabled;
+            cell.detailTextLabel.text = demo ? @"https://neo.org" : (client.homeserver ?: @"—");
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         }
     } else if (indexPath.section == 1) {
