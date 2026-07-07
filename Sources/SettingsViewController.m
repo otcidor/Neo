@@ -131,7 +131,7 @@ static NSString *kWpImages[] = {
         if (indexPath.row == 0) {
             cell.textLabel.text = NSLocalizedString(@"Username", nil);
             BOOL demo = [DemoModeManager sharedManager].demoModeEnabled;
-            cell.detailTextLabel.text = demo ? @"@user:neo.org" : (client.userId ?: @"—");
+            cell.detailTextLabel.text = demo ? @"@user:matrix.org" : (client.userId ?: @"—");
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else {
             cell.textLabel.text = NSLocalizedString(@"Server", nil);
@@ -202,6 +202,7 @@ static NSString *kWpImages[] = {
         cell.textLabel.textColor = [UIColor redColor];
         cell.textLabel.textAlignment = NSTextAlignmentCenter;
         cell.selectionStyle = UITableViewCellSelectionStyleBlue;
+        cell.accessoryView = nil;
     }
     return cell;
 }
@@ -221,6 +222,11 @@ static NSString *kWpImages[] = {
 
 - (void)demoModeToggled:(UISwitch *)toggle {
     [DemoModeManager sharedManager].demoModeEnabled = toggle.on;
+    if (!toggle.on) {
+        [DemoModeManager sharedManager].demoModeUnlocked = NO;
+        _serverTapCount = 0;
+    }
+    [_tableView reloadData];
 }
 
 - (void)tableView:(UITableView *)tableView

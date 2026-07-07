@@ -114,12 +114,12 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
                     if (!roomName) roomName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
 
                     UILocalNotification *note = [[UILocalNotification alloc] init];
-                    note.fireDate = [NSDate dateWithTimeIntervalSinceNow:0];
+                    note.fireDate = [NSDate dateWithTimeIntervalSinceNow:3.0];
                     note.alertBody = [NSString stringWithFormat:@"%@: %@", roomName ?: roomId, body];
                     note.soundName = UILocalNotificationDefaultSoundName;
                     note.userInfo = @{@"room_id": roomId ?: @"", @"event_id": evt[@"event_id"] ?: @""};
                     note.applicationIconBadgeNumber = self.totalUnread;
-                    [[UIApplication sharedApplication] presentLocalNotificationNow:note];
+                    [[UIApplication sharedApplication] scheduleLocalNotification:note];
                 }
 
                 NSDictionary *userInfo = @{@"room_id": roomId, @"event": evt};
