@@ -8,6 +8,7 @@
 /* Common */
 "Cancel" = "Cancel";
 "OK" = "OK";
+"No" = "No";
 "Deleted message" = "Deleted message";
 
 /* New Chat */
@@ -67,12 +68,6 @@
 "Hexagons" = "Hexagons";
 "Triangles" = "Triangles";
 "Fabric" = "Fabric";
-"TG Classic" = "TG Classic";
-"TG Blue" = "TG Blue";
-"TG Purple" = "TG Purple";
-"TG Dark" = "TG Dark";
-"TG Green" = "TG Green";
-"TG Pink" = "TG Pink";
 
 /* Login */
 "Connect to your server" = "Connect to your server";
@@ -80,6 +75,34 @@
 "Password" = "Password";
 "Sign In" = "Sign In";
 "Error" = "Error";
-"Please enter username and password" = "Please enter username and password";
+"Please enter server, username and password" = "Please enter server, username and password";
 "Signing in..." = "Signing in...";
 "Login Failed" = "Login Failed";
+
+/* Video */
+"Video" = "Video";
+"Loading video..." = "Loading video...";
+"Uploading video..." = "Uploading video...";
+"Could not load video" = "Could not load video";
+"Save this video to Photos?" = "Save this video to Photos?";
+"Save" = "Save";
+"Saved" = "Saved";
+"Video saved to Photos" = "Video saved to Photos";
+
+/* Profile */
+"Profile" = "Profile";
+"Back" = "Back";
+"Info" = "Info";
+"Moderation" = "Moderation";
+"Rename" = "Rename";
+"Local name (does not affect server)" = "Local name (does not affect server)";
+"Delete chat" = "Delete chat";
+"Delete this chat? This cannot be undone." = "Delete this chat? This cannot be undone.";
+"Mute notifications" = "Mute notifications";
+
+/* Actions */
+"Copy" = "Copy";
+"Edit" = "Edit";
+"Delete" = "Delete";
+"Custom" = "Custom";
+"Archive" = "Archive";

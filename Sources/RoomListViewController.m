@@ -9,6 +9,8 @@
 #import <QuartzCore/QuartzCore.h>
 #import "ThemeManager.h"
 #import "NeoCompatibility.h"
+#import "DemoModeManager.h"
+#import "UIImage+NeoBlur.h"
 
 static UIColor *colorForTheme(SpaceTheme theme) {
     switch (theme) {
@@ -88,6 +90,11 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                                                      name:NeoThemeDidChangeNotification
                                                    object:nil];
     }
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleDemoModeChanged)
+                                                 name:NeoDemoModeDidChangeNotification
+                                               object:nil];
 
     UIView *titleView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 200, 36)];
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 200, 20)];
@@ -245,6 +252,10 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     [self.tableView reloadData];
 }
 
+- (void)handleDemoModeChanged {
+    [self.tableView reloadData];
+}
+
 - (void)handleThemeChanged {
     ThemeManager *tm = [ThemeManager sharedManager];
     if (self.spaceFilter == nil) {
@@ -344,7 +355,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                             }
                         }
                     }
-                    // Fallback: member cache del API /members
+                    // Fallback: member cache from API /members
                     if (!avatarUrl && isDM) {
                         NSDictionary *members = [[MatrixAPIClient sharedClient] cachedMembersForRoom:roomId];
                         NSString *myId = [[MatrixAPIClient sharedClient] userId];
@@ -415,7 +426,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                     NSLog(@"[Filter] '%@' → %d rooms", self.spaceFilter, (int)[self.rooms count]);
                 }
 
-                // Filtrar archivados
+                // Filter archived
                 NSMutableArray *notArchived = [NSMutableArray array];
                 for (MatrixRoom *r in self.rooms) {
                     if (![[ArchiveManager sharedManager] isArchivedRoomId:r.roomId]) {
@@ -424,7 +435,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                 }
                 self.rooms = notArchived;
 
-                // Ordenar por último mensaje, más reciente primero
+                // Sort by last message, newest first
                 [self.rooms sortUsingComparator:^NSComparisonResult(MatrixRoom *r1, MatrixRoom *r2) {
                     NSDate *d1 = r1.lastMessageDate;
                     NSDate *d2 = r2.lastMessageDate;
@@ -547,7 +558,8 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     tsLabel.frame = CGRectMake(cellW - tsW - 24, 12, tsW, 18);
 
     nameLabel.frame = CGRectMake(78, 12, cellW - 78 - tsW - 28, 22);
-    nameLabel.text = [MatrixAPIClient localNameForRoomId:room.roomId] ?: room.name;
+    NSString *rawName = [MatrixAPIClient localNameForRoomId:room.roomId] ?: room.name;
+    nameLabel.text = [[DemoModeManager sharedManager] obfuscateName:rawName];
 
     ThemeManager *tm = [ThemeManager sharedManager];
     if (tm.isDarkMode || self.spaceFilter == nil) {
@@ -574,7 +586,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         subtitleText = [NSString stringWithFormat:NSLocalizedString(@"%d members", nil),
                         (int)room.memberCount];
     }
-    lastMsgLabel.text = subtitleText;
+    lastMsgLabel.text = [[DemoModeManager sharedManager] obfuscateMessage:subtitleText];
     lastMsgLabel.frame = CGRectMake(78, 34, cellW - 78 - 20, 36);
 
     if (unread > 0) {
@@ -590,18 +602,39 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     UIImageView *avatarView = (UIImageView *)[cell.contentView viewWithTag:99];
     UIImage *avatar = [_roomAvatars objectForKey:room.roomId];
     if (avatar) {
-        avatarView.image = avatar;
+        if ([DemoModeManager sharedManager].demoModeEnabled) {
+            NSString *cacheKey = [NSString stringWithFormat:@"blur_%@", room.roomId];
+            UIImage *blurred = [_roomAvatars objectForKey:cacheKey];
+            if (!blurred) {
+                blurred = [avatar neo_blurredImageWithFactor:0.06];
+                [_roomAvatars setObject:blurred forKey:cacheKey];
+            }
+            avatarView.image = blurred;
+        } else {
+            avatarView.image = avatar;
+        }
         avatarView.backgroundColor = [UIColor clearColor];
     } else {
         avatarView.image = nil;
         BOOL isDM = [room.roomId hasPrefix:@"@"] || room.memberCount <= 2;
+        UIImage *placeholder = nil;
         if (isDM) {
-            avatarView.image = [UIImage imageNamed:@"PersonalChatOS6Large"];
-            avatarView.backgroundColor = [UIColor clearColor];
+            placeholder = [UIImage imageNamed:@"PersonalChatOS6Large"];
         } else {
-            avatarView.image = [UIImage imageNamed:@"GroupChatOS6Large"];
-            avatarView.backgroundColor = [UIColor clearColor];
+            placeholder = [UIImage imageNamed:@"GroupChatOS6Large"];
         }
+        if ([DemoModeManager sharedManager].demoModeEnabled && placeholder) {
+            NSString *cacheKey = [NSString stringWithFormat:@"blur_ph_%@", room.roomId];
+            UIImage *blurred = [_roomAvatars objectForKey:cacheKey];
+            if (!blurred) {
+                blurred = [placeholder neo_blurredImageWithFactor:0.06];
+                [_roomAvatars setObject:blurred forKey:cacheKey];
+            }
+            avatarView.image = blurred;
+        } else {
+            avatarView.image = placeholder;
+        }
+        avatarView.backgroundColor = [UIColor clearColor];
     }
 
     UIView *sep = (UIView *)[cell.contentView viewWithTag:98];
@@ -615,7 +648,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
 - (NSString *)tableView:(UITableView *)tableView
     titleForDeleteConfirmationButtonForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return @"Archivar";
+    return NSLocalizedString(@"Archive", nil);
 }
 
 - (void)tableView:(UITableView *)tableView

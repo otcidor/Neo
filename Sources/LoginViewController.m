@@ -11,7 +11,10 @@
 
 - (void)loadView {
     [super loadView];
-    self.view.backgroundColor = [[ThemeManager sharedManager] backgroundColor];
+
+    UIColor *darkGreenBg = [UIColor colorWithRed:0.05 green:0.10 blue:0.07 alpha:1.0];
+    UIColor *darkGreenTint = [UIColor colorWithRed:0.08 green:0.35 blue:0.20 alpha:1.0];
+    self.view.backgroundColor = darkGreenBg;
 
     self.navigationController.navigationBarHidden = YES;
 
@@ -19,10 +22,10 @@
     CGFloat midY = self.view.bounds.size.height / 2 - 80;
 
     UILabel *logoLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, midY - 100, w, 50)];
-    logoLabel.text = @"◈ Neo";
+    logoLabel.text = @"Neo";
     logoLabel.font = [UIFont boldSystemFontOfSize:32];
     logoLabel.textAlignment = NSTextAlignmentCenter;
-    logoLabel.textColor = [[ThemeManager sharedManager] tintColor];
+    logoLabel.textColor = [UIColor whiteColor];
     logoLabel.backgroundColor = [UIColor clearColor];
     [self.view addSubview:logoLabel];
 
@@ -30,7 +33,7 @@
     subLabel.text = NSLocalizedString(@"Connect to your server", nil);
     subLabel.font = [UIFont systemFontOfSize:14];
     subLabel.textAlignment = NSTextAlignmentCenter;
-    subLabel.textColor = [UIColor grayColor];
+    subLabel.textColor = [UIColor colorWithWhite:0.65 alpha:1.0];
     subLabel.backgroundColor = [UIColor clearColor];
     [self.view addSubview:subLabel];
 
@@ -45,6 +48,11 @@
     self.homeserverField.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
     self.homeserverField.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 10, 0)];
     self.homeserverField.leftViewMode = UITextFieldViewModeAlways;
+    self.homeserverField.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
+    self.homeserverField.textColor = [UIColor whiteColor];
+    self.homeserverField.keyboardAppearance = UIKeyboardAppearanceAlert;
+    UIColor *phColor = [UIColor colorWithWhite:0.5 alpha:1.0];
+    self.homeserverField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"https://matrix.example.com" attributes:@{NSForegroundColorAttributeName: phColor}];
     NSString *savedHomeserver = [[NSUserDefaults standardUserDefaults]
         stringForKey:@"matrix_homeserver"];
     if ([savedHomeserver length] > 0) {
@@ -62,6 +70,10 @@
     self.usernameField.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
     self.usernameField.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 10, 0)];
     self.usernameField.leftViewMode = UITextFieldViewModeAlways;
+    self.usernameField.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
+    self.usernameField.textColor = [UIColor whiteColor];
+    self.usernameField.keyboardAppearance = UIKeyboardAppearanceAlert;
+    self.usernameField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:NSLocalizedString(@"Username", nil) attributes:@{NSForegroundColorAttributeName: phColor}];
     [self.view addSubview:self.usernameField];
 
     self.passwordField = [[UITextField alloc] initWithFrame:CGRectMake(20, midY + 108, w - 40, 44)];
@@ -73,20 +85,24 @@
     self.passwordField.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
     self.passwordField.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 10, 0)];
     self.passwordField.leftViewMode = UITextFieldViewModeAlways;
+    self.passwordField.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
+    self.passwordField.textColor = [UIColor whiteColor];
+    self.passwordField.keyboardAppearance = UIKeyboardAppearanceAlert;
+    self.passwordField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:NSLocalizedString(@"Password", nil) attributes:@{NSForegroundColorAttributeName: phColor}];
     [self.view addSubview:self.passwordField];
 
     self.loginButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.loginButton.frame = CGRectMake(20, midY + 172, w - 40, 44);
     [self.loginButton setTitle:NSLocalizedString(@"Sign In", nil) forState:UIControlStateNormal];
     self.loginButton.titleLabel.font = [UIFont boldSystemFontOfSize:17];
-    self.loginButton.backgroundColor = [[ThemeManager sharedManager] tintColor];
+    self.loginButton.backgroundColor = darkGreenTint;
     [self.loginButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     [self.loginButton setTitleColor:[UIColor colorWithWhite:1.0 alpha:0.5] forState:UIControlStateHighlighted];
     self.loginButton.layer.cornerRadius = 8;
     [self.loginButton addTarget:self action:@selector(loginTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.loginButton];
 
-    self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+    self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhite];
     self.spinner.center = CGPointMake(self.view.center.x, midY + 234);
     self.spinner.hidesWhenStopped = YES;
     [self.view addSubview:self.spinner];
@@ -94,7 +110,7 @@
     self.statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, midY + 254, w - 40, 20)];
     self.statusLabel.textAlignment = NSTextAlignmentCenter;
     self.statusLabel.font = [UIFont systemFontOfSize:14];
-    self.statusLabel.textColor = [UIColor grayColor];
+    self.statusLabel.textColor = [UIColor colorWithWhite:0.65 alpha:1.0];
     self.statusLabel.backgroundColor = [UIColor clearColor];
     self.statusLabel.text = @"";
     [self.view addSubview:self.statusLabel];

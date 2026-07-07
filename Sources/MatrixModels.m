@@ -121,14 +121,14 @@
             _msgType = @"m.text";
             _imageURL = @"";
         }
-        // Redactado
+        // Redacted
         if (dict[@"unsigned"][@"redacted_because"]) {
             self.isRedacted = YES;
             self.body = NSLocalizedString(@"Deleted message", nil);
             self.msgType = @"m.text";
         }
 
-        // Edit — si tiene m.new_content, usar ese body
+        // Edit — if m.new_content exists, use that body
         NSDictionary *relatesto = content[@"m.relates_to"];
         if (relatesto && [relatesto[@"rel_type"] isEqualToString:@"m.replace"]) {
             self.isEdit = YES;

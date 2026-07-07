@@ -6,8 +6,7 @@ static NSString *kWpNames[] = {
     @"Default", @"Abstract", @"Particles", @"Flowers",
     @"Leaves", @"Landscape", @"Sunset", @"Texture",
     @"Bubbles", @"Circles", @"Stripes", @"Hexagons",
-    @"Triangles", @"Fabric", @"TG Classic", @"TG Blue",
-    @"TG Purple", @"TG Dark", @"TG Green", @"TG Pink",
+    @"Triangles", @"Fabric",
 };
 
 static NSString *kWpImages[] = {
@@ -16,11 +15,9 @@ static NSString *kWpImages[] = {
     @"wallpaper_08.jpg", @"wallpaper_12.jpg", @"wallpaper_14.jpg",
     @"wallpaper_55", @"wallpaper_56", @"wallpaper_57",
     @"wallpaper_59", @"wallpaper_60.jpg",
-    @"wallpaper_tg.jpg", @"wallpaper_tg_0.jpg", @"wallpaper_tg_1.jpg",
-    @"wallpaper_tg_2.jpg", @"wallpaper_tg_3.jpg", @"wallpaper_tg_4.jpg",
 };
 
-#define kWpCount 20
+#define kWpCount 14
 static NSString *kCellId = @"WPCell";
 
 @implementation WallpaperGalleryViewController

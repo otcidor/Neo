@@ -11,6 +11,7 @@
 #import "AudioMessageView.h"
 #import "VideoMessageView.h"
 #import <MediaPlayer/MediaPlayer.h>
+#import "DemoModeManager.h"
 
 @interface ChatViewController () <UIActionSheetDelegate, UIAlertViewDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate>
 @end
@@ -32,6 +33,11 @@
 
 - (void)loadView {
     [super loadView];
+
+    if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
+        self.edgesForExtendedLayout = UIRectEdgeNone;
+    }
+
     self.title = [MatrixAPIClient localNameForRoomId:self.room.roomId] ?: (self.room.name ?: self.room.roomId);
 
     CGFloat w = self.view.bounds.size.width;
@@ -138,6 +144,11 @@
 
     [self addSyncObservers];
 
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleDemoModeChanged)
+                                                 name:NeoDemoModeDidChangeNotification
+                                               object:nil];
+
     if (!_longPressAdded) {
         UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc]
             initWithTarget:self action:@selector(handleLongPress:)];
@@ -157,6 +168,11 @@
             [self startSyncLoop];
         }];
     }
+}
+
+- (void)handleDemoModeChanged {
+    [self setupNavBar];
+    [self.tableView reloadData];
 }
 
 - (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {
@@ -179,17 +195,17 @@
         sheet = [[UIActionSheet alloc]
             initWithTitle:nil
                  delegate:self
-        cancelButtonTitle:@"Cancelar"
+        cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
    destructiveButtonTitle:nil
-        otherButtonTitles:@"👍", @"❤️", @"😂", @"😮", @"Custom…", @"Copiar", @"Editar", @"Eliminar", nil];
+        otherButtonTitles:@"👍", @"❤️", @"😂", @"😮", NSLocalizedString(@"Custom", nil), NSLocalizedString(@"Copy", nil), NSLocalizedString(@"Edit", nil), NSLocalizedString(@"Delete", nil), nil];
         sheet.tag = 200;
     } else {
         sheet = [[UIActionSheet alloc]
             initWithTitle:nil
                  delegate:self
-        cancelButtonTitle:@"Cancelar"
+        cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
    destructiveButtonTitle:nil
-        otherButtonTitles:@"👍", @"❤️", @"😂", @"😮", @"Custom…", @"Copiar", nil];
+        otherButtonTitles:@"👍", @"❤️", @"😂", @"😮", NSLocalizedString(@"Custom", nil), NSLocalizedString(@"Copy", nil), nil];
         sheet.tag = 500;
     }
     [sheet showInView:self.view];
@@ -199,6 +215,7 @@
     [super viewWillDisappear:animated];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillHideNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NeoDemoModeDidChangeNotification object:nil];
     [self removeSyncObservers];
     _syncActive = NO;
 }
@@ -256,19 +273,22 @@
 }
 
 - (void)setupNavBar {
-    CGFloat titleW = 220;
+    CGFloat titleW = 200;
 
     UIView *titleView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, titleW, 40)];
 
-    UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 2, titleW, 20)];
-    nameLabel.text = [MatrixAPIClient localNameForRoomId:self.room.roomId] ?: (self.room.name ?: self.room.roomId);
+    UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 4, titleW, 20)];
+    NSString *rawTitle = [MatrixAPIClient localNameForRoomId:self.room.roomId] ?: (self.room.name ?: self.room.roomId);
+    NSString *obfuscated = [[DemoModeManager sharedManager] obfuscateName:rawTitle];
+    nameLabel.text = [obfuscated length] > 20 ? [[obfuscated substringToIndex:20] stringByAppendingString:@"…"] : obfuscated;
     nameLabel.font = [UIFont boldSystemFontOfSize:16];
     nameLabel.textColor = [UIColor whiteColor];
     nameLabel.backgroundColor = [UIColor clearColor];
     nameLabel.textAlignment = NSTextAlignmentCenter;
+    nameLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     [titleView addSubview:nameLabel];
 
-    UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 22, titleW, 14)];
+    UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 24, titleW, 14)];
     if (self.room.memberCount > 0) {
         subLabel.text = [NSString stringWithFormat:NSLocalizedString(@"%d members", nil), (int)self.room.memberCount];
     } else {
@@ -550,7 +570,7 @@
         _lastMessageLoad = now;
         [self buildDisplayItems];
         [self.tableView reloadData];
-        // Primera carga: siempre al fondo. Refrescos: solo si cerca del fondo
+        // First load: always bottom. Refresh: only if near bottom
         CGFloat nearBottom = self.tableView.contentOffset.y + self.tableView.bounds.size.height;
         CGFloat threshold = self.tableView.contentSize.height - 60;
         if (firstLoad || nearBottom >= threshold) {
@@ -654,19 +674,23 @@
 
 - (NSString *)displayNameForSender:(NSString *)sender {
     NSDictionary *info = [_memberNames objectForKey:sender];
+    NSString *resolvedName = nil;
     if (info) {
         NSString *name = info[@"displayname"];
-        if ([name length] > 0) return name;
+        if ([name length] > 0) resolvedName = name;
     }
     NSString *myId = [[MatrixAPIClient sharedClient] userId];
     if ([sender isEqualToString:myId]) return @"You";
-    NSRange colon = [sender rangeOfString:@":"];
-    if (colon.location != NSNotFound) {
-        NSString *localpart = [sender substringToIndex:colon.location];
-        if ([localpart hasPrefix:@"@"]) return [localpart substringFromIndex:1];
-        return localpart;
+    if (!resolvedName) {
+        NSRange colon = [sender rangeOfString:@":"];
+        if (colon.location != NSNotFound) {
+            NSString *localpart = [sender substringToIndex:colon.location];
+            resolvedName = [localpart hasPrefix:@"@"] ? [localpart substringFromIndex:1] : localpart;
+        } else {
+            resolvedName = sender;
+        }
     }
-    return sender;
+    return [[DemoModeManager sharedManager] obfuscateName:resolvedName];
 }
 
 - (void)sendTapped {
@@ -1202,7 +1226,8 @@
                  hasMedia:hasMedia
                 mediaView:mediaView
           dateSeparator:nil];
-    [cell setMessage:msg.body];
+    NSString *displayBody = [[DemoModeManager sharedManager] obfuscateMessage:msg.body];
+    [cell setMessage:msg.isRedacted ? msg.body : displayBody];
     [cell setTimestamp:msg.timestamp];
     [cell setIsRedacted:msg.isRedacted];
     [cell setUserWrited:[self displayNameForSender:msg.sender]];
@@ -1211,7 +1236,7 @@
         [cell setAck:1];
     }
 
-    // Reacciones
+    // Reactions
     UILabel *reactionLabel = (UILabel *)[cell.contentView viewWithTag:90];
     if (!reactionLabel) {
         reactionLabel = [[UILabel alloc] initWithFrame:CGRectZero];
@@ -1223,7 +1248,7 @@
     }
 
     if ([msg.reactions count] > 0) {
-        // Top 5 reacciones por frecuencia
+        // Top 5 by frequency
         NSArray *sorted = [[msg.reactions allKeys] sortedArrayUsingComparator:^NSComparisonResult(NSString *e1, NSString *e2) {
             return [msg.reactions[e2] compare:msg.reactions[e1]];
         }];
@@ -1243,7 +1268,7 @@
         CGSize reactionSize = [reactionStr sizeWithFont:[UIFont systemFontOfSize:14]];
 
         CGRect bf = [cell.bubbleView bubbleFrame];
-        // Mitad dentro / mitad fuera del borde inferior de la burbuja
+        // Half inside / half outside bubble bottom edge
         CGFloat reactionY = CGRectGetMaxY(bf) - 8;
 
         CGFloat reactionX = isSelf

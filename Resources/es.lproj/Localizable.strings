@@ -8,6 +8,7 @@
 /* Common */
 "Cancel" = "Cancelar";
 "OK" = "OK";
+"No" = "No";
 "Deleted message" = "Mensaje eliminado";
 
 /* New Chat */
@@ -67,12 +68,6 @@
 "Hexagons" = "Hexágonos";
 "Triangles" = "Triángulos";
 "Fabric" = "Tela";
-"TG Classic" = "TG Clásico";
-"TG Blue" = "TG Azul";
-"TG Purple" = "TG Púrpura";
-"TG Dark" = "TG Oscuro";
-"TG Green" = "TG Verde";
-"TG Pink" = "TG Rosa";
 
 /* Login */
 "Connect to your server" = "Conéctate a tu servidor";
@@ -80,6 +75,34 @@
 "Password" = "Contraseña";
 "Sign In" = "Iniciar sesión";
 "Error" = "Error";
-"Please enter username and password" = "Ingresa usuario y contraseña";
+"Please enter server, username and password" = "Ingresa servidor, usuario y contraseña";
 "Signing in..." = "Iniciando sesión...";
 "Login Failed" = "Error de inicio de sesión";
+
+/* Video */
+"Video" = "Video";
+"Loading video..." = "Cargando video...";
+"Uploading video..." = "Subiendo video...";
+"Could not load video" = "No se pudo cargar el video";
+"Save this video to Photos?" = "¿Guardar este video en Fotos?";
+"Save" = "Guardar";
+"Saved" = "Guardado";
+"Video saved to Photos" = "Video guardado en Fotos";
+
+/* Profile */
+"Profile" = "Perfil";
+"Back" = "Atrás";
+"Info" = "Información";
+"Moderation" = "Moderación";
+"Rename" = "Cambiar nombre";
+"Local name (does not affect server)" = "Nombre local (no afecta al servidor)";
+"Delete chat" = "Eliminar chat";
+"Delete this chat? This cannot be undone." = "¿Eliminar este chat? No se puede deshacer.";
+"Mute notifications" = "Silenciar notificaciones";
+
+/* Actions */
+"Copy" = "Copiar";
+"Edit" = "Editar";
+"Delete" = "Eliminar";
+"Custom" = "Personalizar";
+"Archive" = "Archivar";

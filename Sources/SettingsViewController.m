@@ -9,6 +9,7 @@
 #import "BubbleStylePickerController.h"
 #import "NeoAlert.h"
 #import "NeoCompatibility.h"
+#import "DemoModeManager.h"
 
 static NSString *const kBubbleStyleKey = @"neo_bubble_style";
 static NSString *const kWallpaperKey = @"neo_wallpaper";
@@ -31,12 +32,6 @@ static NSString *kWpNames[] = {
     @"Hexagons",
     @"Triangles",
     @"Fabric",
-    @"TG Classic",
-    @"TG Blue",
-    @"TG Purple",
-    @"TG Dark",
-    @"TG Green",
-    @"TG Pink",
 };
 
 static NSString *kWpImages[] = {
@@ -54,16 +49,12 @@ static NSString *kWpImages[] = {
     @"wallpaper_57",
     @"wallpaper_59",
     @"wallpaper_60.jpg",
-    @"wallpaper_tg.jpg",
-    @"wallpaper_tg_0.jpg",
-    @"wallpaper_tg_1.jpg",
-    @"wallpaper_tg_2.jpg",
-    @"wallpaper_tg_3.jpg",
-    @"wallpaper_tg_4.jpg",
 };
 
 @implementation SettingsViewController {
     UITableView *_tableView;
+    NSInteger _serverTapCount;
+    NSTimer *_tapResetTimer;
 }
 
 - (void)loadView {
@@ -113,7 +104,10 @@ static NSString *kWpImages[] = {
 - (NSInteger)tableView:(UITableView *)tableView
  numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 2;
-    if (section == 1) return 4;
+    if (section == 1) {
+        NSInteger base = 4;
+        return [DemoModeManager sharedManager].demoModeUnlocked ? base + 1 : base;
+    }
     if (section == 2) return 1;
     return 0;
 }
@@ -162,7 +156,7 @@ static NSString *kWpImages[] = {
             cell.selectionStyle = UITableViewCellSelectionStyleBlue;
             NSString *wp = [[NSUserDefaults standardUserDefaults] stringForKey:kWallpaperKey] ?: kWpImages[0];
             cell.detailTextLabel.text = NSLocalizedString(kWpNames[0], nil);
-            for (int i = 0; i < 20; i++) {
+            for (int i = 0; i < 14; i++) {
                 if ([wp isEqualToString:kWpImages[i]]) {
                     cell.detailTextLabel.text = NSLocalizedString(kWpNames[i], nil);
                     break;
@@ -182,12 +176,24 @@ static NSString *kWpImages[] = {
                 @"whatsapp": @"WhatsApp",
             };
             cell.detailTextLabel.text = names[style] ?: (style == nil ? @"Neo" : style);
-        } else {
+        } else if (indexPath.row == 3) {
             cell.textLabel.text = @"Theme";
             cell.textLabel.textAlignment = NSTextAlignmentLeft;
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             cell.selectionStyle = UITableViewCellSelectionStyleBlue;
             cell.detailTextLabel.text = [ThemeManager nameForThemeId:[ThemeManager sharedManager].currentThemeId];
+        } else if (indexPath.row == 4 && [DemoModeManager sharedManager].demoModeUnlocked) {
+            cell.textLabel.text = @"Demo Mode";
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            UISwitch *toggle = (UISwitch *)[cell.contentView viewWithTag:501];
+            if (!toggle) {
+                toggle = [[UISwitch alloc] init];
+                toggle.tag = 501;
+                [toggle addTarget:self action:@selector(demoModeToggled:)
+                 forControlEvents:UIControlEventValueChanged];
+                cell.accessoryView = toggle;
+            }
+            toggle.on = [DemoModeManager sharedManager].demoModeEnabled;
         }
     } else {
         cell.textLabel.text = NSLocalizedString(@"Logout", nil);
@@ -207,9 +213,42 @@ static NSString *kWpImages[] = {
     }
 }
 
+- (void)resetTapCount {
+    _serverTapCount = 0;
+}
+
+- (void)demoModeToggled:(UISwitch *)toggle {
+    [DemoModeManager sharedManager].demoModeEnabled = toggle.on;
+}
+
 - (void)tableView:(UITableView *)tableView
     didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+
+    if (indexPath.section == 0 && indexPath.row == 1) {
+        _serverTapCount++;
+        [_tapResetTimer invalidate];
+        _tapResetTimer = [NSTimer scheduledTimerWithTimeInterval:2.0
+                                                           target:self
+                                                         selector:@selector(resetTapCount)
+                                                         userInfo:nil
+                                                          repeats:NO];
+        if (_serverTapCount >= 5) {
+            _serverTapCount = 0;
+            [_tapResetTimer invalidate];
+            BOOL wasUnlocked = [DemoModeManager sharedManager].demoModeUnlocked;
+            [DemoModeManager sharedManager].demoModeUnlocked = !wasUnlocked;
+            NSString *title = wasUnlocked ? @"🔒 Demo Mode" : @"🔓 Demo Mode";
+            NSString *msg = wasUnlocked ? @"Demo mode hidden. Tap 5 times again to show." : @"Demo mode unlocked. A new option appeared below.";
+            [NeoAlert showAlertWithTitle:title
+                                 message:msg
+                             cancelTitle:@"OK"
+                              controller:self];
+            [_tableView reloadData];
+        }
+        return;
+    }
+
     if (indexPath.section == 1) {
         if (indexPath.row == 0) {
             ArchivedChatsViewController *vc = [[ArchivedChatsViewController alloc] init];

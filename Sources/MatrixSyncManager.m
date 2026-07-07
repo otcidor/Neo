@@ -72,7 +72,7 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
 
         [join enumerateKeysAndObjectsUsingBlock:^(NSString *roomId, NSDictionary *roomData, BOOL *stop) {
 
-            // ---- Procesar read receipts (m.receipt) de ephemeral ----
+            // ---- Process read receipts (m.receipt) from ephemeral ----
             NSArray *ephemeralEvents = roomData[@"ephemeral"][@"events"];
             for (NSDictionary *ephEvt in ephemeralEvents) {
                 if (![ephEvt[@"type"] isEqualToString:@"m.receipt"]) continue;
@@ -86,12 +86,13 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
                             if (self.totalUnread < 0) self.totalUnread = 0;
                         }
                         [self.unreadCounts removeObjectForKey:roomId];
+                        [self cancelNotificationsForRoom:roomId];
                         anyRoomFullyRead = YES;
                     }
                 }
             }
 
-            // ---- Procesar mensajes nuevos ----
+            // ---- Process new messages ----
             NSArray *events = roomData[@"timeline"][@"events"];
             for (NSDictionary *evt in events) {
                 NSString *type = evt[@"type"];
@@ -115,7 +116,7 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
                     UILocalNotification *note = [[UILocalNotification alloc] init];
                     note.fireDate = [NSDate dateWithTimeIntervalSinceNow:0];
                     note.alertBody = [NSString stringWithFormat:@"%@: %@", roomName ?: roomId, body];
-                    note.soundName = @"incoming.aiff";
+                    note.soundName = UILocalNotificationDefaultSoundName;
                     note.userInfo = @{@"room_id": roomId ?: @"", @"event_id": evt[@"event_id"] ?: @""};
                     note.applicationIconBadgeNumber = self.totalUnread;
                     [[UIApplication sharedApplication] presentLocalNotificationNow:note];

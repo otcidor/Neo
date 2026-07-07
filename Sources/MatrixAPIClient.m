@@ -69,7 +69,7 @@ static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
 
     }
 
-    // Escribir access_token para MatrixPushd
+    // Write access_token for MatrixPushd
     if (self.accessToken) {
         NSString *path = @"/var/mobile/Library/MatrixClient";
         [[NSFileManager defaultManager] createDirectoryAtPath:path
@@ -89,7 +89,7 @@ static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
         }
     }
 
-    // Keychain compartido para el daemon
+    // Shared keychain for daemon
     if (self.accessToken) {
         [self keychainSet:@"win.otcidor.neo.token" value:self.accessToken];
     }
