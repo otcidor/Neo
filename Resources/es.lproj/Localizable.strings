@@ -106,3 +106,6 @@
 "Delete" = "Eliminar";
 "Custom" = "Personalizar";
 "Archive" = "Archivar";
+
+/* Settings */
+"Hide Networks" = "Ocultar Redes";

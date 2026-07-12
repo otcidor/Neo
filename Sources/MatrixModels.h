@@ -18,7 +18,7 @@ typedef enum {
 @property (nonatomic, assign) NSInteger unreadCount;
 @property (nonatomic, copy) NSString *lastMessageSender;
 - (instancetype)initWithDictionary:(NSDictionary *)dict;
-- (void)updateNameFromStateEvents:(NSArray *)stateEvents;
+- (void)updateNameFromStateEvents:(NSArray *)stateEvents timelineEvents:(NSArray *)timelineEvents;
 + (NSString *)displayNameForRoomId:(NSString *)roomId fromSyncData:(NSDictionary *)roomData;
 @end
 

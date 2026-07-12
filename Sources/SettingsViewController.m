@@ -105,7 +105,7 @@ static NSString *kWpImages[] = {
  numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 2;
     if (section == 1) {
-        NSInteger base = 4;
+        NSInteger base = 5;
         return [DemoModeManager sharedManager].demoModeUnlocked ? base + 1 : base;
     }
     if (section == 2) return 1;
@@ -184,7 +184,19 @@ static NSString *kWpImages[] = {
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             cell.selectionStyle = UITableViewCellSelectionStyleBlue;
             cell.detailTextLabel.text = [ThemeManager nameForThemeId:[ThemeManager sharedManager].currentThemeId];
-        } else if (indexPath.row == 4 && [DemoModeManager sharedManager].demoModeUnlocked) {
+        } else if (indexPath.row == 4) {
+            cell.textLabel.text = NSLocalizedString(@"Hide Networks", nil);
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            UISwitch *toggle = (UISwitch *)[cell.contentView viewWithTag:502];
+            if (!toggle) {
+                toggle = [[UISwitch alloc] init];
+                toggle.tag = 502;
+                [toggle addTarget:self action:@selector(hideNetworksToggled:)
+                 forControlEvents:UIControlEventValueChanged];
+                cell.accessoryView = toggle;
+            }
+            toggle.on = [[NSUserDefaults standardUserDefaults] boolForKey:@"neo_hide_networks_tab"];
+        } else if (indexPath.row == 5 && [DemoModeManager sharedManager].demoModeUnlocked) {
             cell.textLabel.text = @"Demo Mode";
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = (UISwitch *)[cell.contentView viewWithTag:501];
@@ -227,6 +239,13 @@ static NSString *kWpImages[] = {
         _serverTapCount = 0;
     }
     [_tableView reloadData];
+}
+
+- (void)hideNetworksToggled:(UISwitch *)toggle {
+    [[NSUserDefaults standardUserDefaults] setBool:toggle.on forKey:@"neo_hide_networks_tab"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"NeoNetworksVisibilityChanged"
+                                                        object:nil];
 }
 
 - (void)tableView:(UITableView *)tableView

@@ -29,6 +29,9 @@
     NSTimer *_recordingTimer;
     UILabel *_recordingLabel;
     BOOL _sendButtonIsMicMode;
+    NSString *_prevBatchToken;
+    BOOL _loadingMore;
+    NSInteger _loadPageSize;
 }
 
 - (void)loadView {
@@ -120,6 +123,7 @@
     _lastMessageLoad = 0;
     _displayItems = [NSMutableArray array];
     _shouldAutoScroll = YES;
+    _loadPageSize = 30;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -528,6 +532,7 @@
         if (error) return;
         [self.messages removeAllObjects];
         NSArray *chunk = response[@"chunk"];
+        _prevBatchToken = response[@"end"];
         NSMutableArray *newMessages = [NSMutableArray array];
         NSMutableDictionary *msgByEventId = [NSMutableDictionary dictionary];
         for (NSDictionary *evt in [chunk reverseObjectEnumerator]) {
@@ -579,6 +584,64 @@
     }];
 }
 
+- (void)loadMoreMessages {
+    if (_loadingMore || !_prevBatchToken) return;
+    _loadingMore = YES;
+    MatrixAPIClient *client = [MatrixAPIClient sharedClient];
+    NSString *encodedId = [self.room.roomId stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/messages?dir=b&limit=%d&from=%@",
+                      encodedId, (int)_loadPageSize, _prevBatchToken];
+    NSMutableURLRequest *req = [client requestWithPath:path method:@"GET"];
+    [NSURLConnection sendAsynchronousRequest:req
+                                       queue:[NSOperationQueue mainQueue]
+                           completionHandler:^(NSURLResponse *resp, NSData *data, NSError *err) {
+        _loadingMore = NO;
+        if (err) return;
+        NSDictionary *response = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if (![response isKindOfClass:[NSDictionary class]]) return;
+        NSArray *chunk = response[@"chunk"];
+        if ([chunk count] == 0) {
+            _prevBatchToken = nil;
+            return;
+        }
+        _prevBatchToken = response[@"end"];
+        NSMutableArray *olderMessages = [NSMutableArray array];
+        NSMutableArray *existingEventIds = [NSMutableArray array];
+        for (MatrixMessage *m in self.messages) {
+            if (m.eventId) [existingEventIds addObject:m.eventId];
+        }
+        for (NSDictionary *evt in [chunk reverseObjectEnumerator]) {
+            NSString *type = evt[@"type"];
+            if (![type isEqualToString:@"m.room.message"]) continue;
+            NSString *eid = evt[@"event_id"];
+            if ([existingEventIds containsObject:eid]) continue;
+            NSDictionary *relatesto = evt[@"content"][@"m.relates_to"];
+            if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) continue;
+            MatrixMessage *msg = [[MatrixMessage alloc] initWithDictionary:evt
+                                                                    roomId:self.room.roomId];
+            [olderMessages addObject:msg];
+            [existingEventIds addObject:eid];
+        }
+        if ([olderMessages count] == 0) return;
+        NSIndexSet *indexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, [olderMessages count])];
+        [self.messages insertObjects:olderMessages atIndexes:indexes];
+        [client cacheMessages:[self.messages copy] forRoom:self.room.roomId];
+        CGFloat oldOffset = self.tableView.contentSize.height;
+        [self buildDisplayItems];
+        [self.tableView reloadData];
+        CGFloat heightGain = self.tableView.contentSize.height - oldOffset;
+        if (heightGain > 0) {
+            self.tableView.contentOffset = CGPointMake(0, heightGain);
+        }
+    }];
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (scrollView.contentOffset.y < -30 && !_loadingMore && _prevBatchToken) {
+        [self loadMoreMessages];
+    }
+}
+
 - (void)startSyncLoop {
     if (!_syncActive) return;
     MatrixAPIClient *client = [MatrixAPIClient sharedClient];
@@ -597,6 +660,9 @@
         NSDictionary *roomsJoin = response[@"rooms"][@"join"];
         NSDictionary *roomData = [roomsJoin objectForKey:self.room.roomId];
         if (roomData) {
+            [self.room updateNameFromStateEvents:roomData[@"state"][@"events"]
+                                  timelineEvents:roomData[@"timeline"][@"events"]];
+            [self setupNavBar];
             [self processSyncEvents:roomData[@"timeline"][@"events"]];
         }
 
@@ -624,6 +690,24 @@
             MatrixMessage *msg = [[MatrixMessage alloc] initWithDictionary:evt roomId:self.room.roomId];
             [self.messages addObject:msg];
             needsReload = YES;
+        }
+
+        if ([type isEqualToString:@"m.room.name"]) {
+            NSString *name = evt[@"content"][@"name"];
+            if ([name length] > 0) {
+                self.room.name = name;
+                [self setupNavBar];
+            }
+            continue;
+        }
+
+        if ([type isEqualToString:@"m.room.canonical_alias"]) {
+            NSString *alias = evt[@"content"][@"alias"];
+            if ([alias length] > 0) {
+                self.room.name = alias;
+                [self setupNavBar];
+            }
+            continue;
         }
 
         if ([type isEqualToString:@"m.room.redaction"]) {

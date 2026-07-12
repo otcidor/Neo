@@ -12,12 +12,30 @@
     return self;
 }
 
-- (void)updateNameFromStateEvents:(NSArray *)stateEvents {
+- (void)updateNameFromStateEvents:(NSArray *)stateEvents timelineEvents:(NSArray *)timelineEvents {
     for (NSDictionary *evt in stateEvents) {
         NSString *type = evt[@"type"];
         NSDictionary *content = evt[@"content"];
         if (![content isKindOfClass:[NSDictionary class]]) continue;
 
+        if ([type isEqualToString:@"m.room.name"]) {
+            NSString *roomName = content[@"name"];
+            if ([roomName length] > 0) {
+                self.name = roomName;
+                return;
+            }
+        }
+        if ([type isEqualToString:@"m.room.canonical_alias"]) {
+            NSString *alias = content[@"alias"];
+            if ([alias length] > 0) {
+                self.name = alias;
+            }
+        }
+    }
+    for (NSDictionary *evt in timelineEvents) {
+        NSString *type = evt[@"type"];
+        NSDictionary *content = evt[@"content"];
+        if (![content isKindOfClass:[NSDictionary class]]) continue;
         if ([type isEqualToString:@"m.room.name"]) {
             NSString *roomName = content[@"name"];
             if ([roomName length] > 0) {

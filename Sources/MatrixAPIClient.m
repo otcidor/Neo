@@ -231,13 +231,15 @@ static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
 - (void)syncWithSince:(NSString *)since
               timeout:(NSInteger)timeout
            completion:(MatrixCompletion)completion {
+    NSString *filterJSON = @"{\"room\":{\"state\":{\"lazy_load_members\":true},\"timeline\":{\"limit\":50}}}";
+    NSString *encodedFilter = [filterJSON stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
     NSString *path;
     if (since) {
-        path = [NSString stringWithFormat:@"/_matrix/client/r0/sync?since=%@&timeout=%ld",
-                since, (long)timeout];
+        path = [NSString stringWithFormat:@"/_matrix/client/r0/sync?since=%@&timeout=%ld&filter=%@",
+                since, (long)timeout, encodedFilter];
     } else {
-        path = [NSString stringWithFormat:@"/_matrix/client/r0/sync?timeout=%ld",
-                (long)timeout];
+        path = [NSString stringWithFormat:@"/_matrix/client/r0/sync?timeout=%ld&filter=%@",
+                (long)timeout, encodedFilter];
     }
     NSURLRequest *req = [self requestWithPath:path method:@"GET"];
     [self sendRequest:req completion:completion];
@@ -498,16 +500,45 @@ static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
         }
         NSMutableDictionary *members = [NSMutableDictionary dictionary];
         NSArray *chunk = json[@"chunk"];
-        for (NSDictionary *evt in chunk) {
-            if ([evt[@"type"] isEqualToString:@"m.room.member"]) {
-                NSString *userId = evt[@"state_key"];
-                NSDictionary *content = evt[@"content"];
-                NSString *displayName = content[@"displayname"] ?: userId;
-                NSString *avatarUrl = content[@"avatar_url"] ?: @"";
-                [members setObject:@{@"displayname": displayName, @"avatar_url": avatarUrl}
-                            forKey:userId];
+        if (![chunk isKindOfClass:[NSArray class]]) chunk = @[];
+
+        for (id evtRaw in chunk) {
+            if (![evtRaw isKindOfClass:[NSDictionary class]]) continue;
+            NSDictionary *evt = (NSDictionary *)evtRaw;
+
+            id typeRaw = evt[@"type"];
+            if (![typeRaw isKindOfClass:[NSString class]]) continue;
+            if (![(NSString *)typeRaw isEqualToString:@"m.room.member"]) continue;
+
+            id userIdRaw = evt[@"state_key"];
+            if (![userIdRaw isKindOfClass:[NSString class]]) continue;
+            NSString *userId = (NSString *)userIdRaw;
+            if ([userId length] == 0) continue;
+
+            id contentRaw = evt[@"content"];
+            NSDictionary *content = [contentRaw isKindOfClass:[NSDictionary class]]
+                ? (NSDictionary *)contentRaw : @{};
+
+            id membershipRaw = content[@"membership"];
+            if ([membershipRaw isKindOfClass:[NSString class]] &&
+                ![(NSString *)membershipRaw isEqualToString:@"join"]) {
+                continue;
             }
+
+            id displayNameRaw = content[@"displayname"];
+            NSString *displayName = [displayNameRaw isKindOfClass:[NSString class]]
+                ? (NSString *)displayNameRaw : userId;
+
+            id avatarUrlRaw = content[@"avatar_url"];
+            NSString *avatarUrl = [avatarUrlRaw isKindOfClass:[NSString class]]
+                ? (NSString *)avatarUrlRaw : @"";
+
+            [members setObject:@{@"displayname": displayName, @"avatar_url": avatarUrl}
+                        forKey:userId];
         }
+
+        NSLog(@"[Members] Parsed %lu valid members from %lu chunk events",
+              (unsigned long)[members count], (unsigned long)[chunk count]);
         [self cacheMembers:members forRoom:roomId];
         completion(members, nil);
     }];

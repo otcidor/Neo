@@ -106,3 +106,6 @@
 "Delete" = "Delete";
 "Custom" = "Custom";
 "Archive" = "Archive";
+
+/* Settings */
+"Hide Networks" = "Hide Networks";
