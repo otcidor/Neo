@@ -186,6 +186,7 @@
     MatrixRoom *room = [_archivedRooms objectAtIndex:indexPath.row];
     ChatViewController *chat = [[ChatViewController alloc] init];
     chat.room = room;
+    chat.hidesBottomBarWhenPushed = YES;
     [self.navigationController pushViewController:chat animated:YES];
 }
 

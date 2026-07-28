@@ -7,8 +7,8 @@ include $(THEOS)/makefiles/common.mk
 APPLICATION_NAME = Neo
 Neo_FILES = $(wildcard Sources/*.m)
 Neo_FRAMEWORKS = UIKit Foundation CoreGraphics Security AVFoundation AudioToolbox MediaPlayer CoreMedia
-Neo_CFLAGS = -fobjc-arc -I$(THEOS)/include
-Neo_LDFLAGS =
+Neo_CFLAGS = -fobjc-arc -I$(THEOS)/include -I./include
+Neo_LDFLAGS = -L./lib -lopus -logg
 
 include $(THEOS_MAKE_PATH)/application.mk
 

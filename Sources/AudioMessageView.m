@@ -1,5 +1,7 @@
 #import "AudioMessageView.h"
 #import "MatrixAPIClient.h"
+#import "NeoOpusDecoder.h"
+#import <AudioToolbox/AudioServices.h>
 
 @interface AudioMessageView ()
 @property (nonatomic, strong) UIButton *playButton;
@@ -71,8 +73,22 @@
     NSError *error = nil;
     self.audioPlayer = [[AVAudioPlayer alloc] initWithData:self.audioData error:&error];
     if (error) {
-        NSLog(@"AudioPlayer init error: %@", error);
-        return;
+        NSLog(@"AudioPlayer init error: %@ — trying Opus decode", error);
+        NSData *wavData = [NeoOpusDecoder decodeOggOpusToWAV:self.audioData];
+        if (wavData) {
+            NSLog(@"Opus decode OK (%lu bytes -> %lu bytes)",
+                  (unsigned long)[self.audioData length],
+                  (unsigned long)[wavData length]);
+            _audioData = wavData;
+            self.audioPlayer = [[AVAudioPlayer alloc] initWithData:self.audioData error:&error];
+            if (error) {
+                NSLog(@"AudioPlayer still fails after Opus decode: %@", error);
+                return;
+            }
+        } else {
+            NSLog(@"Opus decode failed — format not supported");
+            return;
+        }
     }
     self.audioPlayer.delegate = self;
     [self.audioPlayer prepareToPlay];
@@ -116,6 +132,19 @@
     });
 }
 
+- (void)proximityChanged {
+    [[AVAudioSession sharedInstance] setActive:YES error:nil];
+    if ([UIDevice currentDevice].proximityState) {
+        UInt32 route = kAudioSessionOverrideAudioRoute_None;
+        AudioSessionSetProperty(kAudioSessionProperty_OverrideAudioRoute,
+                                sizeof(route), &route);
+    } else {
+        UInt32 route = kAudioSessionOverrideAudioRoute_Speaker;
+        AudioSessionSetProperty(kAudioSessionProperty_OverrideAudioRoute,
+                                sizeof(route), &route);
+    }
+}
+
 - (void)playTapped {
     if (!self.downloaded) {
         [self startDownload];
@@ -137,6 +166,22 @@
             self.audioPlayer.currentTime = self.progressSlider.value;
             [self.audioPlayer prepareToPlay];
         }
+
+        // Ensure audio session active so route override works
+        AVAudioSession *session = [AVAudioSession sharedInstance];
+        [session setCategory:AVAudioSessionCategoryPlayAndRecord error:nil];
+        [session setActive:YES error:nil];
+
+        UInt32 route = kAudioSessionOverrideAudioRoute_Speaker;
+        AudioSessionSetProperty(kAudioSessionProperty_OverrideAudioRoute,
+                                sizeof(route), &route);
+
+        [UIDevice currentDevice].proximityMonitoringEnabled = YES;
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(proximityChanged)
+                                                     name:UIDeviceProximityStateDidChangeNotification
+                                                   object:nil];
+
         [self.audioPlayer play];
         self.playing = YES;
         [self.playButton setImage:[UIImage imageNamed:@"Pause"] forState:UIControlStateNormal];
@@ -153,6 +198,11 @@
     [self.playButton setImage:[UIImage imageNamed:@"Play"] forState:UIControlStateNormal];
     self.progressSlider.value = 0;
     [self updateTimeDisplay];
+
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:UIDeviceProximityStateDidChangeNotification
+                                                  object:nil];
+    [UIDevice currentDevice].proximityMonitoringEnabled = NO;
 }
 
 - (void)cleanup {
@@ -196,6 +246,11 @@
     [self.playButton setImage:[UIImage imageNamed:@"Play"] forState:UIControlStateNormal];
     self.progressSlider.value = 0;
     [self updateTimeDisplay];
+
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:UIDeviceProximityStateDidChangeNotification
+                                                  object:nil];
+    [UIDevice currentDevice].proximityMonitoringEnabled = NO;
 }
 
 @end

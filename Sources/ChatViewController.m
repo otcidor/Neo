@@ -277,9 +277,13 @@
 }
 
 - (void)setupNavBar {
-    CGFloat titleW = 200;
+    CGFloat navW = self.navigationController.navigationBar.frame.size.width;
+    if (navW < 1) navW = 320;
+    CGFloat titleW = navW * 0.65;
 
     UIView *titleView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, titleW, 40)];
+    titleView.backgroundColor = [UIColor clearColor];
+    titleView.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
 
     UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 4, titleW, 20)];
     NSString *rawTitle = [MatrixAPIClient localNameForRoomId:self.room.roomId] ?: (self.room.name ?: self.room.roomId);
@@ -821,14 +825,13 @@
     [session setCategory:AVAudioSessionCategoryPlayAndRecord error:nil];
 
     NSDictionary *settings = @{
-        AVFormatIDKey: @(kAudioFormatAppleIMA4),
+        AVFormatIDKey: @(kAudioFormatMPEG4AAC),
         AVSampleRateKey: @44100.0f,
         AVNumberOfChannelsKey: @1,
-        AVEncoderBitDepthHintKey: @16,
         AVEncoderAudioQualityKey: @(AVAudioQualityHigh)
     };
 
-    NSString *tmpPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"recording.caf"];
+    NSString *tmpPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"recording.m4a"];
     NSURL *url = [NSURL fileURLWithPath:tmpPath];
     [[NSFileManager defaultManager] removeItemAtURL:url error:nil];
 
@@ -888,7 +891,7 @@
 
 - (void)uploadAndSendAudio:(NSData *)audioData duration:(NSTimeInterval)duration {
     MatrixAPIClient *client = [MatrixAPIClient sharedClient];
-    NSString *path = @"/_matrix/media/r0/upload?filename=audio.caf";
+    NSString *path = @"/_matrix/media/r0/upload?filename=audio.m4a";
     NSMutableURLRequest *req = [client requestWithPath:path method:@"POST"];
     [req setValue:@"audio/mp4" forHTTPHeaderField:@"Content-Type"];
     [req setHTTPBody:audioData];
@@ -1238,7 +1241,7 @@
     BOOL isFirstInGroup = [self isFirstInGroupAtIndexPath:indexPath];
     BOOL showUser = (!isSelf && isGroupChat && isFirstInGroup);
     BOOL showTimestamp = YES;
-    BOOL isAudio = [msg.msgType isEqualToString:@"m.audio"];
+    BOOL isAudio = [msg.msgType isEqualToString:@"m.audio"] || [msg.msgType isEqualToString:@"m.voice"];
     BOOL isVideo = [msg.msgType isEqualToString:@"m.video"];
     BOOL hasMedia = ([msg.msgType isEqualToString:@"m.image"] ||
                      [msg.body hasPrefix:@"mxc://"] ||
@@ -1552,7 +1555,7 @@
     BOOL isFirstInGroup = [self isFirstInGroupAtIndexPath:indexPath];
     BOOL showUser = (!isSelf && isGroupChat && isFirstInGroup);
     BOOL showTimestamp = YES;
-    BOOL isAudio = [msg.msgType isEqualToString:@"m.audio"];
+    BOOL isAudio = [msg.msgType isEqualToString:@"m.audio"] || [msg.msgType isEqualToString:@"m.voice"];
     BOOL isVideo = [msg.msgType isEqualToString:@"m.video"];
     BOOL hasMedia = ([msg.msgType isEqualToString:@"m.image"] ||
                      [msg.body hasPrefix:@"mxc://"] ||

@@ -96,8 +96,13 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                                                  name:NeoDemoModeDidChangeNotification
                                                object:nil];
 
-    UIView *titleView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 200, 36)];
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 200, 20)];
+    CGFloat navW = self.navigationController.navigationBar.frame.size.width;
+    if (navW < 1) navW = 320;
+    CGFloat titleW = navW * 0.65;
+    UIView *titleView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, titleW, 36)];
+    titleView.backgroundColor = [UIColor clearColor];
+    titleView.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, titleW, 20)];
     titleLabel.text = self.title;
     titleLabel.font = [UIFont boldSystemFontOfSize:16];
     titleLabel.textAlignment = NSTextAlignmentCenter;
@@ -105,7 +110,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     titleLabel.textColor = [UIColor whiteColor];
     [titleView addSubview:titleLabel];
 
-    UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, 200, 14)];
+    UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, titleW, 14)];
     subLabel.tag = 88;
     subLabel.textAlignment = NSTextAlignmentCenter;
     subLabel.font = [UIFont systemFontOfSize:11];
