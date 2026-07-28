@@ -21,5 +21,6 @@ extern NSString *const MatrixSyncUnreadUpdateNotification;
 - (void)markRoomRead:(NSString *)roomId lastEventId:(NSString *)eventId;
 
 - (void)resetUnread;
+- (void)cancelAllPendingNotifications;
 
 @end

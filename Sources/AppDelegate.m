@@ -47,6 +47,7 @@
 
 - (void)applicationWillEnterForeground:(UIApplication *)application {
     [[MatrixSyncManager sharedManager] stopSync];
+    [[MatrixSyncManager sharedManager] cancelAllPendingNotifications];
 
     if (self.backgroundTaskId != UIBackgroundTaskInvalid) {
         [application endBackgroundTask:self.backgroundTaskId];

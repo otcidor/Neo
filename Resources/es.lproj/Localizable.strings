@@ -107,5 +107,8 @@
 "Custom" = "Personalizar";
 "Archive" = "Archivar";
 
+/* Notifications */
+"%@ (%d new)" = "%@ (%d nuevos)";
+
 /* Settings */
 "Hide Networks" = "Ocultar Redes";

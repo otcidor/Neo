@@ -8,6 +8,7 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
 @interface MatrixSyncManager ()
 @property (nonatomic, readwrite, getter=isSyncing) BOOL syncing;
 @property (nonatomic, strong) NSMutableDictionary *unreadCounts;
+@property (nonatomic, strong) NSMutableDictionary *pendingNotifCounts;
 @property (nonatomic, readwrite) NSInteger totalUnread;
 @end
 
@@ -26,6 +27,7 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
     self = [super init];
     if (self) {
         _unreadCounts = [NSMutableDictionary dictionary];
+        _pendingNotifCounts = [NSMutableDictionary dictionary];
         _totalUnread = 0;
     }
     return self;
@@ -109,17 +111,35 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
                 self.totalUnread++;
 
                 if (isBackground) {
-                    NSString *body = evt[@"content"][@"body"] ?: @"";
-                    NSString *roomName = [MatrixAPIClient localNameForRoomId:roomId];
-                    if (!roomName) roomName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
+        NSString *body = evt[@"content"][@"body"] ?: @"";
+        NSString *roomName = [MatrixAPIClient localNameForRoomId:roomId];
+        if (!roomName) roomName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
 
-                    UILocalNotification *note = [[UILocalNotification alloc] init];
-                    note.fireDate = [NSDate dateWithTimeIntervalSinceNow:3.0];
-                    note.alertBody = [NSString stringWithFormat:@"%@: %@", roomName ?: roomId, body];
-                    note.soundName = UILocalNotificationDefaultSoundName;
-                    note.userInfo = @{@"room_id": roomId ?: @"", @"event_id": evt[@"event_id"] ?: @""};
-                    note.applicationIconBadgeNumber = self.totalUnread;
-                    [[UIApplication sharedApplication] scheduleLocalNotification:note];
+        // Cancel existing pending notification for this room (coalesce)
+        NSNumber *existingCount = self.pendingNotifCounts[roomId];
+        if (existingCount) {
+            for (UILocalNotification *note in [[UIApplication sharedApplication] scheduledLocalNotifications]) {
+                if ([[note.userInfo objectForKey:@"room_id"] isEqualToString:roomId]) {
+                    [[UIApplication sharedApplication] cancelLocalNotification:note];
+                    break;
+                }
+            }
+        }
+
+        int notifCount = [existingCount intValue] + 1;
+        self.pendingNotifCounts[roomId] = @(notifCount);
+
+        UILocalNotification *note = [[UILocalNotification alloc] init];
+        note.fireDate = [NSDate dateWithTimeIntervalSinceNow:3.0];
+        if (notifCount == 1) {
+            note.alertBody = [NSString stringWithFormat:@"%@: %@", roomName ?: roomId, body];
+        } else {
+            note.alertBody = [NSString stringWithFormat:NSLocalizedString(@"%@ (%d new)", nil), roomName ?: roomId, notifCount];
+        }
+        note.soundName = UILocalNotificationDefaultSoundName;
+        note.userInfo = @{@"room_id": roomId ?: @"", @"event_id": evt[@"event_id"] ?: @""};
+        note.applicationIconBadgeNumber = self.totalUnread;
+        [[UIApplication sharedApplication] scheduleLocalNotification:note];
                 }
 
                 NSDictionary *userInfo = @{@"room_id": roomId, @"event": evt};
@@ -130,10 +150,11 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
         [[UIApplication sharedApplication] setApplicationIconBadgeNumber:self.totalUnread];
 
         if (self.totalUnread == 0 && anyRoomFullyRead) {
-            [[UIApplication sharedApplication] cancelAllLocalNotifications];
-        }
+        [[UIApplication sharedApplication] cancelAllLocalNotifications];
+        [self.pendingNotifCounts removeAllObjects];
+    }
 
-        [[NSNotificationCenter defaultCenter] postNotificationName:MatrixSyncUnreadUpdateNotification object:nil userInfo:@{
+    [[NSNotificationCenter defaultCenter] postNotificationName:MatrixSyncUnreadUpdateNotification object:nil userInfo:@{
             @"total": @(self.totalUnread),
             @"counts": [self.unreadCounts copy]
         }];
@@ -193,6 +214,7 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
 
     if (self.totalUnread == 0) {
         [[UIApplication sharedApplication] cancelAllLocalNotifications];
+        [self.pendingNotifCounts removeAllObjects];
     }
 }
 
@@ -204,10 +226,17 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
             [[UIApplication sharedApplication] cancelLocalNotification:note];
         }
     }
+    [self.pendingNotifCounts removeObjectForKey:roomId];
+}
+
+- (void)cancelAllPendingNotifications {
+    [[UIApplication sharedApplication] cancelAllLocalNotifications];
+    [self.pendingNotifCounts removeAllObjects];
 }
 
 - (void)resetUnread {
     [self.unreadCounts removeAllObjects];
+    [self.pendingNotifCounts removeAllObjects];
     self.totalUnread = 0;
     [[UIApplication sharedApplication] setApplicationIconBadgeNumber:0];
     [[UIApplication sharedApplication] cancelAllLocalNotifications];

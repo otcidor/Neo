@@ -107,5 +107,8 @@
 "Custom" = "Custom";
 "Archive" = "Archive";
 
+/* Notifications */
+"%@ (%d new)" = "%@ (%d new)";
+
 /* Settings */
 "Hide Networks" = "Hide Networks";

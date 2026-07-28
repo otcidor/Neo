@@ -96,30 +96,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                                                  name:NeoDemoModeDidChangeNotification
                                                object:nil];
 
-    CGFloat navW = self.navigationController.navigationBar.frame.size.width;
-    if (navW < 1) navW = 320;
-    CGFloat titleW = navW * 0.65;
-    UIView *titleView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, titleW, 36)];
-    titleView.backgroundColor = [UIColor clearColor];
-    titleView.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, titleW, 20)];
-    titleLabel.text = self.title;
-    titleLabel.font = [UIFont boldSystemFontOfSize:16];
-    titleLabel.textAlignment = NSTextAlignmentCenter;
-    titleLabel.backgroundColor = [UIColor clearColor];
-    titleLabel.textColor = [UIColor whiteColor];
-    [titleView addSubview:titleLabel];
-
-    UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, titleW, 14)];
-    subLabel.tag = 88;
-    subLabel.textAlignment = NSTextAlignmentCenter;
-    subLabel.font = [UIFont systemFontOfSize:11];
-    subLabel.backgroundColor = [UIColor clearColor];
-    subLabel.textColor = [UIColor colorWithWhite:0.85 alpha:1.0];
-    [titleView addSubview:subLabel];
-
-    self.navigationItem.titleView = titleView;
-    [self updateSubtitle];
+    [self updateTitleView];
 
     self.filteredRooms = [NSMutableArray array];
     CGFloat w = self.view.bounds.size.width;
@@ -154,15 +131,31 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     [self.searchBar resignFirstResponder];
 }
 
-- (void)updateSubtitle {
-    UILabel *sub = (UILabel *)[self.navigationItem.titleView viewWithTag:88];
-    if (!sub) return;
+- (void)updateTitleView {
+    NSString *titleStr = self.title;
+    if ([titleStr length] == 0) titleStr = @" ";
     int cnt = (int)[self.filteredRooms count];
-    if (cnt == 1) {
-        sub.text = NSLocalizedString(@"1 chat", nil);
-    } else {
-        sub.text = [NSString stringWithFormat:NSLocalizedString(@"%d chats", nil), cnt];
-    }
+    NSString *subStr = (cnt == 1) ? NSLocalizedString(@"1 chat", nil) : [NSString stringWithFormat:NSLocalizedString(@"%d chats", nil), cnt];
+    NSString *combined = [NSString stringWithFormat:@"%@\n%@", titleStr, subStr];
+
+    NSMutableAttributedString *attr = [[NSMutableAttributedString alloc] initWithString:combined];
+    [attr addAttribute:NSFontAttributeName value:[UIFont boldSystemFontOfSize:16] range:NSMakeRange(0, [titleStr length])];
+    [attr addAttribute:NSForegroundColorAttributeName value:[UIColor whiteColor] range:NSMakeRange(0, [titleStr length])];
+    [attr addAttribute:NSFontAttributeName value:[UIFont systemFontOfSize:11] range:NSMakeRange([titleStr length] + 1, [subStr length])];
+    [attr addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithWhite:0.85 alpha:1.0] range:NSMakeRange([titleStr length] + 1, [subStr length])];
+
+    UILabel *titleLabel = [[UILabel alloc] init];
+    titleLabel.numberOfLines = 2;
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    titleLabel.backgroundColor = [UIColor clearColor];
+    titleLabel.attributedText = attr;
+    [titleLabel sizeToFit];
+
+    self.navigationItem.titleView = titleLabel;
+}
+
+- (void)updateSubtitle {
+    [self updateTitleView];
 }
 
 - (NSString *)relativeDate:(NSDate *)date {
