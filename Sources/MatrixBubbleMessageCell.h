@@ -20,5 +20,6 @@
 - (void)setAck:(NSInteger)ackValue;
 - (void)setUserWrited:(NSString *)user;
 - (void)setBubbleSelected:(BOOL)selected;
+- (void)setReplySender:(NSString *)sender replyBody:(NSString *)body;
 
 @end

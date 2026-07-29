@@ -18,6 +18,8 @@ typedef enum {
 @property (assign, nonatomic) BOOL hasMedia;
 @property (strong, nonatomic) UIView *mediaView;
 @property (assign, nonatomic) BOOL selectedToShowCopyMenu;
+@property (copy, nonatomic) NSString *replySenderName;
+@property (copy, nonatomic) NSString *replyBody;
 
 - (id)initWithFrame:(CGRect)frame
                type:(MatrixBubbleMessageType)type
@@ -44,5 +46,6 @@ typedef enum {
 + (UIFont *)font;
 + (CGSize)textSizeForText:(NSString *)txt;
 + (CGSize)bubbleSizeForText:(NSString *)txt;
++ (CGFloat)replyPreviewHeight;
 
 @end

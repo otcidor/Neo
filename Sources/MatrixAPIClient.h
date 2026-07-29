@@ -25,6 +25,11 @@ typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
              roomId:(NSString *)roomId
          completion:(MatrixCompletion)completion;
 
+- (void)sendReply:(NSString *)body
+           roomId:(NSString *)roomId
+    replyToEventId:(NSString *)replyToEventId
+        completion:(MatrixCompletion)completion;
+
 - (void)editMessage:(NSString *)newBody
              roomId:(NSString *)roomId
             eventId:(NSString *)eventId

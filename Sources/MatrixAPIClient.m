@@ -266,6 +266,31 @@ static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
     [self sendRequest:req completion:completion];
 }
 
+- (void)sendReply:(NSString *)body
+           roomId:(NSString *)roomId
+    replyToEventId:(NSString *)replyToEventId
+        completion:(MatrixCompletion)completion {
+    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
+                      roomId, txnId];
+    NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
+    NSDictionary *msgBody = @{
+        @"msgtype": @"m.text",
+        @"body": body,
+        @"m.relates_to": @{
+            @"m.in_reply_to": @{@"event_id": replyToEventId}
+        }
+    };
+    NSError *err = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msgBody options:0 error:&err];
+    if (err) {
+        completion(nil, err);
+        return;
+    }
+    [req setHTTPBody:jsonData];
+    [self sendRequest:req completion:completion];
+}
+
 - (void)editMessage:(NSString *)newBody
              roomId:(NSString *)roomId
             eventId:(NSString *)eventId

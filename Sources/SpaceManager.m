@@ -56,6 +56,10 @@ static SpaceTheme themeForSpaceName(NSString *name) {
             }
         }
 
+        // Bridge detection from summary heroes + room name fallback
+        // (lazy_load_members omits m.room.member events, so setMembers: above won't trigger)
+        [[SpaceManager sharedManager] setBridgeFromSummary:roomData[@"summary"] roomName:spaceName forRoomId:roomId];
+
         if (!isSpace) {
             NSArray *timelineEvents = roomData[@"timeline"][@"events"];
             if ([timelineEvents isKindOfClass:[NSArray class]]) {
@@ -151,6 +155,44 @@ static SpaceTheme themeForSpaceName(NSString *name) {
 
 - (NSString *)bridgeTypeForRoomId:(NSString *)roomId {
     return [_bridgeMap objectForKey:roomId];
+}
+
+- (void)setBridgeFromSummary:(NSDictionary *)summary roomName:(NSString *)roomName forRoomId:(NSString *)roomId {
+    if ([_bridgeMap objectForKey:roomId]) return;
+    if (![summary isKindOfClass:[NSDictionary class]] && [roomName length] == 0) return;
+
+    // Try heroes from summary (always present with lazy_load_members)
+    NSArray *heroes = summary[@"m.heroes"];
+    if ([heroes isKindOfClass:[NSArray class]]) {
+        for (NSString *userId in heroes) {
+            if (![userId isKindOfClass:[NSString class]]) continue;
+            NSString *lower = [userId lowercaseString];
+            NSString *bridge = nil;
+            if ([lower rangeOfString:@"whatsapp"].location != NSNotFound) bridge = @"whatsapp";
+            else if ([lower rangeOfString:@"telegram"].location != NSNotFound) bridge = @"telegram";
+            else if ([lower rangeOfString:@"discord"].location != NSNotFound) bridge = @"discord";
+            else if ([lower rangeOfString:@"instagram"].location != NSNotFound) bridge = @"instagram";
+            if (bridge) {
+                [_bridgeMap setObject:bridge forKey:roomId];
+                NSLog(@"[Bridge] %@ → %@ (heroes)", roomId, bridge);
+                return;
+            }
+        }
+    }
+
+    // Fallback: detect from room name
+    if ([roomName length] > 0) {
+        NSString *lower = [roomName lowercaseString];
+        NSString *bridge = nil;
+        if ([lower rangeOfString:@"whatsapp"].location != NSNotFound) bridge = @"whatsapp";
+        else if ([lower rangeOfString:@"telegram"].location != NSNotFound) bridge = @"telegram";
+        else if ([lower rangeOfString:@"discord"].location != NSNotFound) bridge = @"discord";
+        else if ([lower rangeOfString:@"instagram"].location != NSNotFound) bridge = @"instagram";
+        if (bridge) {
+            [_bridgeMap setObject:bridge forKey:roomId];
+            NSLog(@"[Bridge] %@ → %@ (room name)", roomId, bridge);
+        }
+    }
 }
 
 - (NSString *)guessSpaceName:(NSString *)spaceId {

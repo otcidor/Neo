@@ -52,10 +52,10 @@
     [self.bubbleView removeFromSuperview];
     self.bubbleView = nil;
 
-    CGFloat bubbleY = dateSeparator ? 28 : 0;
-    CGRect bubbleFrame = CGRectMake(0, bubbleY,
+    CGFloat y = dateSeparator ? 28 : 0;
+    CGRect bubbleFrame = CGRectMake(0, y,
                                     self.contentView.frame.size.width,
-                                    self.contentView.frame.size.height - bubbleY);
+                                    self.contentView.frame.size.height - y);
 
     self.bubbleView = [[MatrixBubbleView alloc] initWithFrame:bubbleFrame
                                                          type:type
@@ -89,6 +89,17 @@
 
 - (void)setBubbleSelected:(BOOL)selected {
     self.bubbleView.selectedToShowCopyMenu = selected;
+}
+
+- (void)setReplySender:(NSString *)sender replyBody:(NSString *)body {
+    self.bubbleView.replySenderName = sender;
+    self.bubbleView.replyBody = body;
+}
+
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    self.bubbleView.replySenderName = nil;
+    self.bubbleView.replyBody = nil;
 }
 
 @end

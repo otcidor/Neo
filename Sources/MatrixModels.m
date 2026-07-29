@@ -146,13 +146,20 @@
             self.msgType = @"m.text";
         }
 
-        // Edit — if m.new_content exists, use that body
-        NSDictionary *relatesto = content[@"m.relates_to"];
-        if (relatesto && [relatesto[@"rel_type"] isEqualToString:@"m.replace"]) {
-            self.isEdit = YES;
-            self.relatedEventId = relatesto[@"event_id"];
-            NSDictionary *newContent = content[@"m.new_content"];
-            if (newContent[@"body"]) self.body = newContent[@"body"];
+        // Reply — m.in_reply_to
+        NSDictionary *relatesTo = content[@"m.relates_to"];
+        if ([relatesTo isKindOfClass:[NSDictionary class]]) {
+            NSDictionary *inReplyTo = relatesTo[@"m.in_reply_to"];
+            if ([inReplyTo isKindOfClass:[NSDictionary class]]) {
+                _replyToEventId = inReplyTo[@"event_id"];
+            }
+            // Edit detection (overrides reply reference)
+            if ([relatesTo[@"rel_type"] isEqualToString:@"m.replace"]) {
+                self.isEdit = YES;
+                self.relatedEventId = relatesTo[@"event_id"];
+                NSDictionary *newContent = content[@"m.new_content"];
+                if (newContent[@"body"]) self.body = newContent[@"body"];
+            }
         }
 
         self.reactions = [NSMutableDictionary dictionary];
@@ -161,6 +168,17 @@
         _timestamp = [NSDate dateWithTimeIntervalSince1970:ts];
     }
     return self;
+}
+
+- (void)resolveReplyFromMessages:(NSArray *)messages {
+    if (!_replyToEventId || [_replyToEventId length] == 0) return;
+    for (MatrixMessage *m in messages) {
+        if ([m.eventId isEqualToString:_replyToEventId]) {
+            _replyToSender = m.sender;
+            _replyToBody = m.body;
+            return;
+        }
+    }
 }
 @end
 

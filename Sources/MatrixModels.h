@@ -45,7 +45,11 @@ typedef enum {
 @property (nonatomic, assign) CGFloat videoWidth;
 @property (nonatomic, assign) CGFloat videoHeight;
 @property (nonatomic, strong) UIImage *cachedVideoThumbnail;
+@property (nonatomic, copy) NSString *replyToEventId;
+@property (nonatomic, copy) NSString *replyToSender;
+@property (nonatomic, copy) NSString *replyToBody;
 - (instancetype)initWithDictionary:(NSDictionary *)dict roomId:(NSString *)roomId;
+- (void)resolveReplyFromMessages:(NSArray *)messages;
 @end
 
 @interface MatrixUser : NSObject

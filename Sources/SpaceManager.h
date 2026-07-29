@@ -19,5 +19,6 @@
 
 - (NSString *)bridgeTypeForRoomId:(NSString *)roomId;
 - (void)setMembers:(NSArray *)memberEvents forRoomId:(NSString *)roomId;
+- (void)setBridgeFromSummary:(NSDictionary *)summary roomName:(NSString *)roomName forRoomId:(NSString *)roomId;
 
 @end

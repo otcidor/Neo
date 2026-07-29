@@ -9,6 +9,7 @@
 #define kBubblePaddingRight 35.0f
 #define kSenderHeight 22.0f
 #define kTimestampHeight 16.0f
+#define kReplyPreviewHeight 40.0f
 
 @interface MatrixBubbleView () {
     NSArray *_linkResults;
@@ -22,7 +23,7 @@
 
 @implementation MatrixBubbleView
 
-@synthesize type, text, timestamp, showTimestamp, userName, showUser, isRedacted, ack, hasMedia, mediaView, selectedToShowCopyMenu;
+@synthesize type, text, timestamp, showTimestamp, userName, showUser, isRedacted, ack, hasMedia, mediaView, selectedToShowCopyMenu, replySenderName, replyBody;
 
 - (void)setup {
     self.backgroundColor = [UIColor clearColor];
@@ -99,6 +100,14 @@
     selectedToShowCopyMenu = flag;
     [self setNeedsDisplay];
 }
+- (void)setReplySenderName:(NSString *)name {
+    replySenderName = [name copy];
+    [self setNeedsDisplay];
+}
+- (void)setReplyBody:(NSString *)b {
+    replyBody = [b copy];
+    [self setNeedsDisplay];
+}
 
 #pragma mark - Drawing
 
@@ -154,7 +163,8 @@
     CGFloat bx = (self.type == MatrixBubbleMessageTypeOutgoing)
         ? self.frame.size.width - bw
         : 0;
-    return CGRectMake(bx, kMarginTop, bw, bSize.height + userH + mediaH);
+    CGFloat replyH = ([self.replySenderName length] > 0) ? kReplyPreviewHeight : 0;
+    return CGRectMake(bx, kMarginTop, bw, bSize.height + userH + mediaH + replyH);
 }
 
 - (void)drawRect:(CGRect)frame {
@@ -172,20 +182,59 @@
     CGFloat userH = self.showUser ? kSenderHeight : 0;
     CGFloat mediaH = self.hasMedia ? self.mediaView.frame.size.height : 0;
 
+    NSString *displayText = isRedacted ? NSLocalizedString(@"Deleted message", nil) : self.text;
+    CGSize textSize = [MatrixBubbleView textSizeForText:displayText];
+    CGFloat mediaW = self.hasMedia ? self.mediaView.frame.size.width : 0;
+    CGFloat contentWidth = MAX(textSize.width, mediaW);
+
     CGFloat contentY = kPaddingTop + kMarginTop + userH;
+
+    // Draw reply quote block inside bubble (if present)
+    BOOL hasReply = ([self.replySenderName length] > 0 && [self.replyBody length] > 0);
+    if (hasReply) {
+        CGFloat replyContentX = textX + 6;
+        CGFloat replyContentW = contentWidth - 6;
+        CGFloat replyY = contentY;
+
+        // Colored bar left
+        NSUInteger hash = [self.replySenderName hash];
+        CGFloat r = ((hash >> 16) & 0xFF) / 255.0;
+        CGFloat g = ((hash >> 8) & 0xFF) / 255.0;
+        CGFloat b = (hash & 0xFF) / 255.0;
+        [[UIColor colorWithRed:r green:g blue:b alpha:0.8] set];
+        UIRectFill(CGRectMake(textX, replyY, 3, kReplyPreviewHeight - 4));
+
+        // Sender name
+        [[UIColor darkTextColor] set];
+        CGFloat nameH = 16;
+        [self.replySenderName drawInRect:CGRectMake(replyContentX, replyY + 2, replyContentW, nameH)
+                               withFont:[UIFont boldSystemFontOfSize:12]
+                          lineBreakMode:NSLineBreakByTruncatingTail
+                              alignment:NSTextAlignmentLeft];
+
+        // Body (1-2 lines)
+        [[UIColor grayColor] set];
+        CGFloat bodyY = replyY + 2 + nameH + 1;
+        CGFloat bodyMaxH = kReplyPreviewHeight - 4 - 2 - nameH - 1;
+        CGRect bodyRect = CGRectMake(replyContentX, bodyY, replyContentW, bodyMaxH);
+        [self.replyBody drawInRect:bodyRect
+                          withFont:[UIFont systemFontOfSize:11]
+                     lineBreakMode:NSLineBreakByTruncatingTail
+                         alignment:NSTextAlignmentLeft];
+
+        // Separator line below reply
+        [[UIColor colorWithWhite:0.8 alpha:0.6] set];
+        UIRectFill(CGRectMake(textX, replyY + kReplyPreviewHeight + 1, contentWidth, 0.5));
+
+        contentY += kReplyPreviewHeight + 5;
+    }
+
     if (self.hasMedia && self.mediaView) {
         self.mediaView.frame = CGRectMake(textX, contentY, self.mediaView.frame.size.width, self.mediaView.frame.size.height);
         contentY += mediaH;
     }
 
-    NSString *displayText = isRedacted ? NSLocalizedString(@"Deleted message", nil) : self.text;
-    CGSize textSize = [MatrixBubbleView textSizeForText:displayText];
-
     CGRect textFrame = CGRectMake(textX, contentY, textSize.width, textSize.height);
-
-    CGFloat contentWidth = self.hasMedia
-        ? MAX(textSize.width, self.mediaView.frame.size.width)
-        : textSize.width;
 
     CGFloat tsY = contentY + textSize.height + 4;
     NSString *timeStr = @"";
@@ -417,6 +466,10 @@
     CGSize bSize = [MatrixBubbleView bubbleSizeForText:displayText];
     CGFloat userH = showUserFlag ? kSenderHeight : 0;
     return kMarginTop + userH + bSize.height + mediaHeight + kMarginBottom;
+}
+
++ (CGFloat)replyPreviewHeight {
+    return kReplyPreviewHeight;
 }
 
 @end

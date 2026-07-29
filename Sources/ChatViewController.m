@@ -12,6 +12,7 @@
 #import "VideoMessageView.h"
 #import <MediaPlayer/MediaPlayer.h>
 #import "DemoModeManager.h"
+#import "ReplyBubbleView.h"
 
 @interface ChatViewController () <UIActionSheetDelegate, UIAlertViewDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate>
 @end
@@ -32,6 +33,7 @@
     NSString *_prevBatchToken;
     BOOL _loadingMore;
     NSInteger _loadPageSize;
+    CGFloat _keyboardHeight;
 }
 
 - (void)loadView {
@@ -88,6 +90,7 @@
     UIView *paddingView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 0)];
     self.messageField.leftView = paddingView;
     self.messageField.leftViewMode = UITextFieldViewModeAlways;
+    [self.messageField addTarget:self action:@selector(textFieldDidChange) forControlEvents:UIControlEventEditingChanged];
     UIImage *fieldImg = [UIImage imageNamed:@"input-field"];
     if (fieldImg) {
         self.messageField.background = [fieldImg stretchableImageWithLeftCapWidth:12 topCapHeight:12];
@@ -124,6 +127,8 @@
     _displayItems = [NSMutableArray array];
     _shouldAutoScroll = YES;
     _loadPageSize = 30;
+
+    self.inputContainer = inputView;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -201,7 +206,7 @@
                  delegate:self
         cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
    destructiveButtonTitle:nil
-        otherButtonTitles:@"👍", @"❤️", @"😂", @"😮", NSLocalizedString(@"Custom", nil), NSLocalizedString(@"Copy", nil), NSLocalizedString(@"Edit", nil), NSLocalizedString(@"Delete", nil), nil];
+        otherButtonTitles:NSLocalizedString(@"Reply", nil), @"👍", @"❤️", @"😂", @"😮", NSLocalizedString(@"Custom", nil), NSLocalizedString(@"Copy", nil), NSLocalizedString(@"Edit", nil), NSLocalizedString(@"Delete", nil), nil];
         sheet.tag = 200;
     } else {
         sheet = [[UIActionSheet alloc]
@@ -209,7 +214,7 @@
                  delegate:self
         cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
    destructiveButtonTitle:nil
-        otherButtonTitles:@"👍", @"❤️", @"😂", @"😮", NSLocalizedString(@"Custom", nil), NSLocalizedString(@"Copy", nil), nil];
+        otherButtonTitles:NSLocalizedString(@"Reply", nil), @"👍", @"❤️", @"😂", @"😮", NSLocalizedString(@"Custom", nil), NSLocalizedString(@"Copy", nil), nil];
         sheet.tag = 500;
     }
     [sheet showInView:self.view];
@@ -217,6 +222,7 @@
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    [self dismissReply];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillHideNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NeoDemoModeDidChangeNotification object:nil];
@@ -383,29 +389,36 @@
     if (_selectedRow >= [self.messages count]) return;
     MatrixMessage *msg = [self.messages objectAtIndex:_selectedRow];
 
+    // Reply is at index 0 for both sheets
+    if (buttonIndex == 0) {
+        [self startReplyToMessage:msg];
+        return;
+    }
+
+    NSInteger adjIdx = buttonIndex - 1; // shift by 1 for Reply at 0
     NSArray *emojis = @[@"👍", @"❤️", @"😂", @"😮"];
 
     if (sheet.tag == 500) {
-        if (buttonIndex < [emojis count]) {
-            [self sendReaction:emojis[buttonIndex] toMessage:msg];
-        } else if (buttonIndex == 4) {
+        if (adjIdx < [emojis count]) {
+            [self sendReaction:emojis[adjIdx] toMessage:msg];
+        } else if (adjIdx == 4) {
             [self promptCustomReactionForMessage:msg];
-        } else if (buttonIndex == 5) {
+        } else if (adjIdx == 5) {
             [self copyMessage:msg];
         }
         return;
     }
 
     if (sheet.tag == 200) {
-        if (buttonIndex < [emojis count]) {
-            [self sendReaction:emojis[buttonIndex] toMessage:msg];
-        } else if (buttonIndex == 4) {
+        if (adjIdx < [emojis count]) {
+            [self sendReaction:emojis[adjIdx] toMessage:msg];
+        } else if (adjIdx == 4) {
             [self promptCustomReactionForMessage:msg];
-        } else if (buttonIndex == 5) {
+        } else if (adjIdx == 5) {
             [self copyMessage:msg];
-        } else if (buttonIndex == 6) {
+        } else if (adjIdx == 6) {
             [self editMessage:msg row:_selectedRow];
-        } else if (buttonIndex == 7) {
+        } else if (adjIdx == 7) {
             [self deleteMessage:msg row:_selectedRow];
         }
     }
@@ -467,6 +480,65 @@
             [self.tableView reloadData];
         }
     }];
+}
+
+- (void)startReplyToMessage:(MatrixMessage *)msg {
+    self.replyToMessage = msg;
+
+    NSString *senderName = [self displayNameForSender:msg.sender];
+    if (!self.replyPreviewView) {
+        CGFloat w = self.view.bounds.size.width;
+        self.replyPreviewView = [[ReplyBubbleView alloc] initWithFrame:CGRectMake(0, 0, w, [ReplyBubbleView viewHeight])];
+        self.replyPreviewView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        _replyPreviewView.backgroundColor = [UIColor clearColor];
+
+        self.replyCloseButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        [self.replyCloseButton setTitle:@"✕" forState:UIControlStateNormal];
+        [self.replyCloseButton setTitleColor:[UIColor grayColor] forState:UIControlStateNormal];
+        self.replyCloseButton.titleLabel.font = [UIFont systemFontOfSize:14];
+        [self.replyCloseButton addTarget:self action:@selector(dismissReply) forControlEvents:UIControlEventTouchUpInside];
+        [self.replyPreviewView addSubview:self.replyCloseButton];
+
+        [self.view addSubview:self.replyPreviewView];
+    }
+    self.replyPreviewView.senderName = senderName;
+    self.replyPreviewView.body = msg.body;
+    self.replyPreviewView.outgoing = NO;
+    self.replyPreviewView.hidden = NO;
+
+    CGFloat w = self.view.bounds.size.width;
+    CGFloat rpH = [ReplyBubbleView viewHeight];
+    self.replyCloseButton.frame = CGRectMake(w - 28, 0, 28, rpH);
+
+    UIView *inputToolbar = self.messageField.superview;
+    CGFloat tableH = inputToolbar.frame.origin.y - rpH;
+    self.tableView.frame = CGRectMake(0, 0, w, tableH);
+    self.replyPreviewView.frame = CGRectMake(0, tableH, w, rpH);
+    inputToolbar.frame = CGRectMake(0, tableH + rpH, w, 44);
+
+    [self.messageField becomeFirstResponder];
+}
+
+- (void)dismissReply {
+    if (!self.replyPreviewView || self.replyPreviewView.hidden) return;
+    self.replyPreviewView.hidden = YES;
+    self.replyToMessage = nil;
+
+    CGFloat w = self.view.bounds.size.width;
+    CGFloat inputH = 44;
+    CGFloat tableH;
+    CGFloat toolBarY;
+
+    if (_keyboardHeight > 0) {
+        tableH = self.view.bounds.size.height - _keyboardHeight - inputH;
+        toolBarY = tableH;
+    } else {
+        tableH = self.view.bounds.size.height - inputH;
+        toolBarY = tableH;
+    }
+
+    self.tableView.frame = CGRectMake(0, 0, w, tableH);
+    self.messageField.superview.frame = CGRectMake(0, toolBarY, w, inputH);
 }
 
 - (void)profileTapped {
@@ -574,6 +646,7 @@
         }
 
         self.messages = newMessages;
+        [self resolveAllReplies];
         [client cacheMessages:[self.messages copy] forRoom:self.room.roomId];
         BOOL firstLoad = (_lastMessageLoad == 0);
         _lastMessageLoad = now;
@@ -630,6 +703,7 @@
         NSIndexSet *indexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, [olderMessages count])];
         [self.messages insertObjects:olderMessages atIndexes:indexes];
         [client cacheMessages:[self.messages copy] forRoom:self.room.roomId];
+        [self resolveAllReplies];
         CGFloat oldOffset = self.tableView.contentSize.height;
         [self buildDisplayItems];
         [self.tableView reloadData];
@@ -744,6 +818,7 @@
 
     if (needsReload) {
         [[MatrixAPIClient sharedClient] cacheMessages:[self.messages copy] forRoom:self.room.roomId];
+        [self resolveAllReplies];
         [self buildDisplayItems];
         [self.tableView reloadData];
         CGFloat nearBottom = self.tableView.contentOffset.y + self.tableView.bounds.size.height;
@@ -758,6 +833,12 @@
     if (lastRow < 0) return;
     NSIndexPath *last = [NSIndexPath indexPathForRow:lastRow inSection:0];
     [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:NO];
+}
+
+- (void)resolveAllReplies {
+    for (MatrixMessage *msg in self.messages) {
+        [msg resolveReplyFromMessages:self.messages];
+    }
 }
 
 - (NSString *)displayNameForSender:(NSString *)sender {
@@ -789,7 +870,7 @@
     [self updateSendButtonAppearance];
     self.sendButton.enabled = NO;
 
-    [[MatrixAPIClient sharedClient] sendMessage:text roomId:self.room.roomId completion:^(NSDictionary *response, NSError *error) {
+    void (^sendCompletion)(NSDictionary *, NSError *) = ^(NSDictionary *response, NSError *error) {
         self.sendButton.enabled = YES;
         if (error) {
             [NeoAlert showAlertWithTitle:@"Error" message:[error localizedDescription] cancelTitle:@"OK" controller:self];
@@ -811,11 +892,29 @@
         msg.msgType = @"m.text";
         msg.roomId = self.room.roomId;
         msg.timestamp = [NSDate date];
+        // Preserve reply reference for local rendering
+        if (self.replyToMessage) {
+            msg.replyToEventId = self.replyToMessage.eventId;
+            msg.replyToSender = self.replyToMessage.sender;
+            msg.replyToBody = self.replyToMessage.body;
+        }
         [self.messages addObject:msg];
+        [self dismissReply];
         [self buildDisplayItems];
         [self.tableView reloadData];
         [self scrollToBottom];
-    }];
+    };
+
+    if (self.replyToMessage) {
+        [[MatrixAPIClient sharedClient] sendReply:text
+                                           roomId:self.room.roomId
+                                    replyToEventId:self.replyToMessage.eventId
+                                      completion:sendCompletion];
+    } else {
+        [[MatrixAPIClient sharedClient] sendMessage:text
+                                             roomId:self.room.roomId
+                                         completion:sendCompletion];
+    }
 }
 
 #pragma mark - Audio Recording
@@ -980,17 +1079,11 @@
 - (BOOL)textField:(UITextField *)textField
     shouldChangeCharactersInRange:(NSRange)range
         replacementString:(NSString *)string {
-    if (textField == self.messageField) {
-        NSString *resultText = [textField.text stringByReplacingCharactersInRange:range withString:string];
-        BOOL willBeEmpty = ([resultText length] == 0);
-        BOOL isEmptyNow = ([self.messageField.text length] == 0);
-        if (willBeEmpty != isEmptyNow) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self updateSendButtonAppearance];
-            });
-        }
-    }
     return YES;
+}
+
+- (void)textFieldDidChange {
+    [self updateSendButtonAppearance];
 }
 
 - (void)micTouchDown {
@@ -1179,27 +1272,44 @@
     CGFloat kbHeight = kbFrame.size.height;
     CGFloat duration = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
 
+    _keyboardHeight = kbHeight;
+
+    CGFloat replyH = (self.replyPreviewView && !self.replyPreviewView.hidden) ? [ReplyBubbleView viewHeight] : 0;
+    CGFloat inputH = 44;
+    CGFloat totalInputH = inputH + replyH;
+
     CGRect tableFrame = self.tableView.frame;
-    CGRect inputFrame = self.messageField.superview.frame;
-    inputFrame.origin.y = self.view.bounds.size.height - kbHeight - inputFrame.size.height;
-    tableFrame.size.height = inputFrame.origin.y;
+    tableFrame.size.height = self.view.bounds.size.height - kbHeight - totalInputH;
+
+    UIView *inputToolbar = self.messageField.superview;
+    inputToolbar.frame = CGRectMake(0, tableFrame.size.height + replyH, self.view.bounds.size.width, inputH);
+
+    if (replyH > 0 && self.replyPreviewView) {
+        self.replyPreviewView.frame = CGRectMake(0, tableFrame.size.height, self.view.bounds.size.width, replyH);
+    }
 
     [UIView animateWithDuration:duration animations:^{
         self.tableView.frame = tableFrame;
-        self.messageField.superview.frame = inputFrame;
     }];
+
     [self scrollToBottom];
 }
 
 - (void)keyboardWillHide:(NSNotification *)note {
+    _keyboardHeight = 0;
     CGFloat duration = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
     CGFloat w = self.view.bounds.size.width;
     CGFloat h = self.view.bounds.size.height;
-    CGFloat tableH = h - 44;
+    CGFloat replyH = (self.replyPreviewView && !self.replyPreviewView.hidden) ? [ReplyBubbleView viewHeight] : 0;
+    CGFloat totalInputH = 44 + replyH;
+    CGFloat tableH = h - totalInputH;
 
     [UIView animateWithDuration:duration animations:^{
         self.tableView.frame = CGRectMake(0, 0, w, tableH);
-        self.messageField.superview.frame = CGRectMake(0, tableH, w, 44);
+        self.messageField.superview.frame = CGRectMake(0, tableH + replyH, w, 44);
+        if (replyH > 0 && self.replyPreviewView) {
+            self.replyPreviewView.frame = CGRectMake(0, tableH, w, replyH);
+        }
     }];
 }
 
@@ -1306,6 +1416,13 @@
         cell.backgroundColor = [UIColor clearColor];
     }
 
+    // Resolve reply details
+    if (msg.replyToEventId && [msg.replyToEventId length] > 0) {
+        if (!msg.replyToSender || !msg.replyToBody) {
+            [msg resolveReplyFromMessages:self.messages];
+        }
+    }
+
     [cell configureWithType:type
                      msgId:msg.eventId
                  showUser:showUser
@@ -1318,6 +1435,14 @@
     [cell setTimestamp:msg.timestamp];
     [cell setIsRedacted:msg.isRedacted];
     [cell setUserWrited:[self displayNameForSender:msg.sender]];
+
+    // Reply quote
+    if (msg.replyToEventId && msg.replyToBody && [msg.replyToBody length] > 0) {
+        NSString *repliedName = msg.replyToSender ? [self displayNameForSender:msg.replyToSender] : NSLocalizedString(@"Unknown", nil);
+        [cell setReplySender:repliedName replyBody:msg.replyToBody];
+    } else {
+        [cell setReplySender:nil replyBody:nil];
+    }
 
     if (isSelf) {
         [cell setAck:1];
@@ -1596,7 +1721,8 @@
     }
 
     CGFloat reactionH = ([msg.reactions count] > 0) ? 22 : 0;
-    return bubbleH + reactionH;
+    CGFloat replyH = (msg.replyToEventId && [msg.replyToEventId length] > 0) ? [MatrixBubbleView replyPreviewHeight] : 0;
+    return bubbleH + reactionH + replyH;
 }
 
 #pragma mark - Helpers
