@@ -1,5 +1,6 @@
 #import "SpaceManager.h"
 #import "MatrixAPIClient.h"
+#import "MatrixAPIClient.h"
 
 static SpaceTheme themeForSpaceName(NSString *name) {
     NSString *lower = [name lowercaseString];
@@ -101,6 +102,39 @@ static SpaceTheme themeForSpaceName(NSString *name) {
     self.spaces = foundSpaces;
     self.hasData = YES;
     NSLog(@"SpaceManager: built map with %d spaces, %d room mappings", (int)[foundSpaces count], (int)[self.roomSpaceMap count]);
+
+    // Pre-fetch members for small rooms (<50 members) to populate disk cache
+    static const NSInteger kMemberFetchThreshold = 50;
+    [join enumerateKeysAndObjectsUsingBlock:^(NSString *roomId, NSDictionary *roomData, BOOL *stop) {
+        NSDictionary *summary = roomData[@"summary"];
+        NSInteger count = [summary[@"m.joined_member_count"] integerValue] ?: [summary[@"joined_member_count"] integerValue];
+        if (count > 0 && count <= kMemberFetchThreshold) {
+            NSInteger cachedCount = [[MatrixAPIClient sharedClient] cachedMemberCountForRoom:roomId];
+            if (cachedCount != count) {
+                [[MatrixAPIClient sharedClient] getMembersForRoom:roomId completion:^(NSDictionary *members, NSError *error) {
+                    if (!members) return;
+                    [self detectBridgesFromMembers:members forRoomId:roomId];
+                }];
+            }
+        }
+    }];
+}
+
+- (void)detectBridgesFromMembers:(NSDictionary *)members forRoomId:(NSString *)roomId {
+    if ([_bridgeMap objectForKey:roomId]) return;
+    for (NSString *userId in members) {
+        NSString *lower = [userId lowercaseString];
+        NSString *bridge = nil;
+        if ([lower rangeOfString:@"whatsapp"].location != NSNotFound) bridge = @"whatsapp";
+        else if ([lower rangeOfString:@"telegram"].location != NSNotFound) bridge = @"telegram";
+        else if ([lower rangeOfString:@"discord"].location != NSNotFound) bridge = @"discord";
+        else if ([lower rangeOfString:@"instagram"].location != NSNotFound) bridge = @"instagram";
+        if (bridge) {
+            [_bridgeMap setObject:bridge forKey:roomId];
+            NSLog(@"[Bridge] %@ → %@ (from /members)", roomId, bridge);
+            return;
+        }
+    }
 }
 
 - (SpaceTheme)themeForRoomId:(NSString *)roomId {

@@ -89,6 +89,7 @@ typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
 - (void)cacheMessages:(NSArray *)messages forRoom:(NSString *)roomId;
 - (NSDictionary *)cachedMembersForRoom:(NSString *)roomId;
 - (void)cacheMembers:(NSDictionary *)members forRoom:(NSString *)roomId;
+- (NSInteger)cachedMemberCountForRoom:(NSString *)roomId;
 
 - (NSString *)mxcURLToHTTP:(NSString *)mxcURL;
 - (void)downloadImageFromMXC:(NSString *)mxcURL

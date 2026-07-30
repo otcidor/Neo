@@ -580,11 +580,59 @@ static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
 }
 
 - (NSDictionary *)cachedMembersForRoom:(NSString *)roomId {
-    return [self.memberCache objectForKey:roomId];
+    NSDictionary *mem = [self.memberCache objectForKey:roomId];
+    if (mem) return mem;
+    return [self loadMembersFromDiskForRoom:roomId];
 }
 
 - (void)cacheMembers:(NSDictionary *)members forRoom:(NSString *)roomId {
     [self.memberCache setObject:members forKey:roomId];
+    [self saveMembersToDisk:members forRoom:roomId memberCount:[members count]];
+}
+
+#pragma mark - Persistent Member Cache
+
+- (NSString *)memberCacheDir {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+    NSString *cacheDir = [paths[0] stringByAppendingPathComponent:@"com.neo.memberCache"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:cacheDir]) {
+        [fm createDirectoryAtPath:cacheDir withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+    return cacheDir;
+}
+
+- (NSString *)memberCachePathForRoom:(NSString *)roomId {
+    NSString *safeName = [roomId stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    return [[self memberCacheDir] stringByAppendingPathComponent:safeName];
+}
+
+- (void)saveMembersToDisk:(NSDictionary *)members forRoom:(NSString *)roomId memberCount:(NSInteger)count {
+    if (!members || [members count] == 0) return;
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+        NSMutableDictionary *plist = [NSMutableDictionary dictionary];
+        [plist setObject:members forKey:@"members"];
+        [plist setObject:@(count) forKey:@"memberCount"];
+        [plist setObject:[NSDate date] forKey:@"cachedAt"];
+        NSString *path = [self memberCachePathForRoom:roomId];
+        [plist writeToFile:path atomically:YES];
+    });
+}
+
+- (NSDictionary *)loadMembersFromDiskForRoom:(NSString *)roomId {
+    NSString *path = [self memberCachePathForRoom:roomId];
+    NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:path];
+    if (!plist) return nil;
+    NSDictionary *members = plist[@"members"];
+    if (![members isKindOfClass:[NSDictionary class]] || [members count] == 0) return nil;
+    [self.memberCache setObject:members forKey:roomId];
+    return members;
+}
+
+- (NSInteger)cachedMemberCountForRoom:(NSString *)roomId {
+    NSString *path = [self memberCachePathForRoom:roomId];
+    NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:path];
+    return [plist[@"memberCount"] integerValue];
 }
 
 - (NSString *)mxcURLToHTTP:(NSString *)mxcURL {

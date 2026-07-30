@@ -13,6 +13,7 @@
 #import <MediaPlayer/MediaPlayer.h>
 #import "DemoModeManager.h"
 #import "ReplyBubbleView.h"
+#import "PhotoViewerController.h"
 
 @interface ChatViewController () <UIActionSheetDelegate, UIAlertViewDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate>
 @end
@@ -34,6 +35,7 @@
     BOOL _loadingMore;
     NSInteger _loadPageSize;
     CGFloat _keyboardHeight;
+    NSInteger _savePhotoButtonIndex;
 }
 
 - (void)loadView {
@@ -199,24 +201,30 @@
     _selectedIsSelf = (myId && [msg.sender isEqualToString:myId]);
     _selectedRow = msgRow;
 
-    UIActionSheet *sheet;
-    if (_selectedIsSelf) {
-        sheet = [[UIActionSheet alloc]
-            initWithTitle:nil
-                 delegate:self
-        cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
-   destructiveButtonTitle:nil
-        otherButtonTitles:NSLocalizedString(@"Reply", nil), @"👍", @"❤️", @"😂", @"😮", NSLocalizedString(@"Custom", nil), NSLocalizedString(@"Copy", nil), NSLocalizedString(@"Edit", nil), NSLocalizedString(@"Delete", nil), nil];
-        sheet.tag = 200;
-    } else {
-        sheet = [[UIActionSheet alloc]
-            initWithTitle:nil
-                 delegate:self
-        cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
-   destructiveButtonTitle:nil
-        otherButtonTitles:NSLocalizedString(@"Reply", nil), @"👍", @"❤️", @"😂", @"😮", NSLocalizedString(@"Custom", nil), NSLocalizedString(@"Copy", nil), nil];
-        sheet.tag = 500;
+    BOOL isImage = [msg.msgType isEqualToString:@"m.image"] || [msg.body hasPrefix:@"mxc://"];
+
+    UIActionSheet *sheet = [[UIActionSheet alloc] init];
+    sheet.delegate = self;
+    sheet.tag = _selectedIsSelf ? 200 : 500;
+
+    [sheet addButtonWithTitle:NSLocalizedString(@"Reply", nil)];
+    _savePhotoButtonIndex = -1;
+    if (isImage) {
+        _savePhotoButtonIndex = [sheet addButtonWithTitle:NSLocalizedString(@"Save Photo", nil)];
     }
+    [sheet addButtonWithTitle:@"👍"];
+    [sheet addButtonWithTitle:@"❤️"];
+    [sheet addButtonWithTitle:@"😂"];
+    [sheet addButtonWithTitle:@"😮"];
+    [sheet addButtonWithTitle:NSLocalizedString(@"Custom", nil)];
+    [sheet addButtonWithTitle:NSLocalizedString(@"Copy", nil)];
+    if (_selectedIsSelf) {
+        [sheet addButtonWithTitle:NSLocalizedString(@"Edit", nil)];
+        [sheet addButtonWithTitle:NSLocalizedString(@"Delete", nil)];
+    }
+    [sheet addButtonWithTitle:NSLocalizedString(@"Cancel", nil)];
+    sheet.cancelButtonIndex = [sheet numberOfButtons] - 1;
+
     [sheet showInView:self.view];
 }
 
@@ -389,13 +397,18 @@
     if (_selectedRow >= [self.messages count]) return;
     MatrixMessage *msg = [self.messages objectAtIndex:_selectedRow];
 
-    // Reply is at index 0 for both sheets
     if (buttonIndex == 0) {
         [self startReplyToMessage:msg];
         return;
     }
 
-    NSInteger adjIdx = buttonIndex - 1; // shift by 1 for Reply at 0
+    if (_savePhotoButtonIndex >= 0 && buttonIndex == _savePhotoButtonIndex) {
+        [self savePhoto:msg];
+        return;
+    }
+
+    NSInteger shift = (_savePhotoButtonIndex >= 0) ? 2 : 1;
+    NSInteger adjIdx = buttonIndex - shift;
     NSArray *emojis = @[@"👍", @"❤️", @"😂", @"😮"];
 
     if (sheet.tag == 500) {
@@ -439,6 +452,36 @@
 
 - (void)copyMessage:(MatrixMessage *)msg {
     [UIPasteboard generalPasteboard].string = msg.body;
+}
+
+- (void)savePhoto:(MatrixMessage *)msg {
+    if ([msg.imageURL length] == 0) return;
+
+    void (^save)(UIImage *) = ^(UIImage *img) {
+        UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil);
+        [NeoAlert showAlertWithTitle:nil
+                            message:NSLocalizedString(@"Saved", nil)
+                        cancelTitle:@"OK"
+                         controller:self];
+    };
+
+    if (msg.cachedImage) {
+        save(msg.cachedImage);
+        return;
+    }
+
+    [[MatrixAPIClient sharedClient] downloadImageFromMXC:msg.imageURL
+                                              completion:^(UIImage *img, NSError *err) {
+        if (img) {
+            msg.cachedImage = img;
+            save(img);
+        } else {
+            [NeoAlert showAlertWithTitle:NSLocalizedString(@"Error", nil)
+                                message:[err localizedDescription]
+                            cancelTitle:@"OK"
+                             controller:self];
+        }
+    }];
 }
 
 - (void)sendReaction:(NSString *)emoji toMessage:(MatrixMessage *)msg {
@@ -1622,49 +1665,19 @@
 
     if ([msg.imageURL length] == 0) return;
 
-    UIViewController *viewer = [[UIViewController alloc] init];
-    viewer.view.backgroundColor = [UIColor blackColor];
+    PhotoViewerController *viewer = [[PhotoViewerController alloc] init];
     viewer.title = @"Photo";
-
-    UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:viewer.view.bounds];
-    scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    scroll.minimumZoomScale = 1.0;
-    scroll.maximumZoomScale = 4.0;
-    scroll.delegate = (id<UIScrollViewDelegate>)viewer;
-    [viewer.view addSubview:scroll];
-
-    UIImageView *imgView = [[UIImageView alloc] initWithFrame:scroll.bounds];
-    imgView.contentMode = UIViewContentModeScaleAspectFit;
-    imgView.tag = 77;
-    [scroll addSubview:imgView];
-
-    UIBarButtonItem *closeBtn = [[UIBarButtonItem alloc] initWithTitle:@"Close"
-                                                                 style:UIBarButtonItemStyleDone
-                                                                target:self
-                                                                action:@selector(dismissViewer)];
-    viewer.navigationItem.rightBarButtonItem = closeBtn;
 
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:viewer];
     [self presentViewController:nav animated:YES completion:nil];
 
     [[MatrixAPIClient sharedClient] downloadImageFromMXC:msg.imageURL completion:^(UIImage *image, NSError *err) {
         if (image) {
-            imgView.image = image;
-            CGSize fitSize = [self fitSize:image.size inSize:scroll.bounds.size];
-            imgView.frame = CGRectMake(0, 0, fitSize.width, fitSize.height);
-            scroll.contentSize = fitSize;
+            [viewer updateImage:image];
         }
     }];
 }
 
-- (CGSize)fitSize:(CGSize)from inSize:(CGSize)to {
-    CGFloat scale = MIN(to.width / from.width, to.height / from.height);
-    return CGSizeMake(from.width * scale, from.height * scale);
-}
-
-- (void)dismissViewer {
-    [self dismissViewControllerAnimated:YES completion:nil];
-}
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     id item = [_displayItems objectAtIndex:indexPath.row];

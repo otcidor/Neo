@@ -327,8 +327,23 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                 NSDictionary *join = syncResp[@"rooms"][@"join"];
                 [join enumerateKeysAndObjectsUsingBlock:^(NSString *roomId, NSDictionary *roomData, BOOL *stop) {
                     NSString *displayName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
+
+                    // For DMs, try to get real display name from member cache
                     NSDictionary *summary = roomData[@"summary"];
                     int count = [summary[@"m.joined_member_count"] intValue] ?: [summary[@"joined_member_count"] intValue];
+                    if (count <= 2) {
+                        NSString *myId = [[MatrixAPIClient sharedClient] userId];
+                        NSDictionary *members = [[MatrixAPIClient sharedClient] cachedMembersForRoom:roomId];
+                        for (NSString *uid in members) {
+                            if (![uid isEqualToString:myId]) {
+                                NSString *dname = members[uid][@"displayname"];
+                                if ([dname length] > 0) {
+                                    displayName = dname;
+                                }
+                                break;
+                            }
+                        }
+                    }
 
                     NSString *avatarUrl = nil;
                     BOOL isDM = (count <= 2);
