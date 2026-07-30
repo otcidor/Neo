@@ -1,4 +1,5 @@
 #import "MatrixBubbleView.h"
+#import "NeoCompatibility.h"
 #import <QuartzCore/QuartzCore.h>
 #import <CoreText/CoreText.h>
 
@@ -284,9 +285,9 @@
         [timeStr drawInRect:CGRectMake(tsX, tsY, tsSize.width, tsSize.height)
                    withFont:[UIFont italicSystemFontOfSize:12]
               lineBreakMode:NSLineBreakByClipping
-                  alignment:isOutgoing ? NSTextAlignmentRight : NSTextAlignmentLeft];
+                  alignment:NSTextAlignmentLeft];
 
-        if (isOutgoing) {
+        if (isOutgoing && !IS_IOS7_OR_LATER) {
             UIImage *ackImg = [UIImage imageNamed:@"MessageAckCheckSingle"];
             if (ackImg) {
                 CGFloat ackX = tsX + tsSize.width + kAckGap;
