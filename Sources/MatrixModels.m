@@ -134,6 +134,13 @@
                 _videoWidth = 320;
                 _videoHeight = 240;
             }
+
+            if ([_msgType isEqualToString:@"m.file"]) {
+                _fileURL = content[@"url"] ?: @"";
+                _fileName = content[@"body"] ?: @"File";
+                _fileMimeType = info[@"mimetype"] ?: @"application/octet-stream";
+                _fileSize = info[@"size"] ?: @0;
+            }
         } else {
             _body = @"";
             _msgType = @"m.text";

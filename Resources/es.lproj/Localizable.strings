@@ -116,3 +116,14 @@
 
 /* Settings */
 "Hide Networks" = "Ocultar Redes";
+
+/* Files */
+"Download" = "Descargar";
+"Downloading" = "Descargando";
+"Downloading %@..." = "Descargando %@...";
+"Downloading..." = "Descargando...";
+"Open in..." = "Abrir en...";
+"Tap to download" = "Toca para descargar";
+"No file viewer found" = "No se encontró visor de archivos";
+"Install iFile or Filza to open files" = "Instala iFile o Filza para abrir archivos";
+"Download failed" = "Descarga fallida";

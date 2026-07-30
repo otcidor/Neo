@@ -14,8 +14,9 @@
 #import "DemoModeManager.h"
 #import "ReplyBubbleView.h"
 #import "PhotoViewerController.h"
+#import "FileMessageView.h"
 
-@interface ChatViewController () <UIActionSheetDelegate, UIAlertViewDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate>
+@interface ChatViewController () <UIActionSheetDelegate, UIAlertViewDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate, NSURLConnectionDataDelegate>
 @end
 
 @implementation ChatViewController {
@@ -36,6 +37,9 @@
     NSInteger _loadPageSize;
     CGFloat _keyboardHeight;
     NSInteger _savePhotoButtonIndex;
+    NSInteger _downloadButtonIndex;
+    NSInteger _openInButtonIndex;
+    NSMutableDictionary *_activeDownloads;
 }
 
 - (void)loadView {
@@ -129,6 +133,7 @@
     _displayItems = [NSMutableArray array];
     _shouldAutoScroll = YES;
     _loadPageSize = 30;
+    _activeDownloads = [[NSMutableDictionary alloc] init];
 
     self.inputContainer = inputView;
 }
@@ -202,15 +207,29 @@
     _selectedRow = msgRow;
 
     BOOL isImage = [msg.msgType isEqualToString:@"m.image"] || [msg.body hasPrefix:@"mxc://"];
+    BOOL isFile = [msg.msgType isEqualToString:@"m.file"];
+    BOOL fileDownloaded = isFile && msg.cachedFileData != nil;
 
     UIActionSheet *sheet = [[UIActionSheet alloc] init];
     sheet.delegate = self;
-    sheet.tag = _selectedIsSelf ? 200 : 500;
-
-    [sheet addButtonWithTitle:NSLocalizedString(@"Reply", nil)];
     _savePhotoButtonIndex = -1;
+    _downloadButtonIndex = -1;
+    _openInButtonIndex = -1;
+
     if (isImage) {
+        sheet.tag = 300;
+        [sheet addButtonWithTitle:NSLocalizedString(@"Reply", nil)];
         _savePhotoButtonIndex = [sheet addButtonWithTitle:NSLocalizedString(@"Save Photo", nil)];
+    } else if (isFile && fileDownloaded) {
+        sheet.tag = 301;
+        _openInButtonIndex = [sheet addButtonWithTitle:NSLocalizedString(@"Open in...", nil)];
+    } else if (isFile) {
+        sheet.tag = 302;
+        [sheet addButtonWithTitle:NSLocalizedString(@"Reply", nil)];
+        _downloadButtonIndex = [sheet addButtonWithTitle:NSLocalizedString(@"Download", nil)];
+    } else {
+        sheet.tag = _selectedIsSelf ? 200 : 500;
+        [sheet addButtonWithTitle:NSLocalizedString(@"Reply", nil)];
     }
     [sheet addButtonWithTitle:@"👍"];
     [sheet addButtonWithTitle:@"❤️"];
@@ -352,6 +371,17 @@
 }
 
 - (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (alertView.tag == 888) {
+        NSString *fileURL = objc_getAssociatedObject(alertView, @"fileURL");
+        if (fileURL) {
+            NSMutableDictionary *info = _activeDownloads[fileURL];
+            [info[@"connection"] cancel];
+            [_activeDownloads removeObjectForKey:fileURL];
+        }
+        [alertView dismissWithClickedButtonIndex:0 animated:YES];
+        return;
+    }
+
     if (buttonIndex == alertView.cancelButtonIndex) return;
 
     if (alertView.tag == 777) {
@@ -397,43 +427,69 @@
     if (_selectedRow >= [self.messages count]) return;
     MatrixMessage *msg = [self.messages objectAtIndex:_selectedRow];
 
-    if (buttonIndex == 0) {
-        [self startReplyToMessage:msg];
+    NSInteger tag = sheet.tag;
+
+    if (tag == 301) {
+        if (buttonIndex == _openInButtonIndex) {
+            [self downloadAndOpenFile:msg];
+        } else {
+            NSInteger emojiStart = _openInButtonIndex + 1;
+            [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart];
+        }
         return;
     }
 
-    if (_savePhotoButtonIndex >= 0 && buttonIndex == _savePhotoButtonIndex) {
-        [self savePhoto:msg];
+    if (tag == 302) {
+        if (buttonIndex == 0) {
+            [self startReplyToMessage:msg];
+            return;
+        }
+        if (buttonIndex == _downloadButtonIndex) {
+            [self downloadAndOpenFile:msg];
+            return;
+        }
+        NSInteger emojiStart = _downloadButtonIndex + 1;
+        [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart];
         return;
     }
 
-    NSInteger shift = (_savePhotoButtonIndex >= 0) ? 2 : 1;
-    NSInteger adjIdx = buttonIndex - shift;
+    if (tag == 300 || tag == 200 || tag == 500) {
+        BOOL isImage = (tag == 300);
+        BOOL isSelf = (tag == 200);
+
+        if (buttonIndex == 0) {
+            [self startReplyToMessage:msg];
+            return;
+        }
+
+        if (isImage && buttonIndex == _savePhotoButtonIndex) {
+            [self savePhoto:msg];
+            return;
+        }
+
+        NSInteger emojiStart = isImage ? 2 : 1;
+        [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart isSelf:isSelf];
+    }
+}
+
+- (void)handleActionSheetReaction:(MatrixMessage *)msg buttonIndex:(NSInteger)buttonIndex emojiStart:(NSInteger)emojiStart {
+    [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart isSelf:NO];
+}
+
+- (void)handleActionSheetReaction:(MatrixMessage *)msg buttonIndex:(NSInteger)buttonIndex emojiStart:(NSInteger)emojiStart isSelf:(BOOL)isSelf {
+    NSInteger adjIdx = buttonIndex - emojiStart;
     NSArray *emojis = @[@"👍", @"❤️", @"😂", @"😮"];
 
-    if (sheet.tag == 500) {
-        if (adjIdx < [emojis count]) {
-            [self sendReaction:emojis[adjIdx] toMessage:msg];
-        } else if (adjIdx == 4) {
-            [self promptCustomReactionForMessage:msg];
-        } else if (adjIdx == 5) {
-            [self copyMessage:msg];
-        }
-        return;
-    }
-
-    if (sheet.tag == 200) {
-        if (adjIdx < [emojis count]) {
-            [self sendReaction:emojis[adjIdx] toMessage:msg];
-        } else if (adjIdx == 4) {
-            [self promptCustomReactionForMessage:msg];
-        } else if (adjIdx == 5) {
-            [self copyMessage:msg];
-        } else if (adjIdx == 6) {
-            [self editMessage:msg row:_selectedRow];
-        } else if (adjIdx == 7) {
-            [self deleteMessage:msg row:_selectedRow];
-        }
+    if (adjIdx < [emojis count]) {
+        [self sendReaction:emojis[adjIdx] toMessage:msg];
+    } else if (adjIdx == 4) {
+        [self promptCustomReactionForMessage:msg];
+    } else if (adjIdx == 5) {
+        [self copyMessage:msg];
+    } else if (isSelf && adjIdx == 6) {
+        [self editMessage:msg row:_selectedRow];
+    } else if (isSelf && adjIdx == 7) {
+        [self deleteMessage:msg row:_selectedRow];
     }
 }
 
@@ -1396,16 +1452,30 @@
     BOOL showTimestamp = YES;
     BOOL isAudio = [msg.msgType isEqualToString:@"m.audio"] || [msg.msgType isEqualToString:@"m.voice"];
     BOOL isVideo = [msg.msgType isEqualToString:@"m.video"];
+    BOOL isFile = [msg.msgType isEqualToString:@"m.file"];
     BOOL hasMedia = ([msg.msgType isEqualToString:@"m.image"] ||
                      [msg.body hasPrefix:@"mxc://"] ||
                      isAudio ||
-                     isVideo);
+                     isVideo ||
+                     isFile);
 
-    NSString *cellId = [NSString stringWithFormat:@"MsgCell_%d_%d_%d_%d", type, showUser, showTimestamp, isAudio || isVideo];
+    NSString *cellId = [NSString stringWithFormat:@"MsgCell_%d_%d_%d_%d", type, showUser, showTimestamp, isAudio || isVideo || isFile];
     MatrixBubbleMessageCell *cell = [tableView dequeueReusableCellWithIdentifier:cellId];
 
     UIView *mediaView = nil;
-    if (isVideo) {
+    if (isFile) {
+        FileMessageView *fileView = [[FileMessageView alloc] initWithFrame:CGRectMake(0, 0, 240, 60)];
+        fileView.mxcURL = msg.fileURL;
+        fileView.fileName = msg.fileName;
+        fileView.fileSize = msg.fileSize;
+        fileView.fileMimeType = msg.fileMimeType;
+        if (msg.cachedFileData) {
+            [fileView setDownloadedData:msg.cachedFileData];
+        } else {
+            fileView.downloadLabel.text = NSLocalizedString(@"Tap to download", nil);
+        }
+        mediaView = fileView;
+    } else if (isVideo) {
         CGFloat vidW = 200;
         CGFloat vidH = 140;
         if (msg.videoWidth > 0 && msg.videoHeight > 0) {
@@ -1661,6 +1731,11 @@
         return;
     }
 
+    if ([msg.msgType isEqualToString:@"m.file"]) {
+        [self downloadAndOpenFile:msg];
+        return;
+    }
+
     if (![msg.msgType isEqualToString:@"m.image"] && ![msg.body hasPrefix:@"mxc://"]) return;
 
     if ([msg.imageURL length] == 0) return;
@@ -1676,6 +1751,165 @@
             [viewer updateImage:image];
         }
     }];
+}
+
+- (void)downloadAndOpenFile:(MatrixMessage *)msg {
+    if ([msg.fileURL length] == 0) return;
+
+    NSString *cachePath = [self fileCachePathForMXC:msg.fileURL fileName:msg.fileName];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:cachePath]) {
+        [self openFileAtPath:cachePath];
+        return;
+    }
+
+    if (_activeDownloads[msg.fileURL]) return;
+
+    MatrixAPIClient *client = [MatrixAPIClient sharedClient];
+    NSString *httpURL = [client mxcURLToHTTP:msg.fileURL];
+    if (!httpURL) return;
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:httpURL]];
+    if (client.accessToken) {
+        [req setValue:[NSString stringWithFormat:@"Bearer %@", client.accessToken] forHTTPHeaderField:@"Authorization"];
+    }
+
+    NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:req delegate:self startImmediately:NO];
+    [connection scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
+
+    NSMutableDictionary *info = [NSMutableDictionary dictionary];
+    info[@"connection"] = connection;
+    info[@"data"] = [NSMutableData data];
+    info[@"cachePath"] = cachePath;
+    info[@"fileName"] = msg.fileName ?: @"";
+    info[@"message"] = msg;
+    _activeDownloads[msg.fileURL] = info;
+
+    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:NSLocalizedString(@"Downloading", nil)
+                                                    message:[NSString stringWithFormat:NSLocalizedString(@"Downloading %@...", nil), msg.fileName]
+                                                   delegate:self
+                                          cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
+                                          otherButtonTitles:nil];
+    alert.tag = 888;
+    objc_setAssociatedObject(alert, @"fileURL", msg.fileURL, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [alert show];
+
+    [connection start];
+}
+
+#pragma mark - NSURLConnectionDataDelegate (File Downloads)
+
+- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
+    NSString *key = [self keyForConnection:connection];
+    if (!key) return;
+    NSMutableDictionary *info = _activeDownloads[key];
+    [(NSMutableData *)info[@"data"] setLength:0];
+}
+
+- (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
+    NSString *key = [self keyForConnection:connection];
+    if (!key) return;
+    NSMutableDictionary *info = _activeDownloads[key];
+    [(NSMutableData *)info[@"data"] appendData:data];
+}
+
+- (void)connectionDidFinishLoading:(NSURLConnection *)connection {
+    NSString *key = [self keyForConnection:connection];
+    if (!key) return;
+    [self finishDownloadWithKey:key error:nil];
+}
+
+- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
+    NSString *key = [self keyForConnection:connection];
+    if (!key) return;
+    [self finishDownloadWithKey:key error:error];
+}
+
+- (NSString *)keyForConnection:(NSURLConnection *)connection {
+    for (NSString *key in _activeDownloads) {
+        if (_activeDownloads[key][@"connection"] == connection) return key;
+    }
+    return nil;
+}
+
+- (void)finishDownloadWithKey:(NSString *)key error:(NSError *)error {
+    NSMutableDictionary *info = _activeDownloads[key];
+    if (!info) return;
+
+    NSString *cachePath = info[@"cachePath"];
+    MatrixMessage *msg = info[@"message"];
+    NSData *data = (NSData *)info[@"data"];
+    [_activeDownloads removeObjectForKey:key];
+
+    [self dismissDownloadAlertForKey:key];
+
+    if (error || !data || [data length] == 0) {
+        [NeoAlert showAlertWithTitle:NSLocalizedString(@"Error", nil)
+                             message:error ? [error localizedDescription] : NSLocalizedString(@"Download failed", nil)
+                         cancelTitle:@"OK"
+                          controller:self];
+        return;
+    }
+
+    [data writeToFile:cachePath atomically:YES];
+    msg.cachedFileData = data;
+    [self.tableView reloadData];
+    [self openFileAtPath:cachePath];
+}
+
+- (void)dismissDownloadAlertForKey:(NSString *)key {
+    for (UIView *v in [[[UIApplication sharedApplication] keyWindow] subviews]) {
+        if ([v isKindOfClass:[UIAlertView class]]) {
+            UIAlertView *av = (UIAlertView *)v;
+            if (av.tag == 888) {
+                NSString *alertURL = objc_getAssociatedObject(av, @"fileURL");
+                if ([alertURL isEqualToString:key]) {
+                    [av dismissWithClickedButtonIndex:av.cancelButtonIndex animated:YES];
+                    return;
+                }
+            }
+        }
+    }
+}
+
+- (NSString *)fileCachePathForMXC:(NSString *)mxcURL fileName:(NSString *)fileName {
+    NSString *cacheDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0]
+                          stringByAppendingPathComponent:@"FileCache"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:cacheDir
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
+    NSString *safeName = [mxcURL stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
+    safeName = [safeName stringByReplacingOccurrencesOfString:@":" withString:@"_"];
+    NSString *ext = [fileName pathExtension];
+    if ([ext length] > 0) {
+        return [cacheDir stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.%@", safeName, ext]];
+    }
+    return [cacheDir stringByAppendingPathComponent:safeName];
+}
+
+- (void)openFileAtPath:(NSString *)filePath {
+    if (![[NSFileManager defaultManager] fileExistsAtPath:filePath]) return;
+
+    if (IS_IOS7_OR_LATER) {
+        NSString *filzaURLStr = [NSString stringWithFormat:@"filza://%@", filePath];
+        NSURL *filzaURL = [NSURL URLWithString:filzaURLStr];
+        if ([[UIApplication sharedApplication] canOpenURL:filzaURL]) {
+            [[UIApplication sharedApplication] openURL:filzaURL];
+            return;
+        }
+    }
+
+    NSString *ifileURLStr = [NSString stringWithFormat:@"ifile://%@", filePath];
+    NSURL *ifileURL = [NSURL URLWithString:ifileURLStr];
+    if ([[UIApplication sharedApplication] canOpenURL:ifileURL]) {
+        [[UIApplication sharedApplication] openURL:ifileURL];
+        return;
+    }
+
+    [NeoAlert showAlertWithTitle:NSLocalizedString(@"No file viewer found", nil)
+                         message:NSLocalizedString(@"Install iFile or Filza to open files", nil)
+                     cancelTitle:@"OK"
+                      controller:self];
 }
 
 
@@ -1695,13 +1929,21 @@
     BOOL showTimestamp = YES;
     BOOL isAudio = [msg.msgType isEqualToString:@"m.audio"] || [msg.msgType isEqualToString:@"m.voice"];
     BOOL isVideo = [msg.msgType isEqualToString:@"m.video"];
+    BOOL isFile = [msg.msgType isEqualToString:@"m.file"];
     BOOL hasMedia = ([msg.msgType isEqualToString:@"m.image"] ||
                      [msg.body hasPrefix:@"mxc://"] ||
                      isAudio ||
-                     isVideo);
+                     isVideo ||
+                     isFile);
 
     CGFloat bubbleH;
-    if (isAudio) {
+    if (isFile) {
+        bubbleH = [MatrixBubbleView cellHeightForMediaWithText:msg.fileName
+                                                       showUser:showUser
+                                                  showTimestamp:showTimestamp
+                                                     isRedacted:msg.isRedacted
+                                                    mediaHeight:60];
+    } else if (isAudio) {
         bubbleH = [MatrixBubbleView cellHeightForMediaWithText:msg.body
                                                        showUser:showUser
                                                   showTimestamp:showTimestamp

@@ -48,6 +48,11 @@ typedef enum {
 @property (nonatomic, copy) NSString *replyToEventId;
 @property (nonatomic, copy) NSString *replyToSender;
 @property (nonatomic, copy) NSString *replyToBody;
+@property (nonatomic, copy) NSString *fileURL;
+@property (nonatomic, copy) NSString *fileName;
+@property (nonatomic, strong) NSNumber *fileSize;
+@property (nonatomic, copy) NSString *fileMimeType;
+@property (nonatomic, strong) NSData *cachedFileData;
 - (instancetype)initWithDictionary:(NSDictionary *)dict roomId:(NSString *)roomId;
 - (void)resolveReplyFromMessages:(NSArray *)messages;
 @end

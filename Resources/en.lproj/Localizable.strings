@@ -116,3 +116,14 @@
 
 /* Settings */
 "Hide Networks" = "Hide Networks";
+
+/* Files */
+"Download" = "Download";
+"Downloading" = "Downloading";
+"Downloading %@..." = "Downloading %@...";
+"Downloading..." = "Downloading...";
+"Open in..." = "Open in...";
+"Tap to download" = "Tap to download";
+"No file viewer found" = "No file viewer found";
+"Install iFile or Filza to open files" = "Install iFile or Filza to open files";
+"Download failed" = "Download failed";
