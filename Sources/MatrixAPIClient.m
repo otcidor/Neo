@@ -24,6 +24,7 @@ static NSString *const kDefaultsKeyHomeserver = @"matrix_homeserver";
 static NSString *const kDefaultsKeyAccessToken = @"matrix_access_token";
 static NSString *const kDefaultsKeyDeviceId = @"matrix_device_id";
 static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
+static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 
 @implementation MatrixAPIClient
 
@@ -37,11 +38,18 @@ static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
         instance.accessToken = [defaults stringForKey:kDefaultsKeyAccessToken];
         instance.deviceId = [defaults stringForKey:kDefaultsKeyDeviceId];
         instance.userId = [defaults stringForKey:kDefaultsKeyUserId];
+        instance.nextBatchToken = [defaults stringForKey:kDefaultsKeyNextBatch];
         instance.messageCache = [[NSCache alloc] init];
         instance.memberCache = [[NSCache alloc] init];
         instance.avatarCache = [[NSCache alloc] init];
     });
     return instance;
+}
+
+- (void)setNextBatchToken:(NSString *)nextBatchToken {
+    _nextBatchToken = [nextBatchToken copy];
+    [[NSUserDefaults standardUserDefaults] setObject:_nextBatchToken forKey:kDefaultsKeyNextBatch];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 - (void)saveCredentials {

@@ -5,10 +5,17 @@
 NSString *const MatrixSyncNewMessageNotification = @"MatrixSyncNewMessageNotification";
 NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNotification";
 
+static NSString *const kUnreadCountsKey = @"neo_unread_counts";
+static NSString *const kTotalUnreadKey = @"neo_total_unread";
+
+static const NSTimeInterval kNotifCutoff = 16 * 3600; // 16 hours
+static const NSInteger kMaxNotifPerRoom = 3;
+
 @interface MatrixSyncManager ()
 @property (nonatomic, readwrite, getter=isSyncing) BOOL syncing;
 @property (nonatomic, strong) NSMutableDictionary *unreadCounts;
 @property (nonatomic, strong) NSMutableDictionary *pendingNotifCounts;
+@property (nonatomic, strong) NSMutableSet *processedEventIds;
 @property (nonatomic, readwrite) NSInteger totalUnread;
 @end
 
@@ -26,9 +33,17 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
 - (id)init {
     self = [super init];
     if (self) {
-        _unreadCounts = [NSMutableDictionary dictionary];
+        _processedEventIds = [NSMutableSet set];
         _pendingNotifCounts = [NSMutableDictionary dictionary];
-        _totalUnread = 0;
+
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        NSDictionary *savedCounts = [defaults dictionaryForKey:kUnreadCountsKey];
+        if (savedCounts) {
+            _unreadCounts = [NSMutableDictionary dictionaryWithDictionary:savedCounts];
+        } else {
+            _unreadCounts = [NSMutableDictionary dictionary];
+        }
+        _totalUnread = [defaults integerForKey:kTotalUnreadKey];
     }
     return self;
 }
@@ -96,15 +111,36 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
 
             // ---- Process new messages ----
             NSArray *events = roomData[@"timeline"][@"events"];
+            NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+
             for (NSDictionary *evt in events) {
                 NSString *type = evt[@"type"];
                 if (![type isEqualToString:@"m.room.message"]) continue;
 
+                // Skip edits
                 NSDictionary *relatesTo = evt[@"content"][@"m.relates_to"];
                 if ([relatesTo[@"rel_type"] isEqualToString:@"m.replace"]) continue;
 
+                // Skip own messages
                 NSString *sender = evt[@"sender"];
                 if ([sender isEqualToString:myId]) continue;
+
+                // ---- 16h cutoff: skip messages older than 16 hours ----
+                NSNumber *ts = evt[@"origin_server_ts"];
+                if ([ts isKindOfClass:[NSNumber class]]) {
+                    double eventTime = [ts doubleValue] / 1000.0;
+                    if (now - eventTime > kNotifCutoff) continue;
+                }
+
+                // ---- Dedup: skip already-processed event_ids ----
+                NSString *eventId = evt[@"event_id"];
+                if ([eventId isKindOfClass:[NSString class]] && [eventId length] > 0) {
+                    if ([self.processedEventIds containsObject:eventId]) continue;
+                    [self.processedEventIds addObject:eventId];
+                    if ([self.processedEventIds count] > 1000) {
+                        [self.processedEventIds removeAllObjects];
+                    }
+                }
 
                 NSNumber *count = self.unreadCounts[roomId] ?: @0;
                 self.unreadCounts[roomId] = @([count intValue] + 1);
@@ -129,22 +165,32 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
         int notifCount = [existingCount intValue] + 1;
         self.pendingNotifCounts[roomId] = @(notifCount);
 
-        UILocalNotification *note = [[UILocalNotification alloc] init];
-        note.fireDate = [NSDate dateWithTimeIntervalSinceNow:3.0];
-        if (notifCount == 1) {
-            note.alertBody = [NSString stringWithFormat:@"%@: %@", roomName ?: roomId, body];
-        } else {
-            note.alertBody = [NSString stringWithFormat:NSLocalizedString(@"%@ (%d new)", nil), roomName ?: roomId, notifCount];
+        // Cap: stop scheduling new notifications at kMaxNotifPerRoom
+        if (notifCount <= kMaxNotifPerRoom) {
+            UILocalNotification *note = [[UILocalNotification alloc] init];
+            note.fireDate = [NSDate dateWithTimeIntervalSinceNow:3.0];
+            if (notifCount == 1) {
+                note.alertBody = [NSString stringWithFormat:@"%@: %@", roomName ?: roomId, body];
+            } else if (notifCount == kMaxNotifPerRoom) {
+                note.alertBody = [NSString stringWithFormat:NSLocalizedString(@"%@ (%d+ new)", nil), roomName ?: roomId, notifCount];
+            } else {
+                note.alertBody = [NSString stringWithFormat:NSLocalizedString(@"%@ (%d new)", nil), roomName ?: roomId, notifCount];
+            }
+            note.soundName = UILocalNotificationDefaultSoundName;
+            note.userInfo = @{@"room_id": roomId ?: @"", @"event_id": eventId ?: @""};
+            note.applicationIconBadgeNumber = self.totalUnread;
+            [[UIApplication sharedApplication] scheduleLocalNotification:note];
         }
-        note.soundName = UILocalNotificationDefaultSoundName;
-        note.userInfo = @{@"room_id": roomId ?: @"", @"event_id": evt[@"event_id"] ?: @""};
-        note.applicationIconBadgeNumber = self.totalUnread;
-        [[UIApplication sharedApplication] scheduleLocalNotification:note];
                 }
 
                 NSDictionary *userInfo = @{@"room_id": roomId, @"event": evt};
                 [[NSNotificationCenter defaultCenter] postNotificationName:MatrixSyncNewMessageNotification object:nil userInfo:userInfo];
             }
+
+            // Persist unread counts
+            [[NSUserDefaults standardUserDefaults] setObject:self.unreadCounts forKey:kUnreadCountsKey];
+            [[NSUserDefaults standardUserDefaults] setInteger:self.totalUnread forKey:kTotalUnreadKey];
+            [[NSUserDefaults standardUserDefaults] synchronize];
         }];
 
         [[UIApplication sharedApplication] setApplicationIconBadgeNumber:self.totalUnread];
@@ -198,6 +244,12 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
         if (self.totalUnread < 0) self.totalUnread = 0;
         [self.unreadCounts removeObjectForKey:roomId];
         [[UIApplication sharedApplication] setApplicationIconBadgeNumber:self.totalUnread];
+
+        // Persist
+        [[NSUserDefaults standardUserDefaults] setObject:self.unreadCounts forKey:kUnreadCountsKey];
+        [[NSUserDefaults standardUserDefaults] setInteger:self.totalUnread forKey:kTotalUnreadKey];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+
         [[NSNotificationCenter defaultCenter] postNotificationName:MatrixSyncUnreadUpdateNotification object:nil userInfo:@{
             @"total": @(self.totalUnread),
             @"counts": [self.unreadCounts copy]
@@ -237,9 +289,15 @@ NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNot
 - (void)resetUnread {
     [self.unreadCounts removeAllObjects];
     [self.pendingNotifCounts removeAllObjects];
+    [self.processedEventIds removeAllObjects];
     self.totalUnread = 0;
     [[UIApplication sharedApplication] setApplicationIconBadgeNumber:0];
     [[UIApplication sharedApplication] cancelAllLocalNotifications];
+
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:kUnreadCountsKey];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:kTotalUnreadKey];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+
     [[NSNotificationCenter defaultCenter] postNotificationName:MatrixSyncUnreadUpdateNotification object:nil userInfo:@{
         @"total": @0,
         @"counts": @{}

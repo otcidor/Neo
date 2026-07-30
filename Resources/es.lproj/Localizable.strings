@@ -90,6 +90,8 @@
 "Save Photo" = "Guardar foto";
 "Close" = "Cerrar";
 "Video saved to Photos" = "Video guardado en Fotos";
+"%@ (%d new)" = "%@ (%d nuevos)";
+"%@ (%d+ new)" = "%@ (%d+ nuevos)";
 
 /* Profile */
 "Profile" = "Perfil";

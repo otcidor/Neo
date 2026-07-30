@@ -90,6 +90,8 @@
 "Save Photo" = "Save Photo";
 "Close" = "Close";
 "Video saved to Photos" = "Video saved to Photos";
+"%@ (%d new)" = "%@ (%d new)";
+"%@ (%d+ new)" = "%@ (%d+ new)";
 
 /* Profile */
 "Profile" = "Profile";
