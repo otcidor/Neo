@@ -59,6 +59,17 @@
     CGSize fitSize = [self fitSize:_image.size inSize:_scrollView.bounds.size];
     _imageView.frame = CGRectMake(0, 0, fitSize.width, fitSize.height);
     _scrollView.contentSize = fitSize;
+    [self centerImage];
+}
+
+- (void)centerImage {
+    CGFloat insetX = MAX((_scrollView.bounds.size.width - _imageView.frame.size.width) / 2, 0);
+    CGFloat insetY = MAX((_scrollView.bounds.size.height - _imageView.frame.size.height) / 2, 0);
+    _scrollView.contentInset = UIEdgeInsetsMake(insetY, insetX, insetY, insetX);
+}
+
+- (void)scrollViewDidZoom:(UIScrollView *)scrollView {
+    [self centerImage];
 }
 
 - (UIView *)viewForZoomingInScrollView:(UIScrollView *)scrollView {
