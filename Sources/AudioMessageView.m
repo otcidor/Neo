@@ -211,6 +211,11 @@
     self.audioData = nil;
 }
 
+- (void)dealloc {
+    [self cleanup];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
 - (void)updateProgress {
     if (self.audioPlayer && self.audioPlayer.playing) {
         self.progressSlider.value = self.audioPlayer.currentTime;

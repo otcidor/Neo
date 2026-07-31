@@ -1,6 +1,5 @@
 #import "SpaceManager.h"
 #import "MatrixAPIClient.h"
-#import "MatrixAPIClient.h"
 
 static NSString *const kBridgeMapKey = @"neo_bridge_map";
 static NSString *const kSpacesKey = @"neo_spaces";

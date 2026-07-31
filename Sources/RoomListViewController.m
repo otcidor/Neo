@@ -245,6 +245,10 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     [[NSNotificationCenter defaultCenter] removeObserver:self name:MatrixSyncNewMessageNotification object:nil];
 }
 
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
 - (void)handleNewMessage:(NSNotification *)notification {
     NSDictionary *userInfo = [notification userInfo];
     NSString *roomId = userInfo[@"room_id"];

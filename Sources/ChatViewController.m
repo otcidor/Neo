@@ -37,6 +37,7 @@
     NSInteger _loadPageSize;
     CGFloat _keyboardHeight;
     NSInteger _savePhotoButtonIndex;
+    UIView *_originalTitleView;
     NSInteger _downloadButtonIndex;
     NSInteger _openInButtonIndex;
     NSMutableDictionary *_activeDownloads;
@@ -249,6 +250,9 @@
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    if (_audioRecorder && _audioRecorder.recording) {
+        [self stopRecordingAndSend:NO];
+    }
     [self dismissReply];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillHideNotification object:nil];
@@ -1043,14 +1047,28 @@
     [_audioRecorder prepareToRecord];
     [_audioRecorder record];
 
-    if (!_recordingLabel) {
-        _recordingLabel = [[UILabel alloc] initWithFrame:CGRectMake(84, 6, 200, 32)];
-        _recordingLabel.font = [UIFont boldSystemFontOfSize:15];
-        _recordingLabel.textColor = [UIColor redColor];
-        _recordingLabel.backgroundColor = [UIColor clearColor];
-        [self.inputView addSubview:_recordingLabel];
-    }
-    _recordingLabel.hidden = NO;
+    _originalTitleView = self.navigationItem.titleView;
+
+    CGFloat navW = self.navigationController.navigationBar.frame.size.width;
+    if (navW < 1) navW = 320;
+    UIView *recordingNavView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 120, 40)];
+    recordingNavView.backgroundColor = [UIColor clearColor];
+
+    UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(0, 12, 13, 13)];
+    icon.image = [UIImage imageNamed:@"record"];
+    [recordingNavView addSubview:icon];
+
+    UILabel *timerLabel = [[UILabel alloc] initWithFrame:CGRectMake(18, 6, 100, 28)];
+    timerLabel.tag = 999;
+    timerLabel.font = [UIFont boldSystemFontOfSize:14];
+    timerLabel.textColor = [UIColor redColor];
+    timerLabel.backgroundColor = [UIColor clearColor];
+    timerLabel.text = @"0:00";
+    [recordingNavView addSubview:timerLabel];
+
+    self.navigationItem.titleView = recordingNavView;
+
+    _recordingLabel.hidden = YES;
     self.messageField.hidden = YES;
 
     _recordingTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(updateRecordingTimer) userInfo:nil repeats:YES];
@@ -1059,6 +1077,11 @@
 - (void)stopRecordingAndSend:(BOOL)shouldSend {
     [_recordingTimer invalidate];
     _recordingTimer = nil;
+
+    if (_originalTitleView) {
+        self.navigationItem.titleView = _originalTitleView;
+        _originalTitleView = nil;
+    }
 
     if (!_audioRecorder) return;
 
@@ -1084,8 +1107,17 @@
 - (void)updateRecordingTimer {
     if (_audioRecorder && _audioRecorder.recording) {
         NSTimeInterval t = _audioRecorder.currentTime;
-        _recordingLabel.text = [NSString stringWithFormat:@"🔴 %d:%02d", (int)t / 60, (int)t % 60];
+        NSString *txt = [NSString stringWithFormat:@"%d:%02d", (int)t / 60, (int)t % 60];
+        UILabel *navLabel = (UILabel *)[self.navigationItem.titleView viewWithTag:999];
+        if (navLabel) navLabel.text = txt;
+        _recordingLabel.text = txt;
     }
+}
+
+- (void)dealloc {
+    [_recordingTimer invalidate];
+    _recordingTimer = nil;
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (void)uploadAndSendAudio:(NSData *)audioData duration:(NSTimeInterval)duration {
