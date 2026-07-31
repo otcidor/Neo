@@ -41,6 +41,7 @@
     NSInteger _downloadButtonIndex;
     NSInteger _openInButtonIndex;
     NSMutableDictionary *_activeDownloads;
+    NSInteger _recordingState; // 0=idle 1=recording 2=stopped
 }
 
 - (void)loadView {
@@ -251,7 +252,7 @@
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     if (_audioRecorder && _audioRecorder.recording) {
-        [self stopRecordingAndSend:NO];
+        [self cancelRecordingTapped];
     }
     [self dismissReply];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillShowNotification object:nil];
@@ -1071,10 +1072,97 @@
     _recordingLabel.hidden = YES;
     self.messageField.hidden = YES;
 
+    _recordingState = 1;
+    [self updateRecordingButtons];
+
     _recordingTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(updateRecordingTimer) userInfo:nil repeats:YES];
 }
 
+- (void)updateRecordingButtons {
+    UIButton *leftBtn = (UIButton *)[self.inputContainer viewWithTag:93];
+    UIButton *rightBtn = self.sendButton;
+
+    if (_recordingState == 1) {
+        // Recording: left = cancel (x), right = stop (record icon)
+        [leftBtn setImage:nil forState:UIControlStateNormal];
+        [leftBtn setTitle:@"✕" forState:UIControlStateNormal];
+        [leftBtn setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
+        leftBtn.titleLabel.font = [UIFont boldSystemFontOfSize:22];
+        [leftBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+        [leftBtn addTarget:self action:@selector(cancelRecordingTapped) forControlEvents:UIControlEventTouchUpInside];
+
+        [rightBtn setImage:[UIImage imageNamed:@"record"] forState:UIControlStateNormal];
+        [rightBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+        [rightBtn addTarget:self action:@selector(stopRecordingTapped) forControlEvents:UIControlEventTouchUpInside];
+    } else if (_recordingState == 2) {
+        // Stopped: left = cancel, right = send
+        [rightBtn setImage:[UIImage imageNamed:@"send"] forState:UIControlStateNormal];
+        [rightBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+        [rightBtn addTarget:self action:@selector(sendRecordingTapped) forControlEvents:UIControlEventTouchUpInside];
+    }
+}
+
+- (void)resetRecordingButtons {
+    UIButton *leftBtn = (UIButton *)[self.inputContainer viewWithTag:93];
+    [leftBtn setImage:[UIImage imageNamed:@"PhotoButton"] forState:UIControlStateNormal];
+    [leftBtn setImage:[UIImage imageNamed:@"PhotoButtonPressed"] forState:UIControlStateHighlighted];
+    [leftBtn setTitle:nil forState:UIControlStateNormal];
+    [leftBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+    [leftBtn addTarget:self action:@selector(cameraTapped) forControlEvents:UIControlEventTouchUpInside];
+
+    _sendButtonIsMicMode = NO;
+    [self updateSendButtonAppearance];
+    _recordingState = 0;
+}
+
+- (void)cancelRecordingTapped {
+    [_recordingTimer invalidate];
+    _recordingTimer = nil;
+    if (_originalTitleView) {
+        self.navigationItem.titleView = _originalTitleView;
+        _originalTitleView = nil;
+    }
+    _audioRecorder = nil;
+    _recordingLabel.hidden = YES;
+    self.messageField.hidden = NO;
+    [self resetRecordingButtons];
+}
+
+- (void)stopRecordingTapped {
+    [_audioRecorder stop];
+    _recordingState = 2;
+    [self updateRecordingButtons];
+}
+
+- (void)sendRecordingTapped {
+    [_recordingTimer invalidate];
+    _recordingTimer = nil;
+    if (_originalTitleView) {
+        self.navigationItem.titleView = _originalTitleView;
+        _originalTitleView = nil;
+    }
+    _recordingLabel.hidden = YES;
+    self.messageField.hidden = NO;
+
+    NSTimeInterval duration = _audioRecorder.currentTime;
+    NSURL *url = _audioRecorder.url;
+    NSData *audioData = [NSData dataWithContentsOfURL:url];
+    _audioRecorder = nil;
+
+    [self resetRecordingButtons];
+
+    if (audioData) {
+        [self uploadAndSendAudio:audioData duration:duration];
+    }
+}
+
 - (void)stopRecordingAndSend:(BOOL)shouldSend {
+    if (!_audioRecorder) return;
+
+    [_audioRecorder stop];
+
+    if (!shouldSend) return;
+
     [_recordingTimer invalidate];
     _recordingTimer = nil;
 
@@ -1083,16 +1171,8 @@
         _originalTitleView = nil;
     }
 
-    if (!_audioRecorder) return;
-
-    [_audioRecorder stop];
     _recordingLabel.hidden = YES;
     self.messageField.hidden = NO;
-
-    if (!shouldSend) {
-        _audioRecorder = nil;
-        return;
-    }
 
     NSTimeInterval duration = _audioRecorder.currentTime;
     NSURL *url = _audioRecorder.url;
@@ -1100,7 +1180,6 @@
     _audioRecorder = nil;
 
     if (!audioData) return;
-
     [self uploadAndSendAudio:audioData duration:duration];
 }
 
@@ -1219,20 +1298,15 @@
 }
 
 - (void)micTouchDown {
-    [self startRecording];
+    // recording starts on touch up via micTouchUpInside
 }
 
 - (void)micTouchUpInside {
-    NSTimeInterval dur = _audioRecorder.currentTime;
-    if (dur < 1.0) {
-        [self stopRecordingAndSend:NO];
-        return;
-    }
-    [self stopRecordingAndSend:YES];
+    [self startRecording];
 }
 
 - (void)micTouchUpOutside {
-    [self stopRecordingAndSend:NO];
+    // cancelled
 }
 
 - (void)cameraTapped {
