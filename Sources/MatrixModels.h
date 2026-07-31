@@ -17,9 +17,11 @@ typedef enum {
 @property (nonatomic, assign) SpaceTheme theme;
 @property (nonatomic, assign) NSInteger unreadCount;
 @property (nonatomic, copy) NSString *lastMessageSender;
+@property (nonatomic, copy) NSString *avatarUrl;
 - (instancetype)initWithDictionary:(NSDictionary *)dict;
 - (void)updateNameFromStateEvents:(NSArray *)stateEvents timelineEvents:(NSArray *)timelineEvents;
 + (NSString *)displayNameForRoomId:(NSString *)roomId fromSyncData:(NSDictionary *)roomData;
++ (BOOL)roomHasNameFromSyncData:(NSDictionary *)roomData;
 @end
 
 @interface MatrixMessage : NSObject

@@ -1,6 +1,10 @@
 #import "MatrixAPIClient.h"
+#import "MatrixModels.h"
 #import "NeoCompatibility.h"
 #import <Security/Security.h>
+#import <CommonCrypto/CommonDigest.h>
+
+static const NSInteger kMaxConcurrentImageDownloads = 4;
 
 static void IMGLog(NSString *fmt, ...) {
     va_list args;
@@ -26,7 +30,10 @@ static NSString *const kDefaultsKeyDeviceId = @"matrix_device_id";
 static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
 static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 
-@implementation MatrixAPIClient
+@implementation MatrixAPIClient {
+    NSInteger _activeImageDownloads;
+    NSMutableArray *_pendingImageDownloads;
+}
 
 + (instancetype)sharedClient {
     static MatrixAPIClient *instance = nil;
@@ -579,8 +586,60 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 
 #pragma mark - Cache
 
+- (UIImage *)cachedImageForMXC:(NSString *)mxcURL {
+    return [self imageFromAvatarDiskForKey:mxcURL];
+}
+
+#pragma mark - Message Events Disk Cache
+
+- (NSString *)messageCacheDir {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+    NSString *dir = [paths[0] stringByAppendingPathComponent:@"com.neo.messageCache"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:dir]) {
+        [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+    return dir;
+}
+
+- (NSString *)messageCachePathForRoom:(NSString *)roomId {
+    NSString *safe = [roomId stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    return [[self messageCacheDir] stringByAppendingPathComponent:safe];
+}
+
+- (void)saveMessageEvents:(NSArray *)events forRoom:(NSString *)roomId {
+    if (!events || !roomId) return;
+    NSInteger count = [events count];
+    if (count <= 5) {
+        [events writeToFile:[self messageCachePathForRoom:roomId] atomically:YES];
+    } else {
+        NSArray *first = [events subarrayWithRange:NSMakeRange(0, 5)];
+        [first writeToFile:[self messageCachePathForRoom:roomId] atomically:YES];
+    }
+}
+
+- (NSArray *)cachedMessageEventsForRoom:(NSString *)roomId {
+    return [NSArray arrayWithContentsOfFile:[self messageCachePathForRoom:roomId]];
+}
+
 - (NSArray *)cachedMessagesForRoom:(NSString *)roomId {
-    return [self.messageCache objectForKey:roomId];
+    NSArray *mem = [self.messageCache objectForKey:roomId];
+    if (mem) return mem;
+    NSArray *events = [self cachedMessageEventsForRoom:roomId];
+    if (!events) return nil;
+    NSMutableArray *msgs = [NSMutableArray array];
+    for (NSDictionary *evt in [events reverseObjectEnumerator]) {
+        if (![evt isKindOfClass:[NSDictionary class]]) continue;
+        NSString *type = evt[@"type"];
+        if (![type isEqualToString:@"m.room.message"]) continue;
+        MatrixMessage *msg = [[MatrixMessage alloc] initWithDictionary:evt roomId:roomId];
+        if (msg && msg.eventId) [msgs addObject:msg];
+    }
+    if ([msgs count] > 0) {
+        [self.messageCache setObject:msgs forKey:roomId];
+        return msgs;
+    }
+    return nil;
 }
 
 - (void)cacheMessages:(NSArray *)messages forRoom:(NSString *)roomId {
@@ -678,6 +737,13 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
         return;
     }
 
+    UIImage *diskImage = [self imageFromAvatarDiskForKey:mxcURL];
+    if (diskImage) {
+        [self.avatarCache setObject:diskImage forKey:mxcURL];
+        completion(diskImage, nil);
+        return;
+    }
+
     [self downloadFromURL:[self mxcURLToHTTP:mxcURL thumbnail:NO]
               fallbackURL:[self mxcURLToHTTP:mxcURL thumbnail:YES]
                  cacheKey:mxcURL
@@ -688,6 +754,44 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
             fallbackURL:(NSString *)fallbackURLString
                cacheKey:(NSString *)cacheKey
              completion:(void(^)(UIImage *image, NSError *error))completion {
+    if (!_pendingImageDownloads) _pendingImageDownloads = [NSMutableArray array];
+
+    NSMutableDictionary *job = [NSMutableDictionary dictionary];
+    [job setObject:urlString ?: @"" forKey:@"url"];
+    [job setObject:fallbackURLString ?: @"" forKey:@"fb"];
+    [job setObject:cacheKey ?: @"" forKey:@"key"];
+    if (completion) [job setObject:completion forKey:@"completion"];
+    [_pendingImageDownloads addObject:job];
+    [self drainImageQueue];
+}
+
+- (void)drainImageQueue {
+    if (_activeImageDownloads >= kMaxConcurrentImageDownloads) return;
+    if (!_pendingImageDownloads || [_pendingImageDownloads count] == 0) return;
+
+    NSDictionary *job = [_pendingImageDownloads objectAtIndex:0];
+    [_pendingImageDownloads removeObjectAtIndex:0];
+    _activeImageDownloads++;
+
+    NSString *url = [job[@"url"] length] > 0 ? job[@"url"] : nil;
+    NSString *fb = [job[@"fb"] length] > 0 ? job[@"fb"] : nil;
+    NSString *key = job[@"key"];
+    void (^jobCompletion)(UIImage *, NSError *) = job[@"completion"];
+
+    [self performDownloadFromURL:url
+                     fallbackURL:fb
+                        cacheKey:key
+                      completion:^(UIImage *image, NSError *error) {
+        _activeImageDownloads--;
+        [self drainImageQueue];
+        if (jobCompletion) jobCompletion(image, error);
+    }];
+}
+
+- (void)performDownloadFromURL:(NSString *)urlString
+                   fallbackURL:(NSString *)fallbackURLString
+                      cacheKey:(NSString *)cacheKey
+                    completion:(void(^)(UIImage *image, NSError *error))completion {
     if (!urlString) {
         completion(nil, [NSError errorWithDomain:@"MatrixAPI" code:-1 userInfo:nil]);
         return;
@@ -769,8 +873,51 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 
         IMGLog(@"OK: %.0fx%.0f desde %@", image.size.width, image.size.height, urlString);
         [self.avatarCache setObject:image forKey:cacheKey];
+        [self saveAvatarToDisk:image forKey:cacheKey];
         completion(image, nil);
     }];
+}
+
+#pragma mark - Avatar Disk Cache
+
+- (NSString *)avatarCacheDir {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+    NSString *dir = [paths[0] stringByAppendingPathComponent:@"com.neo.avatarCache"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:dir]) {
+        [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+    return dir;
+}
+
+- (NSString *)avatarCachePathForKey:(NSString *)key {
+    const char *str = [key UTF8String];
+    unsigned char md[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(str, (CC_LONG)strlen(str), md);
+    NSMutableString *hash = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
+        [hash appendFormat:@"%02x", md[i]];
+    }
+    return [[self avatarCacheDir] stringByAppendingPathComponent:[hash stringByAppendingString:@".png"]];
+}
+
+- (void)saveAvatarToDisk:(UIImage *)image forKey:(NSString *)key {
+    if (!image || [key length] == 0) return;
+    if (image.size.width > 1024 || image.size.height > 1024) return;
+    NSData *png = UIImagePNGRepresentation(image);
+    if (!png) return;
+    NSString *path = [self avatarCachePathForKey:key];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+        [png writeToFile:path atomically:YES];
+    });
+}
+
+- (UIImage *)imageFromAvatarDiskForKey:(NSString *)key {
+    if ([key length] == 0) return nil;
+    NSString *path = [self avatarCachePathForKey:key];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:path]) return nil;
+    return [UIImage imageWithContentsOfFile:path];
 }
 
 - (void)uploadImage:(UIImage *)image

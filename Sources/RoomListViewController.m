@@ -50,6 +50,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
     self.rooms = [NSMutableArray array];
     _roomAvatars = [NSMutableDictionary dictionary];
+    [self loadRoomsFromCache];
 
 }
 
@@ -98,7 +99,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
     [self updateTitleView];
 
-    self.filteredRooms = [NSMutableArray array];
+    if (!self.filteredRooms) self.filteredRooms = [NSMutableArray array];
     CGFloat w = self.view.bounds.size.width;
 
     UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 44)];
@@ -223,7 +224,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-    if ([self.rooms count] == 0 || now - _lastRoomLoad > 60.0) {
+    if ([self.rooms count] == 0 || now - _lastRoomLoad > 120.0) {
         [self loadRooms];
     } else {
         [self applyFilters];
@@ -232,11 +233,108 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                                              selector:@selector(handleUnreadUpdate:)
                                                  name:MatrixSyncUnreadUpdateNotification
                                                object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleNewMessage:)
+                                                 name:MatrixSyncNewMessageNotification
+                                               object:nil];
 }
 
 - (void)viewDidDisappear:(BOOL)animated {
     [super viewDidDisappear:animated];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:MatrixSyncUnreadUpdateNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:MatrixSyncNewMessageNotification object:nil];
+}
+
+- (void)handleNewMessage:(NSNotification *)notification {
+    NSDictionary *userInfo = [notification userInfo];
+    NSString *roomId = userInfo[@"room_id"];
+    NSDictionary *evt = userInfo[@"event"];
+    if (![roomId isKindOfClass:[NSString class]] || ![evt isKindOfClass:[NSDictionary class]]) return;
+
+    BOOL changed = NO;
+    for (MatrixRoom *r in self.rooms) {
+        if (![r.roomId isEqualToString:roomId]) continue;
+        NSString *type = evt[@"type"];
+        NSDictionary *content = evt[@"content"];
+        if (![content isKindOfClass:[NSDictionary class]]) break;
+        if ([type isEqualToString:@"m.room.name"] && [content[@"name"] length] > 0) {
+            r.name = content[@"name"];
+            changed = YES;
+        }
+        if ([type isEqualToString:@"m.room.message"] && [content[@"body"] length] > 0) {
+            r.lastMessage = content[@"body"];
+            r.lastMessageSender = evt[@"sender"];
+            NSNumber *ts = evt[@"origin_server_ts"];
+            if ([ts isKindOfClass:[NSNumber class]]) {
+                r.lastMessageDate = [NSDate dateWithTimeIntervalSince1970:[ts doubleValue] / 1000.0];
+            }
+            changed = YES;
+        }
+        break;
+    }
+
+    if (changed) {
+        [self.rooms sortUsingComparator:^NSComparisonResult(MatrixRoom *r1, MatrixRoom *r2) {
+            NSDate *d1 = r1.lastMessageDate;
+            NSDate *d2 = r2.lastMessageDate;
+            if (!d1 && !d2) return NSOrderedSame;
+            if (!d1) return NSOrderedDescending;
+            if (!d2) return NSOrderedAscending;
+            return [d2 compare:d1];
+        }];
+        self.filteredRooms = [NSMutableArray arrayWithArray:self.rooms];
+        [self updateSubtitle];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self.tableView reloadData];
+        });
+        [self saveRoomsToCache];
+    }
+}
+
+- (NSString *)roomCachePath {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+    return [paths[0] stringByAppendingPathComponent:@"com.neo.roomCache.plist"];
+}
+
+- (void)loadRoomsFromCache {
+    NSArray *cached = [NSArray arrayWithContentsOfFile:[self roomCachePath]];
+    if (![cached isKindOfClass:[NSArray class]]) return;
+    for (NSDictionary *d in cached) {
+        if (![d isKindOfClass:[NSDictionary class]]) continue;
+        MatrixRoom *room = [[MatrixRoom alloc] init];
+        room.roomId = d[@"roomId"] ?: @"";
+        room.name = d[@"name"] ?: @"";
+        room.memberCount = [d[@"memberCount"] integerValue];
+        room.lastMessage = d[@"lastMessage"] ?: @"";
+        room.lastMessageSender = d[@"lastMessageSender"] ?: @"";
+        double ts = [d[@"lastMessageTs"] doubleValue];
+        if (ts > 0) room.lastMessageDate = [NSDate dateWithTimeIntervalSince1970:ts];
+        room.avatarUrl = d[@"avatarUrl"] ?: @"";
+        [self.rooms addObject:room];
+        
+        if ([room.avatarUrl length] > 0) {
+            UIImage *av = [[MatrixAPIClient sharedClient] cachedImageForMXC:room.avatarUrl];
+            if (av) [_roomAvatars setObject:av forKey:room.roomId];
+        }
+    }
+    [self applyFilters];
+}
+
+- (void)saveRoomsToCache {
+    if (self.spaceFilter != nil) return;
+    NSMutableArray *cached = [NSMutableArray array];
+    for (MatrixRoom *r in self.rooms) {
+        [cached addObject:@{
+            @"roomId": r.roomId ?: @"",
+            @"name": r.name ?: @"",
+            @"memberCount": @(r.memberCount),
+            @"lastMessage": r.lastMessage ?: @"",
+            @"lastMessageSender": r.lastMessageSender ?: @"",
+            @"lastMessageTs": r.lastMessageDate ? @([r.lastMessageDate timeIntervalSince1970]) : @0,
+            @"avatarUrl": r.avatarUrl ?: @""
+        }];
+    }
+    [cached writeToFile:[self roomCachePath] atomically:YES];
 }
 
 - (void)handleUnreadUpdate:(NSNotification *)notification {
@@ -247,11 +345,15 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     } else {
         self.tabBarItem.badgeValue = nil;
     }
-    [self.tableView reloadData];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.tableView reloadData];
+    });
 }
 
 - (void)handleDemoModeChanged {
-    [self.tableView reloadData];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.tableView reloadData];
+    });
 }
 
 - (void)handleThemeChanged {
@@ -293,7 +395,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         UIView *header = self.tableView.tableHeaderView;
         header.backgroundColor = [UIColor colorWithWhite:0.93 alpha:1.0];
     }
-    [self.tableView reloadData];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.tableView reloadData];
+    });
 }
 
 - (void)loadRooms {
@@ -327,11 +431,12 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                 NSDictionary *join = syncResp[@"rooms"][@"join"];
                 [join enumerateKeysAndObjectsUsingBlock:^(NSString *roomId, NSDictionary *roomData, BOOL *stop) {
                     NSString *displayName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
+                    BOOL hasRealName = [MatrixRoom roomHasNameFromSyncData:roomData];
 
                     // For DMs, try to get real display name from member cache
                     NSDictionary *summary = roomData[@"summary"];
                     int count = [summary[@"m.joined_member_count"] intValue] ?: [summary[@"joined_member_count"] intValue];
-                    if (count <= 2) {
+                    if (count <= 4 && !hasRealName) {
                         NSString *myId = [[MatrixAPIClient sharedClient] userId];
                         NSDictionary *members = [[MatrixAPIClient sharedClient] cachedMembersForRoom:roomId];
                         for (NSString *uid in members) {
@@ -346,7 +451,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                     }
 
                     NSString *avatarUrl = nil;
-                    BOOL isDM = (count <= 2);
+                    BOOL isDM = (count <= 4);
                     NSArray *stateEvents = roomData[@"state"][@"events"];
                     for (NSDictionary *evt in stateEvents) {
                         NSString *type = evt[@"type"];
@@ -416,13 +521,23 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                         }
                     }
 
-                    if (avatarUrl) {
+                     if (avatarUrl) {
                         [[MatrixAPIClient sharedClient] downloadImageFromMXC:avatarUrl completion:^(UIImage *image, NSError *dlErr) {
-                            if (image) {
+                             if (image) {
                                 [_roomAvatars setObject:image forKey:roomId];
-                                [self.tableView reloadData];
+                                dispatch_async(dispatch_get_main_queue(), ^{
+                                    [self.tableView reloadData];
+                                });
                             }
                         }];
+                    }
+                    
+                    // Store avatar URL on room object for cache persistence
+                    for (MatrixRoom *r in self.rooms) {
+                        if ([r.roomId isEqualToString:roomId]) {
+                            r.avatarUrl = avatarUrl;
+                            break;
+                        }
                     }
                 }];
 
@@ -453,12 +568,17 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                     NSDate *d1 = r1.lastMessageDate;
                     NSDate *d2 = r2.lastMessageDate;
                     if (!d1 && !d2) return NSOrderedSame;
-                    if (!d1) return NSOrderedAscending;
-                    if (!d2) return NSOrderedDescending;
+                    if (!d1) return NSOrderedDescending;
+                    if (!d2) return NSOrderedAscending;
                     return [d2 compare:d1];
                 }];
 
-                [self applyFilters];
+                self.filteredRooms = [NSMutableArray arrayWithArray:self.rooms];
+                [self updateSubtitle];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self.tableView reloadData];
+                });
+                [self saveRoomsToCache];
             }
         }];
     }];
@@ -553,7 +673,13 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         [cell.contentView addSubview:unreadDot];
     }
 
-    MatrixRoom *room = [self.filteredRooms objectAtIndex:indexPath.row];
+    MatrixRoom *room = nil;
+    if (indexPath.row < [self.filteredRooms count]) {
+        room = [self.filteredRooms objectAtIndex:indexPath.row];
+    }
+    if (!room) {
+        return [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    }
     CGFloat cellW = cell.contentView.bounds.size.width;
     UIColor *tint = colorForTheme(self.theme);
     NSInteger unread = [[MatrixSyncManager sharedManager] unreadCountForRoom:room.roomId];

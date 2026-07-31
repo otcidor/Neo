@@ -2,6 +2,10 @@
 #import "MatrixAPIClient.h"
 #import "MatrixAPIClient.h"
 
+static NSString *const kBridgeMapKey = @"neo_bridge_map";
+static NSString *const kSpacesKey = @"neo_spaces";
+static NSString *const kRoomSpaceMapKey = @"neo_room_space_map";
+
 static SpaceTheme themeForSpaceName(NSString *name) {
     NSString *lower = [name lowercaseString];
     if ([lower rangeOfString:@"whatsapp"].location != NSNotFound) return SpaceThemeWhatsApp;
@@ -22,8 +26,60 @@ static SpaceTheme themeForSpaceName(NSString *name) {
         instance = [[self alloc] init];
         instance.roomSpaceMap = [NSMutableDictionary dictionary];
         instance.spaces = [NSArray array];
+        [instance loadBridgeMap];
+        [instance loadSpaceState];
     });
     return instance;
+}
+
+- (void)loadBridgeMap {
+    NSDictionary *saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:kBridgeMapKey];
+    _bridgeMap = saved ? [NSMutableDictionary dictionaryWithDictionary:saved] : [NSMutableDictionary dictionary];
+    NSLog(@"[Bridge] loaded %d mappings from NSUserDefaults", (int)[_bridgeMap count]);
+}
+
+- (void)saveBridgeMap {
+    if (!_bridgeMap) return;
+    [[NSUserDefaults standardUserDefaults] setObject:[_bridgeMap copy] forKey:kBridgeMapKey];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
+- (void)saveSpaceState {
+    NSMutableArray *arr = [NSMutableArray array];
+    for (MatrixSpace *s in self.spaces) {
+        [arr addObject:@{
+            @"spaceId": s.spaceId ?: @"",
+            @"name": s.name ?: @"",
+            @"theme": @(s.theme),
+            @"children": s.childRoomIds ?: @[]
+        }];
+    }
+    [[NSUserDefaults standardUserDefaults] setObject:arr forKey:kSpacesKey];
+    [[NSUserDefaults standardUserDefaults] setObject:self.roomSpaceMap forKey:kRoomSpaceMapKey];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
+- (void)loadSpaceState {
+    NSArray *savedSpaces = [[NSUserDefaults standardUserDefaults] arrayForKey:kSpacesKey];
+    NSMutableArray *spaces = [NSMutableArray array];
+    for (NSDictionary *d in savedSpaces) {
+        if (![d isKindOfClass:[NSDictionary class]]) continue;
+        MatrixSpace *s = [[MatrixSpace alloc] init];
+        s.spaceId = d[@"spaceId"] ?: @"";
+        s.name = d[@"name"] ?: @"";
+        s.theme = [d[@"theme"] intValue];
+        NSArray *children = d[@"children"];
+        s.childRoomIds = [children isKindOfClass:[NSArray class]]
+            ? [NSMutableArray arrayWithArray:children] : [NSMutableArray array];
+        [spaces addObject:s];
+    }
+    self.spaces = spaces;
+    NSDictionary *map = [[NSUserDefaults standardUserDefaults] dictionaryForKey:kRoomSpaceMapKey];
+    self.roomSpaceMap = map ? [NSMutableDictionary dictionaryWithDictionary:map]
+                            : [NSMutableDictionary dictionary];
+    if ([spaces count] > 0) self.hasData = YES;
+    NSLog(@"[Bridge] loaded %d spaces, %d room mappings from defaults",
+          (int)[spaces count], (int)[self.roomSpaceMap count]);
 }
 
 - (void)buildSpaceMapFromSyncResponse:(NSDictionary *)syncResponse {
@@ -102,6 +158,7 @@ static SpaceTheme themeForSpaceName(NSString *name) {
     self.spaces = foundSpaces;
     self.hasData = YES;
     NSLog(@"SpaceManager: built map with %d spaces, %d room mappings", (int)[foundSpaces count], (int)[self.roomSpaceMap count]);
+    [self saveSpaceState];
 
     // Pre-fetch members for small rooms (<50 members) to populate disk cache
     static const NSInteger kMemberFetchThreshold = 50;
@@ -131,6 +188,7 @@ static SpaceTheme themeForSpaceName(NSString *name) {
         else if ([lower rangeOfString:@"instagram"].location != NSNotFound) bridge = @"instagram";
         if (bridge) {
             [_bridgeMap setObject:bridge forKey:roomId];
+            [self saveBridgeMap];
             NSLog(@"[Bridge] %@ → %@ (from /members)", roomId, bridge);
             return;
         }
@@ -181,6 +239,7 @@ static SpaceTheme themeForSpaceName(NSString *name) {
         else if ([lower rangeOfString:@"instagram"].location != NSNotFound) bridge = @"instagram";
         if (bridge) {
             [_bridgeMap setObject:bridge forKey:roomId];
+            [self saveBridgeMap];
             NSLog(@"[Bridge] %@ → %@", roomId, bridge);
             return;
         }
@@ -208,6 +267,7 @@ static SpaceTheme themeForSpaceName(NSString *name) {
             else if ([lower rangeOfString:@"instagram"].location != NSNotFound) bridge = @"instagram";
             if (bridge) {
                 [_bridgeMap setObject:bridge forKey:roomId];
+                [self saveBridgeMap];
                 NSLog(@"[Bridge] %@ → %@ (heroes)", roomId, bridge);
                 return;
             }
@@ -224,6 +284,7 @@ static SpaceTheme themeForSpaceName(NSString *name) {
         else if ([lower rangeOfString:@"instagram"].location != NSNotFound) bridge = @"instagram";
         if (bridge) {
             [_bridgeMap setObject:bridge forKey:roomId];
+            [self saveBridgeMap];
             NSLog(@"[Bridge] %@ → %@ (room name)", roomId, bridge);
         }
     }

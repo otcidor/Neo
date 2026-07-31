@@ -52,6 +52,26 @@
     }
 }
 
++ (BOOL)roomHasNameFromSyncData:(NSDictionary *)roomData {
+    NSArray *stateEvents = roomData[@"state"][@"events"];
+    for (NSDictionary *evt in stateEvents) {
+        NSString *type = evt[@"type"];
+        NSDictionary *content = evt[@"content"];
+        if (![content isKindOfClass:[NSDictionary class]]) continue;
+        if ([type isEqualToString:@"m.room.name"] && [content[@"name"] length] > 0) return YES;
+        if ([type isEqualToString:@"m.room.canonical_alias"] && [content[@"alias"] length] > 0) return YES;
+    }
+    NSArray *timelineEvents = roomData[@"timeline"][@"events"];
+    for (NSDictionary *evt in timelineEvents) {
+        NSString *type = evt[@"type"];
+        NSDictionary *content = evt[@"content"];
+        if (![content isKindOfClass:[NSDictionary class]]) continue;
+        if ([type isEqualToString:@"m.room.name"] && [content[@"name"] length] > 0) return YES;
+        if ([type isEqualToString:@"m.room.canonical_alias"] && [content[@"alias"] length] > 0) return YES;
+    }
+    return NO;
+}
+
 + (NSString *)displayNameForRoomId:(NSString *)roomId fromSyncData:(NSDictionary *)roomData {
     NSArray *stateEvents = roomData[@"state"][@"events"];
     for (NSDictionary *evt in stateEvents) {
@@ -90,7 +110,7 @@
     NSArray *heroes = summary[@"m.heroes"];
     if ([heroes count] > 0) {
         NSInteger count = [summary[@"m.joined_member_count"] integerValue] ?: [summary[@"joined_member_count"] integerValue];
-        if (count <= 2) {
+        if (count <= 4) {
             return [heroes componentsJoinedByString:@", "];
         }
     }

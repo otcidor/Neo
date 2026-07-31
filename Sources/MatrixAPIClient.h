@@ -85,6 +85,8 @@ typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
 @property (nonatomic, strong) NSCache *avatarCache;
 @property (nonatomic, copy) NSString *nextBatchToken;
 
+- (UIImage *)cachedImageForMXC:(NSString *)mxcURL;
+- (void)saveMessageEvents:(NSArray *)events forRoom:(NSString *)roomId;
 - (NSArray *)cachedMessagesForRoom:(NSString *)roomId;
 - (void)cacheMessages:(NSArray *)messages forRoom:(NSString *)roomId;
 - (NSDictionary *)cachedMembersForRoom:(NSString *)roomId;

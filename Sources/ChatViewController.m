@@ -747,6 +747,7 @@
         self.messages = newMessages;
         [self resolveAllReplies];
         [client cacheMessages:[self.messages copy] forRoom:self.room.roomId];
+        [client saveMessageEvents:response[@"chunk"] forRoom:self.room.roomId];
         BOOL firstLoad = (_lastMessageLoad == 0);
         _lastMessageLoad = now;
         [self buildDisplayItems];
