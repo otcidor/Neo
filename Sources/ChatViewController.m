@@ -317,7 +317,7 @@
 - (void)setupNavBar {
     CGFloat navW = self.navigationController.navigationBar.frame.size.width;
     if (navW < 1) navW = 320;
-    CGFloat titleW = navW * 0.65;
+    CGFloat titleW = fminf(navW * 0.65, navW - 140);
 
     UIView *titleView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, titleW, 40)];
     titleView.backgroundColor = [UIColor clearColor];

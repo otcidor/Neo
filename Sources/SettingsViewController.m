@@ -176,6 +176,8 @@ static NSString *kWpImages[] = {
                 @"neo-orange": @"Orange", @"neo-red": @"Red",
                 @"neo-teal": @"Teal", @"neo-indigo": @"Indigo",
                 @"whatsapp": @"WhatsApp",
+                @"neo-telegram": @"Telegram",
+                @"neo-telegram-classic": @"Telegram Classic",
             };
             cell.detailTextLabel.text = names[style] ?: (style == nil ? @"Neo" : style);
         } else if (indexPath.row == 3) {

@@ -48,7 +48,9 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
         @{@"key": @"neo-red",    @"name": @"Red",        @"color": [UIColor colorWithRed:180/255.0 green:40/255.0  blue:40/255.0  alpha:1.0]},
         @{@"key": @"neo-teal",   @"name": @"Teal",       @"color": [UIColor colorWithRed:0/255.0   green:130/255.0 blue:110/255.0 alpha:1.0]},
         @{@"key": @"neo-indigo", @"name": @"Indigo",     @"color": [UIColor colorWithRed:75/255.0  green:30/255.0  blue:130/255.0 alpha:1.0]},
-        @{@"key": @"whatsapp",   @"name": @"WhatsApp",   @"color": [UIColor colorWithRed:0/255.0   green:100/255.0 blue:200/255.0 alpha:1.0]},
+        @{@"key": @"whatsapp",    @"name": @"WhatsApp",    @"color": [UIColor colorWithRed:0/255.0   green:100/255.0 blue:200/255.0 alpha:1.0]},
+        @{@"key": @"neo-telegram", @"name": @"Telegram",   @"color": [UIColor colorWithRed:0/255.0   green:136/255.0 blue:204/255.0 alpha:1.0]},
+        @{@"key": @"neo-telegram-classic", @"name": @"Telegram Classic", @"color": [UIColor colorWithRed:100/255.0 green:180/255.0 blue:90/255.0 alpha:1.0]},
     ];
 
     [self applyTheme];

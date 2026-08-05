@@ -127,6 +127,8 @@
     if ([style isEqualToString:@"neo-red"])    return @"neo-bubble-mine-red";
     if ([style isEqualToString:@"neo-teal"])   return @"neo-bubble-mine-teal";
     if ([style isEqualToString:@"neo-indigo"]) return @"neo-bubble-mine-indigo";
+    if ([style isEqualToString:@"neo-telegram"]) return @"neo-bubble-mine-telegram";
+    if ([style isEqualToString:@"neo-telegram-classic"]) return @"neo-bubble-mine-telegram-classic";
     return @"bubble-square-outgoing";
 }
 
@@ -140,6 +142,8 @@
     if ([style isEqualToString:@"neo-red"])    return @"neo-bubble-someone-red";
     if ([style isEqualToString:@"neo-teal"])   return @"neo-bubble-someone-teal";
     if ([style isEqualToString:@"neo-indigo"]) return @"neo-bubble-someone-indigo";
+    if ([style isEqualToString:@"neo-telegram"]) return @"neo-bubble-someone-telegram";
+    if ([style isEqualToString:@"neo-telegram-classic"]) return @"neo-bubble-someone-telegram-classic";
     return @"bubble-square-incoming";
 }
 
