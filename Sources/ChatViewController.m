@@ -8,6 +8,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
+#import <AudioToolbox/AudioToolbox.h>
 #import "AudioMessageView.h"
 #import "VideoMessageView.h"
 #import <MediaPlayer/MediaPlayer.h>
@@ -15,6 +16,7 @@
 #import "ReplyBubbleView.h"
 #import "PhotoViewerController.h"
 #import "FileMessageView.h"
+#import "ForwardPickerController.h"
 
 @interface ChatViewController () <UIActionSheetDelegate, UIAlertViewDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate, NSURLConnectionDataDelegate>
 @end
@@ -239,6 +241,7 @@
     [sheet addButtonWithTitle:@"😮"];
     [sheet addButtonWithTitle:NSLocalizedString(@"Custom", nil)];
     [sheet addButtonWithTitle:NSLocalizedString(@"Copy", nil)];
+    [sheet addButtonWithTitle:NSLocalizedString(@"Forward", nil)];
     if (_selectedIsSelf) {
         [sheet addButtonWithTitle:NSLocalizedString(@"Edit", nil)];
         [sheet addButtonWithTitle:NSLocalizedString(@"Delete", nil)];
@@ -491,9 +494,11 @@
         [self promptCustomReactionForMessage:msg];
     } else if (adjIdx == 5) {
         [self copyMessage:msg];
-    } else if (isSelf && adjIdx == 6) {
-        [self editMessage:msg row:_selectedRow];
+    } else if (adjIdx == 6) {
+        [self forwardMessage:msg];
     } else if (isSelf && adjIdx == 7) {
+        [self editMessage:msg row:_selectedRow];
+    } else if (isSelf && adjIdx == 8) {
         [self deleteMessage:msg row:_selectedRow];
     }
 }
@@ -513,6 +518,12 @@
 
 - (void)copyMessage:(MatrixMessage *)msg {
     [UIPasteboard generalPasteboard].string = msg.body;
+}
+
+- (void)forwardMessage:(MatrixMessage *)msg {
+    ForwardPickerController *picker = [[ForwardPickerController alloc] init];
+    picker.message = msg;
+    [self presentViewController:picker animated:YES completion:nil];
 }
 
 - (void)savePhoto:(MatrixMessage *)msg {
@@ -967,6 +978,16 @@
     return [[DemoModeManager sharedManager] obfuscateName:resolvedName];
 }
 
+- (void)playSentSound {
+    static SystemSoundID sentSound = 0;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSURL *url = [[NSBundle mainBundle] URLForResource:@"sent" withExtension:@"caf"];
+        if (url) AudioServicesCreateSystemSoundID((__bridge CFURLRef)url, &sentSound);
+    });
+    if (sentSound) AudioServicesPlaySystemSound(sentSound);
+}
+
 - (void)sendTapped {
     NSString *text = self.messageField.text;
     if ([text length] == 0) return;
@@ -1008,6 +1029,7 @@
         [self buildDisplayItems];
         [self.tableView reloadData];
         [self scrollToBottom];
+        [self playSentSound];
     };
 
     if (self.replyToMessage) {
@@ -1314,6 +1336,7 @@
     picker.delegate = self;
     picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
     picker.mediaTypes = [UIImagePickerController availableMediaTypesForSourceType:UIImagePickerControllerSourceTypePhotoLibrary];
+    picker.allowsEditing = YES;
     [self presentViewController:picker animated:YES completion:nil];
 }
 
@@ -1367,7 +1390,7 @@
             [self sendVideoAfterUpload:videoData videoURL:videoURL thumbnailURI:nil width:w height:h durationMs:durationMs uploadAlert:uploadAlert];
         }
     } else {
-        UIImage *image = info[UIImagePickerControllerOriginalImage];
+        UIImage *image = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
         if (!image) return;
 
         [[MatrixAPIClient sharedClient] uploadImage:image completion:^(NSString *contentURI, NSError *err) {
