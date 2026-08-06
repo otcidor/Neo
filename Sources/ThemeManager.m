@@ -19,6 +19,10 @@ static NSString *const kThemeDefaultsKey = @"neo_theme_id";
     self = [super init];
     if (self) {
         NSInteger saved = [[NSUserDefaults standardUserDefaults] integerForKey:kThemeDefaultsKey];
+        // 0 means never saved — default to Dark on fresh install
+        if (saved == 0 && ![[NSUserDefaults standardUserDefaults] objectForKey:kThemeDefaultsKey]) {
+            saved = NeoThemeDarkGray;
+        }
         _currentThemeId = (NeoThemeId)saved;
         _isDarkMode = [ThemeManager isDarkThemeId:_currentThemeId];
     }
@@ -41,7 +45,7 @@ static NSString *const kThemeDefaultsKey = @"neo_theme_id";
 
 + (NSString *)nameForThemeId:(NeoThemeId)themeId {
     switch (themeId) {
-        case NeoThemeLightDefault: return @"Default";
+        case NeoThemeLightDefault: return @"Blue";
         case NeoThemeLightGreen:   return @"Green";
         case NeoThemeLightCyan:    return @"Cyan";
         case NeoThemeLightPurple:  return @"Purple";

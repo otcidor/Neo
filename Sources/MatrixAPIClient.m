@@ -141,6 +141,31 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     self.userId = nil;
 }
 
+- (void)clearAllCaches {
+    [self.messageCache removeAllObjects];
+    [self.memberCache removeAllObjects];
+    [self.avatarCache removeAllObjects];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *cachesRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0];
+    NSArray *cacheDirs = @[
+        [cachesRoot stringByAppendingPathComponent:@"com.neo.messageCache"],
+        [cachesRoot stringByAppendingPathComponent:@"com.neo.memberCache"],
+        [cachesRoot stringByAppendingPathComponent:@"com.neo.avatarCache"],
+        [cachesRoot stringByAppendingPathComponent:@"com.neo.FileCache"],
+        [cachesRoot stringByAppendingPathComponent:@"MediaCache"],
+    ];
+    for (NSString *dir in cacheDirs) {
+        [fm removeItemAtPath:dir error:nil];
+    }
+    NSArray *cacheFiles = @[
+        [cachesRoot stringByAppendingPathComponent:@"com.neo.roomCache.plist"],
+    ];
+    for (NSString *file in cacheFiles) {
+        [fm removeItemAtPath:file error:nil];
+    }
+}
+
 #pragma mark - HTTP
 
 - (NSMutableURLRequest *)requestWithPath:(NSString *)path method:(NSString *)method {

@@ -108,7 +108,7 @@ static NSString *kWpImages[] = {
         NSInteger base = 5;
         return [DemoModeManager sharedManager].demoModeUnlocked ? base + 1 : base;
     }
-    if (section == 2) return 1;
+    if (section == 2) return 2;
     return 0;
 }
 
@@ -212,11 +212,19 @@ static NSString *kWpImages[] = {
             toggle.on = [DemoModeManager sharedManager].demoModeEnabled;
         }
     } else {
-        cell.textLabel.text = NSLocalizedString(@"Logout", nil);
-        cell.textLabel.textColor = [UIColor redColor];
-        cell.textLabel.textAlignment = NSTextAlignmentCenter;
-        cell.selectionStyle = UITableViewCellSelectionStyleBlue;
-        cell.accessoryView = nil;
+        if (indexPath.row == 0) {
+            cell.textLabel.text = NSLocalizedString(@"Logout", nil);
+            cell.textLabel.textColor = [UIColor redColor];
+            cell.textLabel.textAlignment = NSTextAlignmentCenter;
+            cell.selectionStyle = UITableViewCellSelectionStyleBlue;
+            cell.accessoryView = nil;
+        } else {
+            cell.textLabel.text = NSLocalizedString(@"Clear Cache", nil);
+            cell.textLabel.textColor = [tm_cell primaryTextColor];
+            cell.textLabel.textAlignment = NSTextAlignmentCenter;
+            cell.selectionStyle = UITableViewCellSelectionStyleBlue;
+            cell.accessoryView = nil;
+        }
     }
     return cell;
 }
@@ -301,6 +309,17 @@ static NSString *kWpImages[] = {
                  delegate:self
         cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
         otherButtonTitles:NSLocalizedString(@"Logout", nil), nil];
+        alert.tag = 1001;
+        [alert show];
+    }
+    if (indexPath.section == 2 && indexPath.row == 1) {
+        UIAlertView *alert = [[UIAlertView alloc]
+            initWithTitle:NSLocalizedString(@"Clear Cache", nil)
+                  message:NSLocalizedString(@"Are you sure?", nil)
+                 delegate:self
+        cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
+        otherButtonTitles:NSLocalizedString(@"Clear", nil), nil];
+        alert.tag = 1002;
         [alert show];
     }
 }
@@ -321,13 +340,18 @@ static NSString *kWpImages[] = {
 - (void)alertView:(UIAlertView *)alertView
     clickedButtonAtIndex:(NSInteger)buttonIndex {
     if (buttonIndex == 1) {
-        [[MatrixAPIClient sharedClient] clearCredentials];
-        LoginViewController *login = [[LoginViewController alloc] init];
-        UINavigationController *nav = [[UINavigationController alloc]
-            initWithRootViewController:login];
-        UIWindow *window = self.view.window ?: [[UIApplication sharedApplication] keyWindow];
-        window.rootViewController = nav;
-        [window makeKeyAndVisible];
+        if (alertView.tag == 1001) {
+            [[MatrixAPIClient sharedClient] clearAllCaches];
+            [[MatrixAPIClient sharedClient] clearCredentials];
+            LoginViewController *login = [[LoginViewController alloc] init];
+            UINavigationController *nav = [[UINavigationController alloc]
+                initWithRootViewController:login];
+            UIWindow *window = self.view.window ?: [[UIApplication sharedApplication] keyWindow];
+            window.rootViewController = nav;
+            [window makeKeyAndVisible];
+        } else if (alertView.tag == 1002) {
+            [[MatrixAPIClient sharedClient] clearAllCaches];
+        }
     }
 }
 

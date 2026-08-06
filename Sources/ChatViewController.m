@@ -761,7 +761,16 @@
 
             if ([type isEqualToString:@"m.room.message"]) {
                 NSDictionary *relatesto = evt[@"content"][@"m.relates_to"];
-                if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) continue;
+                if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) {
+                    NSString *targetId = relatesto[@"event_id"];
+                    NSString *newBody = evt[@"content"][@"m.new_content"][@"body"];
+                    NSDictionary *target = [msgByEventId objectForKey:targetId];
+                    if (target && newBody) {
+                        MatrixMessage *targetMsg = (MatrixMessage *)target;
+                        targetMsg.body = newBody;
+                    }
+                    continue;
+                }
 
                 MatrixMessage *msg = [[MatrixMessage alloc] initWithDictionary:evt
                                                                         roomId:self.room.roomId];
@@ -839,7 +848,19 @@
             NSString *eid = evt[@"event_id"];
             if ([existingEventIds containsObject:eid]) continue;
             NSDictionary *relatesto = evt[@"content"][@"m.relates_to"];
-            if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) continue;
+            if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) {
+                NSString *targetId = relatesto[@"event_id"];
+                NSString *newBody = evt[@"content"][@"m.new_content"][@"body"];
+                if (targetId && newBody) {
+                    for (MatrixMessage *m in self.messages) {
+                        if ([m.eventId isEqualToString:targetId]) {
+                            m.body = newBody;
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
             MatrixMessage *msg = [[MatrixMessage alloc] initWithDictionary:evt
                                                                     roomId:self.room.roomId];
             [olderMessages addObject:msg];
@@ -903,7 +924,20 @@
 
         if ([type isEqualToString:@"m.room.message"]) {
             NSDictionary *relatesto = evt[@"content"][@"m.relates_to"];
-            if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) continue;
+            if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) {
+                NSString *targetId = relatesto[@"event_id"];
+                NSString *newBody = evt[@"content"][@"m.new_content"][@"body"];
+                if (targetId && newBody) {
+                    for (MatrixMessage *m in self.messages) {
+                        if ([m.eventId isEqualToString:targetId]) {
+                            m.body = newBody;
+                            needsReload = YES;
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
 
             BOOL exists = NO;
             for (MatrixMessage *existing in self.messages) {

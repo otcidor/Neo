@@ -79,6 +79,7 @@ typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
 - (NSMutableURLRequest *)requestWithPath:(NSString *)path method:(NSString *)method;
 - (void)saveCredentials;
 - (void)clearCredentials;
+- (void)clearAllCaches;
 
 @property (nonatomic, strong) NSCache *messageCache;
 @property (nonatomic, strong) NSCache *memberCache;
