@@ -310,16 +310,44 @@
         _linkTap.enabled = NO;
         return;
     }
-    NSDataDetector *detector = [NSDataDetector dataDetectorWithTypes:NSTextCheckingTypeLink error:NULL];
-    if (!detector) { _linkResults = @[]; _linkTap.enabled = NO; return; }
     NSMutableArray *results = [NSMutableArray array];
-    [detector enumerateMatchesInString:self.text options:0
-                                 range:NSMakeRange(0, [self.text length])
-                            usingBlock:^(NSTextCheckingResult *result, NSMatchingFlags flags, BOOL *stop) {
-        if (result.resultType == NSTextCheckingTypeLink) {
-            [results addObject:result];
-        }
-    }];
+
+    NSError *err = nil;
+    NSDataDetector *detector = [NSDataDetector dataDetectorWithTypes:NSTextCheckingTypeLink error:&err];
+    if (detector) {
+        [detector enumerateMatchesInString:self.text options:0
+                                     range:NSMakeRange(0, [self.text length])
+                                 usingBlock:^(NSTextCheckingResult *result, NSMatchingFlags flags, BOOL *stop) {
+            if (result.resultType == NSTextCheckingTypeLink) {
+                [results addObject:result];
+            }
+        }];
+    }
+
+    // Supplement with manual regex for URLs that NSDataDetector misses (varies by iOS version)
+    NSString *pattern = @"(?:https?://|www\\.)[^\\s]+";
+    NSRegularExpression *manual = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:NULL];
+    if (manual) {
+        [manual enumerateMatchesInString:self.text options:0
+                                   range:NSMakeRange(0, [self.text length])
+                              usingBlock:^(NSTextCheckingResult *match, NSMatchingFlags flags, BOOL *stop) {
+            // Avoid duplicates with detector results
+            BOOL dup = NO;
+            for (NSTextCheckingResult *existing in results) {
+                if (NSEqualRanges(existing.range, match.range)) { dup = YES; break; }
+            }
+            if (!dup) {
+                NSString *urlStr = [self.text substringWithRange:match.range];
+                if (![urlStr hasPrefix:@"http"]) urlStr = [@"http://" stringByAppendingString:urlStr];
+                NSURL *url = [NSURL URLWithString:urlStr];
+                if (url) {
+                    NSTextCheckingResult *link = [NSTextCheckingResult linkCheckingResultWithRange:match.range URL:url];
+                    [results addObject:link];
+                }
+            }
+        }];
+    }
+
     _linkResults = results;
     _linkTap.enabled = ([_linkResults count] > 0);
 }
@@ -347,17 +375,21 @@
 
     CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString((__bridge CFAttributedStringRef)attrStr);
 
+    CGSize suggestedSize = CTFramesetterSuggestFrameSizeWithConstraints(
+        framesetter, CFRangeMake(0, 0), NULL,
+        CGSizeMake(textFrame.size.width, CGFLOAT_MAX), NULL);
+    CGFloat actualTextHeight = MAX(textFrame.size.height, ceilf(suggestedSize.height));
+
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     CGContextSaveGState(ctx);
     CGContextSetTextMatrix(ctx, CGAffineTransformIdentity);
     CGContextTranslateCTM(ctx, 0, self.bounds.size.height);
     CGContextScaleCTM(ctx, 1.0, -1.0);
 
-    // Path in flipped coordinate space
     CGRect flippedFrame = CGRectMake(textFrame.origin.x,
-                                     self.bounds.size.height - textFrame.origin.y - textFrame.size.height,
+                                     self.bounds.size.height - textFrame.origin.y - actualTextHeight,
                                      textFrame.size.width,
-                                     textFrame.size.height);
+                                     actualTextHeight);
     CGMutablePathRef path = CGPathCreateMutable();
     CGPathAddRect(path, NULL, flippedFrame);
     CTFrameRef ctFrame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0), path, NULL);
