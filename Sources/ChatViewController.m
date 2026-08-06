@@ -10,6 +10,7 @@
 #import <objc/runtime.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import "AudioMessageView.h"
+#import "NeoReactionPillView.h"
 #import "VideoMessageView.h"
 #import <MediaPlayer/MediaPlayer.h>
 #import "DemoModeManager.h"
@@ -554,6 +555,13 @@
                              controller:self];
         }
     }];
+}
+
+- (void)reactionPillTapped:(NeoReactionPillView *)pill {
+    MatrixMessage *msg = objc_getAssociatedObject(pill, "msg");
+    NSString *emoji = objc_getAssociatedObject(pill, "emojiKey");
+    if (!msg || !emoji) return;
+    [self sendReaction:emoji toMessage:msg];
 }
 
 - (void)sendReaction:(NSString *)emoji toMessage:(MatrixMessage *)msg {
@@ -1353,12 +1361,25 @@
     // cancelled
 }
 
+- (UIImage *)resizeImageForUpload:(UIImage *)image {
+    CGFloat maxDim = 1280.0f;
+    CGSize size = image.size;
+    if (size.width <= maxDim && size.height <= maxDim)
+        return image;
+    CGFloat ratio = MIN(maxDim / size.width, maxDim / size.height);
+    CGSize newSize = CGSizeMake(roundf(size.width * ratio), roundf(size.height * ratio));
+    UIGraphicsBeginImageContextWithOptions(newSize, NO, 0.0f);
+    [image drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
+    UIImage *resized = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return resized;
+}
+
 - (void)cameraTapped {
     UIImagePickerController *picker = [[UIImagePickerController alloc] init];
     picker.delegate = self;
     picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
     picker.mediaTypes = [UIImagePickerController availableMediaTypesForSourceType:UIImagePickerControllerSourceTypePhotoLibrary];
-    picker.allowsEditing = YES;
     [self presentViewController:picker animated:YES completion:nil];
 }
 
@@ -1412,10 +1433,11 @@
             [self sendVideoAfterUpload:videoData videoURL:videoURL thumbnailURI:nil width:w height:h durationMs:durationMs uploadAlert:uploadAlert];
         }
     } else {
-        UIImage *image = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
+        UIImage *image = info[UIImagePickerControllerOriginalImage];
         if (!image) return;
+        UIImage *resized = [self resizeImageForUpload:image];
 
-        [[MatrixAPIClient sharedClient] uploadImage:image completion:^(NSString *contentURI, NSError *err) {
+        [[MatrixAPIClient sharedClient] uploadImage:resized completion:^(NSString *contentURI, NSError *err) {
             if (err) {
                 [NeoAlert showAlertWithTitle:@"Upload Error" message:[err localizedDescription] cancelTitle:@"OK" controller:self];
                 return;
@@ -1721,50 +1743,60 @@
         [cell setAck:1];
     }
 
-    // Reactions
-    UILabel *reactionLabel = (UILabel *)[cell.contentView viewWithTag:90];
-    if (!reactionLabel) {
-        reactionLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-        reactionLabel.tag = 90;
-        reactionLabel.font = [UIFont systemFontOfSize:14];
-        reactionLabel.backgroundColor = [UIColor clearColor];
-        reactionLabel.hidden = YES;
-        [cell.contentView addSubview:reactionLabel];
+    // Reactions — pill buttons
+    UIView *pillContainer = (UIView *)[cell.contentView viewWithTag:91];
+    if (!pillContainer) {
+        pillContainer = [[UIView alloc] initWithFrame:CGRectZero];
+        pillContainer.tag = 91;
+        pillContainer.backgroundColor = [UIColor clearColor];
+        [cell.contentView addSubview:pillContainer];
     }
+    // Clear old pill subviews
+    for (UIView *v in pillContainer.subviews) [v removeFromSuperview];
 
     if ([msg.reactions count] > 0) {
-        // Top 5 by frequency
         NSArray *sorted = [[msg.reactions allKeys] sortedArrayUsingComparator:^NSComparisonResult(NSString *e1, NSString *e2) {
             return [msg.reactions[e2] compare:msg.reactions[e1]];
         }];
-        NSInteger limit = MIN(5, (NSInteger)[sorted count]);
+        NSInteger limit = MIN(7, (NSInteger)[sorted count]);
 
-        NSMutableString *reactionStr = [NSMutableString string];
+        CGRect bf = [cell.bubbleView bubbleFrame];
+        CGFloat pillX = isSelf ? (CGRectGetMaxX(bf) - 4) : (CGRectGetMinX(bf) + [MatrixBubbleView textXOffsetForType:MatrixBubbleMessageTypeIncoming]);
+        CGFloat pillY = CGRectGetMaxY(bf) + 2;
+
         for (NSInteger i = 0; i < limit; i++) {
             NSString *emoji = sorted[i];
             NSNumber *count = msg.reactions[emoji];
-            if ([count intValue] > 1) {
-                [reactionStr appendFormat:@"%@ %d  ", emoji, [count intValue]];
+
+            NeoReactionPillView *pill = [[NeoReactionPillView alloc] initWithFrame:CGRectZero];
+            pill.emoji = emoji;
+            pill.count = [count integerValue];
+            pill.pillSelected = NO;
+            [pill updateImage];
+
+            if (isSelf) {
+                pillX -= pill.frame.size.width + 3;
+                pill.frame = CGRectMake(pillX, 0, pill.frame.size.width, pill.frame.size.height);
             } else {
-                [reactionStr appendFormat:@"%@  ", emoji];
+                pill.frame = CGRectMake(pillX, 0, pill.frame.size.width, pill.frame.size.height);
+                pillX += pill.frame.size.width + 3;
             }
+
+            [pill addTarget:self action:@selector(reactionPillTapped:) forControlEvents:UIControlEventTouchUpInside];
+            objc_setAssociatedObject(pill, "msg", msg, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(pill, "emojiKey", emoji, OBJC_ASSOCIATION_COPY_NONATOMIC);
+
+            [pillContainer addSubview:pill];
         }
-        reactionLabel.text = reactionStr;
-        CGSize reactionSize = [reactionStr sizeWithFont:[UIFont systemFontOfSize:14]];
 
-        CGRect bf = [cell.bubbleView bubbleFrame];
-        // Half inside / half outside bubble bottom edge
-        CGFloat reactionY = CGRectGetMaxY(bf) - 8;
-
-        CGFloat reactionX = isSelf
-            ? (CGRectGetMaxX(bf) - reactionSize.width - 8)
-            : CGRectGetMinX(bf) + [MatrixBubbleView textXOffsetForType:MatrixBubbleMessageTypeIncoming];
-
-        reactionLabel.frame = CGRectMake(reactionX, reactionY, reactionSize.width + 8, 20);
-        reactionLabel.hidden = NO;
+        if (isSelf) {
+            pillContainer.frame = CGRectMake(0, pillY, self.tableView.frame.size.width, 26);
+        } else {
+            pillContainer.frame = CGRectMake(0, pillY, self.tableView.frame.size.width, 26);
+        }
+        pillContainer.hidden = NO;
     } else {
-        reactionLabel.hidden = YES;
-        reactionLabel.text = @"";
+        pillContainer.hidden = YES;
     }
 
     return cell;
@@ -2142,7 +2174,7 @@
         }
     }
 
-    CGFloat reactionH = ([msg.reactions count] > 0) ? 22 : 0;
+    CGFloat reactionH = ([msg.reactions count] > 0) ? 26 : 0;
     CGFloat replyH = (msg.replyToEventId && [msg.replyToEventId length] > 0) ? [MatrixBubbleView replyPreviewHeight] : 0;
     return bubbleH + reactionH + replyH;
 }

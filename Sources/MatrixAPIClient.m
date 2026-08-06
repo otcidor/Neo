@@ -158,9 +158,12 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 }
 
 - (void)sendRequest:(NSURLRequest *)request completion:(MatrixCompletion)completion {
+    void (^safeCompletion)(NSDictionary *, NSError *) = ^(NSDictionary *resp, NSError *err) {
+        if (completion) completion(resp, err);
+    };
     void (^handleResp)(NSURLResponse *, NSData *, NSError *) = ^(NSURLResponse *response, NSData *data, NSError *connectionError) {
         if (connectionError) {
-            completion(nil, connectionError);
+            safeCompletion(nil, connectionError);
             return;
         }
         NSHTTPURLResponse *httpResp = (NSHTTPURLResponse *)response;
@@ -174,11 +177,11 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
                                       @"error": [NSHTTPURLResponse localizedStringForStatusCode:httpResp.statusCode]};
             NSError *err = [NSError errorWithDomain:@"MatrixAPI" code:httpResp.statusCode
                                            userInfo:errInfo];
-            completion(nil, err);
+            safeCompletion(nil, err);
             return;
         }
         if (!data) {
-            completion(@{}, nil);
+            safeCompletion(@{}, nil);
             return;
         }
         NSError *jsonError = nil;
@@ -186,9 +189,9 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
                                                              options:0
                                                                error:&jsonError];
         if (jsonError) {
-            completion(nil, jsonError);
+            safeCompletion(nil, jsonError);
         } else {
-            completion(json, nil);
+            safeCompletion(json, nil);
         }
     };
 
@@ -922,7 +925,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 
 - (void)uploadImage:(UIImage *)image
          completion:(void(^)(NSString *contentURI, NSError *error))completion {
-    NSData *imageData = UIImageJPEGRepresentation(image, 0.8);
+    NSData *imageData = UIImageJPEGRepresentation(image, 0.54);
     NSString *path = @"/_matrix/media/r0/upload";
     NSMutableURLRequest *req = [self requestWithPath:path method:@"POST"];
     [req setValue:@"image/jpeg" forHTTPHeaderField:@"Content-Type"];
