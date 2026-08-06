@@ -217,26 +217,11 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         [TGTableDeltaUpdater replaceItemsInTable:oldFiltered
                                     withNewItems:self.filteredRooms
                                     applyDeletes:^(NSArray<TGTableAlignment *> *deletes) {
-            [self.tableView beginUpdates];
-            NSMutableArray *ips = [NSMutableArray array];
-            for (TGTableAlignment *a in deletes) {
-                for (NSInteger i = 0; i < a.len; i++) {
-                    [ips addObject:[NSIndexPath indexPathForRow:a.pos + i inSection:0]];
-                }
-            }
-            if ([ips count] > 0) [self.tableView deleteRowsAtIndexPaths:ips withRowAnimation:UITableViewRowAnimationFade];
-            [self.tableView endUpdates];
+            (void)deletes;
         } applyInserts:^(NSArray<TGTableAlignment *> *inserts) {
-            [self.tableView beginUpdates];
-            NSMutableArray *ips = [NSMutableArray array];
-            for (TGTableAlignment *a in inserts) {
-                for (NSInteger i = 0; i < a.len; i++) {
-                    [ips addObject:[NSIndexPath indexPathForRow:a.pos + i inSection:0]];
-                }
-            }
-            if ([ips count] > 0) [self.tableView insertRowsAtIndexPaths:ips withRowAnimation:UITableViewRowAnimationFade];
-            [self.tableView endUpdates];
+            (void)inserts;
         }];
+        [self.tableView reloadData];
     }
     [self updateSubtitle];
 }
@@ -756,18 +741,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
     NSString *subtitleText = @"";
     if ([room.lastMessage length] > 0) {
-        if (room.memberCount > 2 && [room.lastMessageSender length] > 0) {
-            NSString *senderShort = room.lastMessageSender;
-            NSRange colon = [senderShort rangeOfString:@":"];
-            if (colon.location != NSNotFound)
-                senderShort = [senderShort substringToIndex:colon.location];
-            if ([senderShort hasPrefix:@"@"])
-                senderShort = [senderShort substringFromIndex:1];
-            subtitleText = [NSString stringWithFormat:@"%@: %@",
-                            senderShort, room.lastMessage];
-        } else {
-            subtitleText = room.lastMessage;
-        }
+        subtitleText = room.lastMessage;
     } else if (room.memberCount > 0) {
         subtitleText = [NSString stringWithFormat:NSLocalizedString(@"%d members", nil),
                         (int)room.memberCount];

@@ -8,6 +8,19 @@
 #define kPaddingTop 8.0f
 #define kPaddingBottom 24.0f
 #define kBubblePaddingRight 35.0f
+#define kLargeEmojiFontSize 40.0f
+
+static bool isEmojiChar(NSString *singleChar) {
+    if ([singleChar length] == 0) return false;
+    const unichar high = [singleChar characterAtIndex:0];
+    if (0xd800 <= high && high <= 0xdbff && [singleChar length] >= 2) {
+        const unichar low = [singleChar characterAtIndex:1];
+        const int cp = ((high - 0xd800) * 0x400) + (low - 0xdc00) + 0x10000;
+        return (0x1d000 <= cp && cp <= 0x1f77f);
+    }
+    return (0x2100 <= high && high <= 0x27bf);
+}
+
 #define kSenderHeight 22.0f
 #define kTimestampHeight 16.0f
 #define kReplyPreviewHeight 40.0f
@@ -23,6 +36,35 @@
 @end
 
 @implementation MatrixBubbleView
+
++ (BOOL)stringContainsEmojiOnly:(NSString *)string length:(NSUInteger *)count {
+    if ([string length] == 0) return false;
+    __block BOOL result = YES;
+    __block NSUInteger c = 0;
+    [string enumerateSubstringsInRange:NSMakeRange(0, [string length])
+                               options:NSStringEnumerationByComposedCharacterSequences
+                            usingBlock:^(NSString *sub, NSRange r, NSRange e, BOOL *stop) {
+        if (!isEmojiChar(sub)) { result = NO; *stop = YES; }
+        c++;
+    }];
+    if (count) *count = c;
+    return result;
+}
+
++ (UIColor *)colorForUserId:(NSString *)userId {
+    if ([userId length] == 0) return [UIColor grayColor];
+    NSUInteger hash = [userId hash];
+    NSArray *palette = @[
+        [UIColor colorWithRed:1.0 green:0.32 blue:0.35 alpha:1.0],
+        [UIColor colorWithRed:1.0 green:0.66 blue:0.36 alpha:1.0],
+        [UIColor colorWithRed:0.4 green:0.37 blue:1.0 alpha:1.0],
+        [UIColor colorWithRed:0.33 green:0.8 blue:0.41 alpha:1.0],
+        [UIColor colorWithRed:0.16 green:0.79 blue:0.72 alpha:1.0],
+        [UIColor colorWithRed:0.16 green:0.62 blue:0.95 alpha:1.0],
+        [UIColor colorWithRed:0.84 green:0.41 blue:0.93 alpha:1.0],
+    ];
+    return palette[hash % 7];
+}
 
 @synthesize type, text, timestamp, showTimestamp, userName, showUser, isRedacted, ack, hasMedia, mediaView, selectedToShowCopyMenu, replySenderName, replyBody;
 
@@ -174,6 +216,30 @@
 
 - (void)drawRect:(CGRect)frame {
     [super drawRect:frame];
+
+    if (self.isEmojiOnly && !isRedacted) {
+        NSString *emojiText = self.text ?: @"";
+        CGFloat w = self.bounds.size.width;
+        UIFont *bigFont = [UIFont systemFontOfSize:kLargeEmojiFontSize];
+        CGSize ts = [text sizeWithFont:bigFont];
+
+        CGFloat x = (self.type == MatrixBubbleMessageTypeOutgoing) ? w - ts.width - 12 : 12;
+        CGFloat y = (self.bounds.size.height - ts.height) / 2;
+        [emojiText drawInRect:CGRectMake(x, y, ts.width, ts.height) withFont:bigFont];
+
+        if (self.showTimestamp && self.timestamp) {
+            NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+            fmt.dateFormat = @"HH:mm";
+            NSString *timeStr = [fmt stringFromDate:self.timestamp];
+            CGSize tsz = [timeStr sizeWithFont:[UIFont systemFontOfSize:10]];
+            [[UIColor grayColor] set];
+            CGFloat tx = (self.type == MatrixBubbleMessageTypeOutgoing) ? x - tsz.width - 6 : x + ts.width + 6;
+            [timeStr drawInRect:CGRectMake(tx, y + ts.height - tsz.height, tsz.width, tsz.height)
+                       withFont:[UIFont systemFontOfSize:10]];
+        }
+        return;
+    }
+
     UIImage *image = [self bubbleImage];
     CGRect bFrame = [self bubbleFrame];
 
@@ -261,13 +327,7 @@
     }
 
     if (self.showUser) {
-        UIColor *userColor = [UIColor darkGrayColor];
-        NSUInteger hash = [self.userName hash];
-        CGFloat r = ((hash >> 16) & 0xFF) / 255.0;
-        CGFloat g = ((hash >> 8) & 0xFF) / 255.0;
-        CGFloat b = (hash & 0xFF) / 255.0;
-        userColor = [UIColor colorWithRed:r green:g blue:b alpha:1.0];
-        [userColor set];
+        [[MatrixBubbleView colorForUserId:self.senderId] set];
         [self.userName drawInRect:CGRectMake(textX, kPaddingTop + kMarginTop, textSize.width, kSenderHeight)
                          withFont:[UIFont boldSystemFontOfSize:15]
                     lineBreakMode:NSLineBreakByClipping
@@ -469,6 +529,11 @@
     return size;
 }
 
++ (CGSize)largeEmojiSizeForText:(NSString *)txt {
+    CGSize size = [txt sizeWithFont:[UIFont systemFontOfSize:kLargeEmojiFontSize]];
+    return size;
+}
+
 + (CGSize)bubbleSizeForText:(NSString *)txt {
     CGSize textSize = [MatrixBubbleView textSizeForText:txt];
     return CGSizeMake(textSize.width + kBubblePaddingRight,
@@ -476,13 +541,19 @@
 }
 
 + (CGFloat)cellHeightForText:(NSString *)txt
-                    showUser:(BOOL)showUserFlag
-               showTimestamp:(BOOL)showTimestampFlag
-                  isRedacted:(BOOL)isRedactedFlag {
+                     showUser:(BOOL)showUserFlag
+                showTimestamp:(BOOL)showTimestampFlag
+                   isRedacted:(BOOL)isRedactedFlag {
     NSString *displayText = isRedactedFlag ? NSLocalizedString(@"Deleted message", nil) : txt;
     CGSize bSize = [MatrixBubbleView bubbleSizeForText:displayText];
     CGFloat userH = showUserFlag ? kSenderHeight : 0;
     return kMarginTop + userH + bSize.height + kMarginBottom;
+}
+
++ (CGFloat)cellHeightForEmojiOnly:(NSString *)txt {
+    if ([txt length] == 0) return 0;
+    CGSize ts = [MatrixBubbleView largeEmojiSizeForText:txt];
+    return MAX(ts.height + 20, 60);
 }
 
 + (CGFloat)textXOffsetForType:(MatrixBubbleMessageType)type {

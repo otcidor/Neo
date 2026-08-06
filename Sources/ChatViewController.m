@@ -685,23 +685,45 @@
 
 - (void)buildDisplayItems {
     [_displayItems removeAllObjects];
-    NSString *lastDateStr = nil;
-    NSDateFormatter *dayFmt = [[NSDateFormatter alloc] init];
-    dayFmt.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"es_CL"];
-    dayFmt.dateFormat = @"EEEE, MMMM d";
+    NSString *lastDayLabel = nil;
 
     for (MatrixMessage *msg in self.messages) {
         if (!msg.timestamp) {
             [_displayItems addObject:msg];
             continue;
         }
-        NSString *dateStr = [dayFmt stringFromDate:msg.timestamp];
-        if (!lastDateStr || ![dateStr isEqualToString:lastDateStr]) {
-            [_displayItems addObject:dateStr];
-            lastDateStr = dateStr;
+
+        NSString *dayLabel = [self dayLabelForTimestamp:msg.timestamp];
+        if (!lastDayLabel || ![dayLabel isEqualToString:lastDayLabel]) {
+            [_displayItems addObject:dayLabel];
+            lastDayLabel = dayLabel;
         }
         [_displayItems addObject:msg];
     }
+}
+
+- (NSString *)dayLabelForTimestamp:(NSDate *)date {
+    if (!date) return @"";
+    time_t now = time(NULL);
+    time_t t = [date timeIntervalSince1970];
+    struct tm nowTm, dateTm;
+    localtime_r(&now, &nowTm);
+    localtime_r(&t, &dateTm);
+
+    if (nowTm.tm_year == dateTm.tm_year && nowTm.tm_yday == dateTm.tm_yday) {
+        return NSLocalizedString(@"Today", nil);
+    }
+    if (nowTm.tm_year == dateTm.tm_year && nowTm.tm_yday - dateTm.tm_yday == 1) {
+        return NSLocalizedString(@"Yesterday", nil);
+    }
+    if (nowTm.tm_year == dateTm.tm_year) {
+        NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+        fmt.dateFormat = @"EEEE, MMMM d";
+        return [fmt stringFromDate:date];
+    }
+    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+    fmt.dateFormat = @"EEEE, MMMM d, yyyy";
+    return [fmt stringFromDate:date];
 }
 
 - (void)loadMessages {
@@ -1589,7 +1611,13 @@
                      isVideo ||
                      isFile);
 
-    NSString *cellId = [NSString stringWithFormat:@"MsgCell_%d_%d_%d_%d", type, showUser, showTimestamp, isAudio || isVideo || isFile];
+    BOOL isEmojiOnly = NO;
+    if (!hasMedia && [msg.msgType isEqualToString:@"m.text"] && [msg.body length] > 0) {
+        NSUInteger count = 0;
+        isEmojiOnly = [MatrixBubbleView stringContainsEmojiOnly:msg.body length:&count] && count <= 3;
+    }
+
+    NSString *cellId = [NSString stringWithFormat:@"MsgCell_%d_%d_%d_%d_%d", type, showUser, showTimestamp, isAudio || isVideo || isFile, isEmojiOnly];
     MatrixBubbleMessageCell *cell = [tableView dequeueReusableCellWithIdentifier:cellId];
 
     UIView *mediaView = nil;
@@ -1675,9 +1703,11 @@
           dateSeparator:nil];
     NSString *displayBody = [[DemoModeManager sharedManager] obfuscateMessage:msg.body];
     [cell setMessage:msg.isRedacted ? msg.body : displayBody];
+    cell.bubbleView.isEmojiOnly = isEmojiOnly;
     [cell setTimestamp:msg.timestamp];
     [cell setIsRedacted:msg.isRedacted];
     [cell setUserWrited:[self displayNameForSender:msg.sender]];
+    cell.bubbleView.senderId = msg.sender;
 
     // Reply quote
     if (msg.replyToEventId && msg.replyToBody && [msg.replyToBody length] > 0) {
@@ -2099,10 +2129,17 @@
                                                      isRedacted:msg.isRedacted
                                                     mediaHeight:130];
     } else {
-        bubbleH = [MatrixBubbleView cellHeightForText:msg.body
-                                             showUser:showUser
-                                        showTimestamp:showTimestamp
-                                           isRedacted:msg.isRedacted];
+        NSUInteger emojiCount = 0;
+        BOOL emojiOnly = ![msg.msgType isEqualToString:@"m.image"] && ![msg.body hasPrefix:@"mxc://"]
+            && [MatrixBubbleView stringContainsEmojiOnly:msg.body length:&emojiCount] && emojiCount <= 3;
+        if (emojiOnly) {
+            bubbleH = [MatrixBubbleView cellHeightForEmojiOnly:msg.body];
+        } else {
+            bubbleH = [MatrixBubbleView cellHeightForText:msg.body
+                                                 showUser:showUser
+                                            showTimestamp:showTimestamp
+                                               isRedacted:msg.isRedacted];
+        }
     }
 
     CGFloat reactionH = ([msg.reactions count] > 0) ? 22 : 0;

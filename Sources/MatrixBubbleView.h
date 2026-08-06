@@ -20,6 +20,11 @@ typedef enum {
 @property (assign, nonatomic) BOOL selectedToShowCopyMenu;
 @property (copy, nonatomic) NSString *replySenderName;
 @property (copy, nonatomic) NSString *replyBody;
+@property (assign, nonatomic) BOOL isEmojiOnly;
+@property (copy, nonatomic) NSString *senderId;
+
++ (BOOL)stringContainsEmojiOnly:(NSString *)string length:(NSUInteger *)count;
++ (UIColor *)colorForUserId:(NSString *)userId;
 
 - (id)initWithFrame:(CGRect)frame
                type:(MatrixBubbleMessageType)type
@@ -31,9 +36,11 @@ typedef enum {
 - (CGRect)bubbleFrame;
 
 + (CGFloat)cellHeightForText:(NSString *)txt
-                    showUser:(BOOL)showUserFlag
-               showTimestamp:(BOOL)showTimestampFlag
-                  isRedacted:(BOOL)isRedactedFlag;
+                     showUser:(BOOL)showUserFlag
+                showTimestamp:(BOOL)showTimestampFlag
+                   isRedacted:(BOOL)isRedactedFlag;
+
++ (CGFloat)cellHeightForEmojiOnly:(NSString *)txt;
 
 + (CGFloat)cellHeightForMediaWithText:(NSString *)txt
                              showUser:(BOOL)showUserFlag
@@ -45,6 +52,7 @@ typedef enum {
 
 + (UIFont *)font;
 + (CGSize)textSizeForText:(NSString *)txt;
++ (CGSize)largeEmojiSizeForText:(NSString *)txt;
 + (CGSize)bubbleSizeForText:(NSString *)txt;
 + (CGFloat)replyPreviewHeight;
 
