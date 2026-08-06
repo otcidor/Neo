@@ -306,11 +306,10 @@
     [self.messages addObject:msg];
     [self buildDisplayItems];
     [self.tableView reloadData];
-
-    CGFloat nearBottom = self.tableView.contentSize.height - self.tableView.contentOffset.y - self.tableView.bounds.size.height;
-    CGFloat threshold = 60.0;
-    if (nearBottom < threshold) {
-        [self scrollToBottom];
+    if (_shouldAutoScroll) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self scrollToBottom];
+        });
     }
 }
 
@@ -1001,9 +1000,10 @@
         [self resolveAllReplies];
         [self buildDisplayItems];
         [self.tableView reloadData];
-        CGFloat nearBottom = self.tableView.contentOffset.y + self.tableView.bounds.size.height;
-        if (nearBottom >= self.tableView.contentSize.height - 60) {
-            [self scrollToBottom];
+        if (_shouldAutoScroll) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self scrollToBottom];
+            });
         }
     }
 }
