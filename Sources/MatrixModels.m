@@ -12,6 +12,10 @@
     return self;
 }
 
+- (NSString *)uniqueIdentifier {
+    return _roomId ?: @"";
+}
+
 - (void)updateNameFromStateEvents:(NSArray *)stateEvents timelineEvents:(NSArray *)timelineEvents {
     for (NSDictionary *evt in stateEvents) {
         NSString *type = evt[@"type"];

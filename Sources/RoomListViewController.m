@@ -11,6 +11,7 @@
 #import "NeoCompatibility.h"
 #import "DemoModeManager.h"
 #import "UIImage+NeoBlur.h"
+#import "TGTableDeltaUpdater.h"
 
 static UIColor *colorForTheme(SpaceTheme theme) {
     switch (theme) {
@@ -164,12 +165,26 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     NSTimeInterval diff = [[NSDate date] timeIntervalSinceDate:date];
     if (diff < 60) return NSLocalizedString(@"now", nil);
     if (diff < 3600) return [NSString stringWithFormat:NSLocalizedString(@"%dm", nil), (int)(diff/60)];
-    if (diff < 86400) {
+
+    time_t now = time(NULL);
+    time_t t = [date timeIntervalSince1970];
+    struct tm nowTm, dateTm;
+    localtime_r(&now, &nowTm);
+    localtime_r(&t, &dateTm);
+
+    if (nowTm.tm_year == dateTm.tm_year && nowTm.tm_yday == dateTm.tm_yday) {
         NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
         fmt.dateFormat = NSLocalizedString(@"HH:mm", nil);
         return [fmt stringFromDate:date];
     }
-    if (diff < 172800) return NSLocalizedString(@"yesterday", nil);
+    if (nowTm.tm_year == dateTm.tm_year && nowTm.tm_yday - dateTm.tm_yday == 1) {
+        return NSLocalizedString(@"yesterday", nil);
+    }
+    if (nowTm.tm_year == dateTm.tm_year) {
+        NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+        fmt.dateFormat = @"EEE dd/MM";
+        return [fmt stringFromDate:date];
+    }
     NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
     fmt.dateFormat = NSLocalizedString(@"dd/MM/yy", nil);
     return [fmt stringFromDate:date];
@@ -179,6 +194,8 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     NSString *query = [[self.searchBar.text
         stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]
         lowercaseString];
+
+    NSArray *oldFiltered = [self.filteredRooms copy];
 
     if ([query length] > 0) {
         NSMutableArray *tmp = [NSMutableArray array];
@@ -194,7 +211,33 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         self.filteredRooms = [NSMutableArray arrayWithArray:self.rooms];
     }
 
-    [self.tableView reloadData];
+    if ([query length] > 0 || !oldFiltered) {
+        [self.tableView reloadData];
+    } else {
+        [TGTableDeltaUpdater replaceItemsInTable:oldFiltered
+                                    withNewItems:self.filteredRooms
+                                    applyDeletes:^(NSArray<TGTableAlignment *> *deletes) {
+            [self.tableView beginUpdates];
+            NSMutableArray *ips = [NSMutableArray array];
+            for (TGTableAlignment *a in deletes) {
+                for (NSInteger i = 0; i < a.len; i++) {
+                    [ips addObject:[NSIndexPath indexPathForRow:a.pos + i inSection:0]];
+                }
+            }
+            if ([ips count] > 0) [self.tableView deleteRowsAtIndexPaths:ips withRowAnimation:UITableViewRowAnimationFade];
+            [self.tableView endUpdates];
+        } applyInserts:^(NSArray<TGTableAlignment *> *inserts) {
+            [self.tableView beginUpdates];
+            NSMutableArray *ips = [NSMutableArray array];
+            for (TGTableAlignment *a in inserts) {
+                for (NSInteger i = 0; i < a.len; i++) {
+                    [ips addObject:[NSIndexPath indexPathForRow:a.pos + i inSection:0]];
+                }
+            }
+            if ([ips count] > 0) [self.tableView insertRowsAtIndexPaths:ips withRowAnimation:UITableViewRowAnimationFade];
+            [self.tableView endUpdates];
+        }];
+    }
     [self updateSubtitle];
 }
 
@@ -613,7 +656,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return 76;
+    return 80;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -630,9 +673,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         }
         cell.selectionStyle = UITableViewCellSelectionStyleBlue;
 
-        UIImageView *avatarView = [[UIImageView alloc] initWithFrame:CGRectMake(10, 10, 56, 56)];
+        UIImageView *avatarView = [[UIImageView alloc] initWithFrame:CGRectMake(9, 10, 60, 60)];
         avatarView.tag = 99;
-        avatarView.layer.cornerRadius = 28;
+        avatarView.layer.cornerRadius = 30;
         avatarView.clipsToBounds = YES;
         avatarView.contentMode = UIViewContentModeScaleAspectFill;
         avatarView.backgroundColor = [UIColor colorWithWhite:0.85 alpha:1.0];
@@ -646,7 +689,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
         UILabel *lastMsgLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         lastMsgLabel.tag = 92;
-        lastMsgLabel.font = [UIFont systemFontOfSize:13];
+        lastMsgLabel.font = [UIFont systemFontOfSize:14];
         lastMsgLabel.textColor = [UIColor grayColor];
         lastMsgLabel.backgroundColor = [UIColor clearColor];
         lastMsgLabel.numberOfLines = 2;
@@ -698,9 +741,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     CGFloat tsW = MAX(tsSize.width + 6, 44);
     tsLabel.text = tsText;
     tsLabel.textColor = (unread > 0) ? tint : [UIColor grayColor];
-    tsLabel.frame = CGRectMake(cellW - tsW - 24, 12, tsW, 18);
+    tsLabel.frame = CGRectMake(cellW - tsW - 22, 14, tsW, 18);
 
-    nameLabel.frame = CGRectMake(78, 12, cellW - 78 - tsW - 28, 22);
+    nameLabel.frame = CGRectMake(78, 12, cellW - 78 - tsW - 24, 22);
     NSString *rawName = [MatrixAPIClient localNameForRoomId:room.roomId] ?: room.name;
     nameLabel.text = [[DemoModeManager sharedManager] obfuscateName:rawName];
 
@@ -730,12 +773,12 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                         (int)room.memberCount];
     }
     lastMsgLabel.text = [[DemoModeManager sharedManager] obfuscateMessage:subtitleText];
-    lastMsgLabel.frame = CGRectMake(78, 34, cellW - 78 - 20, 36);
+    lastMsgLabel.frame = CGRectMake(78, 34, cellW - 78 - 20, 34);
 
     if (unread > 0) {
         unreadDot.hidden = NO;
         unreadDot.backgroundColor = tint;
-        unreadDot.frame = CGRectMake(cellW - 16, 34, 10, 10);
+        unreadDot.frame = CGRectMake(cellW - 18, 34, 10, 10);
         nameLabel.font = [UIFont boldSystemFontOfSize:16];
     } else {
         unreadDot.hidden = YES;

@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import "TGTableDeltaUpdater.h"
 
 typedef enum {
     SpaceThemeDefault = 0,
@@ -8,7 +9,7 @@ typedef enum {
     SpaceThemeInstagram
 } SpaceTheme;
 
-@interface MatrixRoom : NSObject
+@interface MatrixRoom : NSObject <TGTableItem>
 @property (nonatomic, copy) NSString *roomId;
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic, assign) NSInteger memberCount;
