@@ -210,7 +210,7 @@ static bool isEmojiChar(NSString *singleChar) {
     CGFloat bx = (self.type == MatrixBubbleMessageTypeOutgoing)
         ? self.frame.size.width - bw
         : 0;
-    CGFloat replyH = ([self.replySenderName length] > 0) ? kReplyPreviewHeight : 0;
+    CGFloat replyH = ([self.replySenderName length] > 0 && [self.replyBody length] > 0) ? (kReplyPreviewHeight + 5) : 0;
     return CGRectMake(bx, kMarginTop, bw, bSize.height + userH + mediaH + replyH);
 }
 
@@ -295,9 +295,9 @@ static bool isEmojiChar(NSString *singleChar) {
 
         // Separator line below reply
         [[UIColor colorWithWhite:0.8 alpha:0.6] set];
-        UIRectFill(CGRectMake(textX, replyY + kReplyPreviewHeight + 1, contentWidth, 0.5));
+        UIRectFill(CGRectMake(textX, replyY + kReplyPreviewHeight - 3, contentWidth, 0.5));
 
-        contentY += kReplyPreviewHeight + 5;
+        contentY += kReplyPreviewHeight;
     }
 
     if (self.hasMedia && self.mediaView) {
@@ -307,7 +307,7 @@ static bool isEmojiChar(NSString *singleChar) {
 
     CGRect textFrame = CGRectMake(textX, contentY, textSize.width, textSize.height);
 
-    CGFloat tsY = contentY + textSize.height + 4;
+    CGFloat tsY = CGRectGetMaxY(bFrame) - kTimestampHeight - 4.0f;
     NSString *timeStr = @"";
     if (self.timestamp) {
         NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
@@ -577,7 +577,7 @@ static bool isEmojiChar(NSString *singleChar) {
 }
 
 + (CGFloat)replyPreviewHeight {
-    return kReplyPreviewHeight;
+    return kReplyPreviewHeight + 5;
 }
 
 @end

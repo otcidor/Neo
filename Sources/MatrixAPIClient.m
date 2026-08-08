@@ -850,7 +850,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
             IMGLog(@"Error conexión: %@", connErr.localizedDescription);
             if (fallbackURLString && ![fallbackURLString isEqualToString:urlString]) {
                 IMGLog(@"Intentando fallback: %@", fallbackURLString);
-                [self downloadFromURL:fallbackURLString
+                [self performDownloadFromURL:fallbackURLString
                           fallbackURL:nil
                              cacheKey:cacheKey
                            completion:completion];
@@ -869,7 +869,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
             IMGLog(@"Error %ld: %@", (long)httpResp.statusCode, bodyStr);
             if (fallbackURLString && ![fallbackURLString isEqualToString:urlString]) {
                 IMGLog(@"Intentando fallback: %@", fallbackURLString);
-                [self downloadFromURL:fallbackURLString
+                [self performDownloadFromURL:fallbackURLString
                           fallbackURL:nil
                              cacheKey:cacheKey
                            completion:completion];
