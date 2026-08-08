@@ -442,7 +442,7 @@
             [self downloadAndOpenFile:msg];
         } else {
             NSInteger emojiStart = _openInButtonIndex + 1;
-            [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart];
+            [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart isSelf:_selectedIsSelf];
         }
         return;
     }
@@ -457,13 +457,13 @@
             return;
         }
         NSInteger emojiStart = _downloadButtonIndex + 1;
-        [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart];
+        [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart isSelf:_selectedIsSelf];
         return;
     }
 
     if (tag == 300 || tag == 200 || tag == 500) {
         BOOL isImage = (tag == 300);
-        BOOL isSelf = (tag == 200);
+        BOOL isSelf = _selectedIsSelf;
 
         if (buttonIndex == 0) {
             [self startReplyToMessage:msg];
