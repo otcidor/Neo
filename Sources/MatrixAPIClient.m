@@ -33,6 +33,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 @implementation MatrixAPIClient {
     NSInteger _activeImageDownloads;
     NSMutableArray *_pendingImageDownloads;
+    NSTimeInterval _lastImgActivity;
 }
 
 + (instancetype)sharedClient {
@@ -49,6 +50,9 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
         instance.messageCache = [[NSCache alloc] init];
         instance.memberCache = [[NSCache alloc] init];
         instance.avatarCache = [[NSCache alloc] init];
+        instance.avatarCache.countLimit = 200;
+        instance.avatarCache.totalCostLimit = 48 * 1024 * 1024;
+        instance->_lastImgActivity = [NSDate timeIntervalSinceReferenceDate];
     });
     return instance;
 }
@@ -782,6 +786,19 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
             fallbackURL:(NSString *)fallbackURLString
                cacheKey:(NSString *)cacheKey
              completion:(void(^)(UIImage *image, NSError *error))completion {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self downloadFromURL:urlString fallbackURL:fallbackURLString cacheKey:cacheKey completion:completion];
+        });
+        return;
+    }
+    //Watchdog
+    if ([_pendingImageDownloads count] > 0 && _activeImageDownloads > 0 &&
+        ([NSDate timeIntervalSinceReferenceDate] - _lastImgActivity) > 90.0) {
+        IMGLog(@"WATCHDOG: Reset _activeImageDownloads (stuck for >90s)");
+        _activeImageDownloads = 0;
+    }
+    
     if (!_pendingImageDownloads) _pendingImageDownloads = [NSMutableArray array];
 
     NSMutableDictionary *job = [NSMutableDictionary dictionary];
@@ -800,6 +817,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     NSDictionary *job = [_pendingImageDownloads objectAtIndex:0];
     [_pendingImageDownloads removeObjectAtIndex:0];
     _activeImageDownloads++;
+    _lastImgActivity = [NSDate timeIntervalSinceReferenceDate];
 
     NSString *url = [job[@"url"] length] > 0 ? job[@"url"] : nil;
     NSString *fb = [job[@"fb"] length] > 0 ? job[@"fb"] : nil;
@@ -811,6 +829,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
                         cacheKey:key
                       completion:^(UIImage *image, NSError *error) {
         _activeImageDownloads--;
+        _lastImgActivity = [NSDate timeIntervalSinceReferenceDate];
         [self drainImageQueue];
         if (jobCompletion) jobCompletion(image, error);
     }];
