@@ -194,11 +194,20 @@
         }
 
         self.reactions = [NSMutableDictionary dictionary];
+        self.myReactions = [NSMutableDictionary dictionary];
 
         double ts = [dict[@"origin_server_ts"] doubleValue] / 1000.0;
-        _timestamp = [NSDate dateWithTimeIntervalSince1970:ts];
+        if (ts > 0) {
+            _timestamp = [NSDate dateWithTimeIntervalSince1970:ts];
+        } else {
+            _timestamp = [NSDate date];
+        }
     }
     return self;
+}
+
+- (NSString *)uniqueIdentifier {
+    return _eventId ?: @"";
 }
 
 - (void)resolveReplyFromMessages:(NSArray *)messages {
@@ -209,6 +218,15 @@
             _replyToBody = m.body;
             return;
         }
+    }
+}
+
+- (void)resolveReplyFromDict:(NSDictionary *)messagesByEventId {
+    if (!_replyToEventId || [_replyToEventId length] == 0) return;
+    MatrixMessage *m = [messagesByEventId objectForKey:_replyToEventId];
+    if (m) {
+        _replyToSender = m.sender;
+        _replyToBody = m.body;
     }
 }
 @end

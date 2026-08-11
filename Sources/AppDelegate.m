@@ -27,6 +27,13 @@
 
     [self.window makeKeyAndVisible];
 
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+        [MatrixAPIClient cleanupMediaCacheOlderThanDays:14];
+        NSString *pendingDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0]
+                                stringByAppendingPathComponent:@"PendingUploads"];
+        [[NSFileManager defaultManager] removeItemAtPath:pendingDir error:nil];
+    });
+
     if (launchOptions[UIApplicationLaunchOptionsLocalNotificationKey]) {
         NSDictionary *userInfo = launchOptions[UIApplicationLaunchOptionsLocalNotificationKey];
         [self handleNotificationUserInfo:userInfo];

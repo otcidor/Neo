@@ -16,4 +16,8 @@
                applyDeletes:(void(^)(NSArray<TGTableAlignment *> *))applyDeletes
                applyInserts:(void(^)(NSArray<TGTableAlignment *> *))applyInserts;
 
++ (void)replaceItemsInTable:(NSArray<id<TGTableItem>> *)oldItems
+               withNewItems:(NSArray<id<TGTableItem>> *)newItems
+          singleUpdateBlock:(void(^)(NSArray<TGTableAlignment *> *deletes, NSArray<TGTableAlignment *> *inserts))updateBlock;
+
 @end

@@ -33,6 +33,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 @implementation MatrixAPIClient {
     NSInteger _activeImageDownloads;
     NSMutableArray *_pendingImageDownloads;
+    NSTimeInterval _lastImgActivity;
 }
 
 + (instancetype)sharedClient {
@@ -47,8 +48,13 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
         instance.userId = [defaults stringForKey:kDefaultsKeyUserId];
         instance.nextBatchToken = [defaults stringForKey:kDefaultsKeyNextBatch];
         instance.messageCache = [[NSCache alloc] init];
+        instance.messageCache.countLimit = 30;
         instance.memberCache = [[NSCache alloc] init];
+        instance.memberCache.countLimit = 40;
         instance.avatarCache = [[NSCache alloc] init];
+        instance.avatarCache.countLimit = 200;
+        instance.avatarCache.totalCostLimit = 48 * 1024 * 1024;
+        instance->_lastImgActivity = [NSDate timeIntervalSinceReferenceDate];
     });
     return instance;
 }
@@ -421,6 +427,25 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     }];
 }
 
+- (void)sendTyping:(BOOL)typing
+            roomId:(NSString *)roomId
+        completion:(MatrixCompletion)completion {
+    if (!self.userId || [roomId length] == 0) {
+        if (completion) completion(nil, nil);
+        return;
+    }
+    NSString *escapedUser = [self.userId stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    NSString *path = [NSString stringWithFormat:
+        @"/_matrix/client/r0/rooms/%@/typing/%@", roomId, escapedUser];
+    NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
+    NSMutableDictionary *body = [NSMutableDictionary dictionary];
+    body[@"typing"] = @(typing);
+    if (typing) body[@"timeout"] = @4000;
+    NSData *json = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    [req setHTTPBody:json];
+    [self sendRequest:req completion:completion];
+}
+
 - (void)sendVideoMessage:(NSString *)videoURL
                   roomId:(NSString *)roomId
                 thumbnail:(NSString *)thumbnailURL
@@ -495,6 +520,64 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     NSError *err = nil;
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msgBody options:0 error:&err];
     if (err) { completion(nil, err); return; }
+    [req setHTTPBody:jsonData];
+    [self sendRequest:req completion:completion];
+}
+
+- (void)sendFileMessage:(NSString *)fileURL
+                 roomId:(NSString *)roomId
+               filename:(NSString *)filename
+               mimeType:(NSString *)mimeType
+                   size:(NSInteger)size
+             completion:(MatrixCompletion)completion {
+    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
+                      roomId, txnId];
+    NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
+
+    NSMutableDictionary *msgBody = [NSMutableDictionary dictionary];
+    msgBody[@"msgtype"] = @"m.file";
+    msgBody[@"body"] = [filename length] > 0 ? filename : @"File";
+    if (fileURL) msgBody[@"url"] = fileURL;
+
+    NSMutableDictionary *info = [NSMutableDictionary dictionary];
+    if ([mimeType length] > 0) info[@"mimetype"] = mimeType;
+    if (size > 0) info[@"size"] = @(size);
+    msgBody[@"info"] = info;
+
+    NSError *err = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msgBody options:0 error:&err];
+    if (err) { if (completion) completion(nil, err); return; }
+    [req setHTTPBody:jsonData];
+    [self sendRequest:req completion:completion];
+}
+
+- (void)sendAudioMessage:(NSString *)audioURL
+                  roomId:(NSString *)roomId
+                filename:(NSString *)filename
+                mimeType:(NSString *)mimeType
+                duration:(NSInteger)duration
+                    size:(NSInteger)size
+              completion:(MatrixCompletion)completion {
+    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
+                      roomId, txnId];
+    NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
+
+    NSMutableDictionary *msgBody = [NSMutableDictionary dictionary];
+    msgBody[@"msgtype"] = @"m.audio";
+    msgBody[@"body"] = [filename length] > 0 ? filename : @"Audio";
+    if (audioURL) msgBody[@"url"] = audioURL;
+
+    NSMutableDictionary *info = [NSMutableDictionary dictionary];
+    if ([mimeType length] > 0) info[@"mimetype"] = mimeType;
+    if (size > 0) info[@"size"] = @(size);
+    if (duration > 0) info[@"duration"] = @(duration);
+    msgBody[@"info"] = info;
+
+    NSError *err = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msgBody options:0 error:&err];
+    if (err) { if (completion) completion(nil, err); return; }
     [req setHTTPBody:jsonData];
     [self sendRequest:req completion:completion];
 }
@@ -773,15 +856,81 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     }
 
     [self downloadFromURL:[self mxcURLToHTTP:mxcURL thumbnail:NO]
-              fallbackURL:[self mxcURLToHTTP:mxcURL thumbnail:YES]
-                 cacheKey:mxcURL
-                completion:completion];
+               fallbackURL:[self mxcURLToHTTP:mxcURL thumbnail:YES]
+                  cacheKey:mxcURL
+                 completion:completion];
+}
+
+- (void)downloadDataFromMXC:(NSString *)mxcURL
+                 completion:(void(^)(NSData *data, NSString *mimeType, NSError *error))completion {
+    if (!mxcURL || [mxcURL length] == 0 || !completion) {
+        if (completion) completion(nil, nil, nil);
+        return;
+    }
+    NSString *urlString = [self mxcURLToHTTP:mxcURL];
+    NSURL *url = urlString ? [NSURL URLWithString:urlString] : nil;
+    if (!url) {
+        completion(nil, nil, [NSError errorWithDomain:@"MatrixAPI" code:-1 userInfo:nil]);
+        return;
+    }
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    [req setHTTPMethod:@"GET"];
+    [req setTimeoutInterval:60];
+    if (self.accessToken) {
+        [req setValue:[NSString stringWithFormat:@"Bearer %@", self.accessToken]
+   forHTTPHeaderField:@"Authorization"];
+    }
+    [NSURLConnection sendAsynchronousRequest:req
+                                       queue:[NSOperationQueue mainQueue]
+                           completionHandler:^(NSURLResponse *response, NSData *data, NSError *connErr) {
+        if (connErr || !data || [data length] == 0) {
+            completion(nil, nil, connErr);
+            return;
+        }
+        NSString *mime = nil;
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+            mime = [(NSHTTPURLResponse *)response allHeaderFields][@"Content-Type"];
+        }
+        completion(data, mime, nil);
+    }];
+}
+
++ (void)cleanupMediaCacheOlderThanDays:(NSInteger)days {
+    NSString *cachesRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0];
+    NSString *mediaDir = [cachesRoot stringByAppendingPathComponent:@"MediaCache"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray *contents = [fm contentsOfDirectoryAtPath:mediaDir error:nil];
+    if (!contents) return;
+    NSDate *cutoff = [NSDate dateWithTimeIntervalSinceNow:-(NSTimeInterval)days * 86400.0];
+    for (NSString *name in contents) {
+        NSString *path = [mediaDir stringByAppendingPathComponent:name];
+        NSDictionary *attrs = [fm attributesOfItemAtPath:path error:nil];
+        NSDate *modDate = [attrs fileModificationDate];
+        if (modDate && [modDate compare:cutoff] == NSOrderedAscending) {
+            [fm removeItemAtPath:path error:nil];
+        }
+    }
 }
 
 - (void)downloadFromURL:(NSString *)urlString
             fallbackURL:(NSString *)fallbackURLString
                cacheKey:(NSString *)cacheKey
              completion:(void(^)(UIImage *image, NSError *error))completion {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self downloadFromURL:urlString fallbackURL:fallbackURLString cacheKey:cacheKey completion:completion];
+        });
+        return;
+    }
+    
+    // WATCHDOG: Si han pasado 90s sin actividad pero hay descargas pendientes,
+    // el contador probablemente quedó pegado (timeout máximo es 20s)
+    if ([_pendingImageDownloads count] > 0 && _activeImageDownloads > 0 &&
+        ([NSDate timeIntervalSinceReferenceDate] - _lastImgActivity) > 90.0) {
+        IMGLog(@"WATCHDOG: Reset _activeImageDownloads (stuck for >90s)");
+        _activeImageDownloads = 0;
+    }
+    
     if (!_pendingImageDownloads) _pendingImageDownloads = [NSMutableArray array];
 
     NSMutableDictionary *job = [NSMutableDictionary dictionary];
@@ -800,6 +949,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     NSDictionary *job = [_pendingImageDownloads objectAtIndex:0];
     [_pendingImageDownloads removeObjectAtIndex:0];
     _activeImageDownloads++;
+    _lastImgActivity = [NSDate timeIntervalSinceReferenceDate];
 
     NSString *url = [job[@"url"] length] > 0 ? job[@"url"] : nil;
     NSString *fb = [job[@"fb"] length] > 0 ? job[@"fb"] : nil;
@@ -811,6 +961,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
                         cacheKey:key
                       completion:^(UIImage *image, NSError *error) {
         _activeImageDownloads--;
+        _lastImgActivity = [NSDate timeIntervalSinceReferenceDate];
         [self drainImageQueue];
         if (jobCompletion) jobCompletion(image, error);
     }];
@@ -850,7 +1001,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
             IMGLog(@"Error conexión: %@", connErr.localizedDescription);
             if (fallbackURLString && ![fallbackURLString isEqualToString:urlString]) {
                 IMGLog(@"Intentando fallback: %@", fallbackURLString);
-                [self downloadFromURL:fallbackURLString
+                [self performDownloadFromURL:fallbackURLString
                           fallbackURL:nil
                              cacheKey:cacheKey
                            completion:completion];
@@ -869,7 +1020,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
             IMGLog(@"Error %ld: %@", (long)httpResp.statusCode, bodyStr);
             if (fallbackURLString && ![fallbackURLString isEqualToString:urlString]) {
                 IMGLog(@"Intentando fallback: %@", fallbackURLString);
-                [self downloadFromURL:fallbackURLString
+                [self performDownloadFromURL:fallbackURLString
                           fallbackURL:nil
                              cacheKey:cacheKey
                            completion:completion];
@@ -900,7 +1051,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
         }
 
         IMGLog(@"OK: %.0fx%.0f desde %@", image.size.width, image.size.height, urlString);
-        [self.avatarCache setObject:image forKey:cacheKey];
+        [self.avatarCache setObject:image forKey:cacheKey cost:[data length]];
         [self saveAvatarToDisk:image forKey:cacheKey];
         completion(image, nil);
     }];
@@ -946,6 +1097,32 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     NSFileManager *fm = [NSFileManager defaultManager];
     if (![fm fileExistsAtPath:path]) return nil;
     return [UIImage imageWithContentsOfFile:path];
+}
+
+- (void)deleteCachedMediaForMXC:(NSString *)mxcURL {
+    if (!mxcURL || [mxcURL length] == 0) return;
+    
+    [self.avatarCache removeObjectForKey:mxcURL];
+    
+    NSString *avatarPath = [self avatarCachePathForKey:mxcURL];
+    [[NSFileManager defaultManager] removeItemAtPath:avatarPath error:nil];
+    
+    NSString *safeName = [mxcURL stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
+    safeName = [safeName stringByReplacingOccurrencesOfString:@":" withString:@"_"];
+    NSString *cachesRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0];
+    
+    NSString *mediaPath = [[cachesRoot stringByAppendingPathComponent:@"MediaCache"] 
+                           stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.mp4", safeName]];
+    [[NSFileManager defaultManager] removeItemAtPath:mediaPath error:nil];
+    
+    NSString *fileDir = [cachesRoot stringByAppendingPathComponent:@"FileCache"];
+    NSArray *fileContents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:fileDir error:nil];
+    for (NSString *fileName in fileContents) {
+        if ([fileName hasPrefix:safeName]) {
+            NSString *path = [fileDir stringByAppendingPathComponent:fileName];
+            [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+        }
+    }
 }
 
 - (void)uploadImage:(UIImage *)image

@@ -48,6 +48,10 @@ typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
                  eventId:(NSString *)eventId
               completion:(MatrixCompletion)completion;
 
+- (void)sendTyping:(BOOL)typing
+            roomId:(NSString *)roomId
+        completion:(MatrixCompletion)completion;
+
 - (void)sendVideoMessage:(NSString *)videoURL
                   roomId:(NSString *)roomId
                 thumbnail:(NSString *)thumbnailURL
@@ -66,6 +70,21 @@ typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
                    roomId:(NSString *)roomId
                   caption:(NSString *)caption
                completion:(MatrixCompletion)completion;
+
+- (void)sendFileMessage:(NSString *)fileURL
+                 roomId:(NSString *)roomId
+               filename:(NSString *)filename
+               mimeType:(NSString *)mimeType
+                   size:(NSInteger)size
+             completion:(MatrixCompletion)completion;
+
+- (void)sendAudioMessage:(NSString *)audioURL
+                  roomId:(NSString *)roomId
+                filename:(NSString *)filename
+                mimeType:(NSString *)mimeType
+                duration:(NSInteger)duration
+                    size:(NSInteger)size
+              completion:(MatrixCompletion)completion;
 
 - (void)registerPusherWithPushKey:(NSString *)pushKey
                         completion:(MatrixCompletion)completion;
@@ -87,6 +106,7 @@ typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
 @property (nonatomic, copy) NSString *nextBatchToken;
 
 - (UIImage *)cachedImageForMXC:(NSString *)mxcURL;
+- (void)deleteCachedMediaForMXC:(NSString *)mxcURL;
 - (void)saveMessageEvents:(NSArray *)events forRoom:(NSString *)roomId;
 - (NSArray *)cachedMessagesForRoom:(NSString *)roomId;
 - (void)cacheMessages:(NSArray *)messages forRoom:(NSString *)roomId;
@@ -96,7 +116,10 @@ typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
 
 - (NSString *)mxcURLToHTTP:(NSString *)mxcURL;
 - (void)downloadImageFromMXC:(NSString *)mxcURL
-                   completion:(void(^)(UIImage *image, NSError *error))completion;
+                    completion:(void(^)(UIImage *image, NSError *error))completion;
+- (void)downloadDataFromMXC:(NSString *)mxcURL
+                 completion:(void(^)(NSData *data, NSString *mimeType, NSError *error))completion;
++ (void)cleanupMediaCacheOlderThanDays:(NSInteger)days;
 
 - (void)uploadImage:(UIImage *)image
          completion:(void(^)(NSString *contentURI, NSError *error))completion;

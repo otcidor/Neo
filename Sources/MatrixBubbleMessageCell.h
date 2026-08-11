@@ -3,8 +3,8 @@
 
 @interface MatrixBubbleMessageCell : UITableViewCell
 
-@property (retain, nonatomic) MatrixBubbleView *bubbleView;
-@property (retain, nonatomic) UILabel *dateSeparatorLabel;
+@property (strong, nonatomic) MatrixBubbleView *bubbleView;
+@property (strong, nonatomic) UILabel *dateSeparatorLabel;
 
 - (void)configureWithType:(MatrixBubbleMessageType)type
                    msgId:(NSString *)msgId

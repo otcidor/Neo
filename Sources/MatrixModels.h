@@ -25,7 +25,7 @@ typedef enum {
 + (BOOL)roomHasNameFromSyncData:(NSDictionary *)roomData;
 @end
 
-@interface MatrixMessage : NSObject
+@interface MatrixMessage : NSObject <TGTableItem>
 @property (nonatomic, copy) NSString *eventId;
 @property (nonatomic, copy) NSString *sender;
 @property (nonatomic, copy) NSString *body;
@@ -38,8 +38,13 @@ typedef enum {
 @property (nonatomic, copy) NSString *roomId;
 @property (nonatomic, assign) BOOL isRedacted;
 @property (nonatomic, strong) NSMutableDictionary *reactions;
+@property (nonatomic, strong) NSMutableDictionary *myReactions;
 @property (nonatomic, copy) NSString *relatedEventId;
 @property (nonatomic, assign) BOOL isEdit;
+@property (nonatomic, assign) BOOL uploading;
+@property (nonatomic, assign) BOOL failed;
+@property (nonatomic, copy) NSString *pendingLocalPath;
+@property (nonatomic, assign) BOOL readByOther;
 @property (nonatomic, copy) NSString *audioURL;
 @property (nonatomic, strong) NSNumber *audioDuration;
 @property (nonatomic, copy) NSString *videoURL;
@@ -58,6 +63,7 @@ typedef enum {
 @property (nonatomic, strong) NSData *cachedFileData;
 - (instancetype)initWithDictionary:(NSDictionary *)dict roomId:(NSString *)roomId;
 - (void)resolveReplyFromMessages:(NSArray *)messages;
+- (void)resolveReplyFromDict:(NSDictionary *)messagesByEventId;
 @end
 
 @interface MatrixUser : NSObject

@@ -18,6 +18,17 @@
 #import "PhotoViewerController.h"
 #import "FileMessageView.h"
 #import "ForwardPickerController.h"
+#import "NeoSyncProcessor.h"
+#import "NeoReactionViewBuilder.h"
+#import "TGTableDeltaUpdater.h"
+#import "NeoProgressSpinnerView.h"
+
+@interface NeoDisplayAdapter : NSObject <TGTableItem>
+@property (nonatomic, copy) NSString *ident;
+@end
+@implementation NeoDisplayAdapter
+- (NSString *)uniqueIdentifier { return _ident ?: @""; }
+@end
 
 @interface ChatViewController () <UIActionSheetDelegate, UIAlertViewDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate, NSURLConnectionDataDelegate>
 @end
@@ -30,6 +41,7 @@
     BOOL _selectedIsSelf;
     BOOL _syncActive;
     NSMutableArray *_displayItems;
+    NSArray *_displayItemsSnapshot;
     BOOL _shouldAutoScroll;
     AVAudioRecorder *_audioRecorder;
     NSTimer *_recordingTimer;
@@ -45,6 +57,12 @@
     NSInteger _openInButtonIndex;
     NSMutableDictionary *_activeDownloads;
     NSInteger _recordingState; // 0=idle 1=recording 2=stopped
+    NSMutableDictionary *_messagesByEventId;
+    NeoSyncProcessor *_syncProcessor;
+    NSTimeInterval _syncBackoff;
+    NSMutableSet *_readEventIds;
+    NSMutableArray *_typingUserIds;
+    NSTimeInterval _lastTypingSent;
 }
 
 - (void)loadView {
@@ -139,6 +157,11 @@
     _shouldAutoScroll = YES;
     _loadPageSize = 30;
     _activeDownloads = [[NSMutableDictionary alloc] init];
+    _messagesByEventId = [NSMutableDictionary dictionary];
+    _syncProcessor = [[NeoSyncProcessor alloc] init];
+    _syncBackoff = 1.0;
+    _readEventIds = [NSMutableSet set];
+    _typingUserIds = [NSMutableArray array];
 
     self.inputContainer = inputView;
 }
@@ -210,6 +233,18 @@
     NSString *myId = [[MatrixAPIClient sharedClient] userId];
     _selectedIsSelf = (myId && [msg.sender isEqualToString:myId]);
     _selectedRow = msgRow;
+
+    if (msg.failed) {
+        UIActionSheet *failSheet = [[UIActionSheet alloc] init];
+        failSheet.delegate = self;
+        failSheet.tag = 303;
+        [failSheet addButtonWithTitle:NSLocalizedString(@"Retry", nil)];
+        [failSheet addButtonWithTitle:NSLocalizedString(@"Delete", nil)];
+        [failSheet addButtonWithTitle:NSLocalizedString(@"Cancel", nil)];
+        failSheet.cancelButtonIndex = 2;
+        [failSheet showInView:self.view];
+        return;
+    }
 
     BOOL isImage = [msg.msgType isEqualToString:@"m.image"] || [msg.body hasPrefix:@"mxc://"];
     BOOL isFile = [msg.msgType isEqualToString:@"m.file"];
@@ -293,24 +328,10 @@
     NSString *type = evt[@"type"];
     if (![type isEqualToString:@"m.room.message"]) return;
 
-    NSDictionary *relatesTo = evt[@"content"][@"m.relates_to"];
-    if ([relatesTo[@"rel_type"] isEqualToString:@"m.replace"]) return;
+    NSString *eventId = evt[@"event_id"];
+    if ([eventId isKindOfClass:[NSString class]] && [_messagesByEventId objectForKey:eventId]) return;
 
-    BOOL exists = NO;
-    for (MatrixMessage *existing in self.messages) {
-        if ([existing.eventId isEqualToString:evt[@"event_id"]]) { exists = YES; break; }
-    }
-    if (exists) return;
-
-    MatrixMessage *msg = [[MatrixMessage alloc] initWithDictionary:evt roomId:self.room.roomId];
-    [self.messages addObject:msg];
-    [self buildDisplayItems];
-    [self.tableView reloadData];
-    if (_shouldAutoScroll) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self scrollToBottom];
-        });
-    }
+    [self processSyncEvents:@[evt]];
 }
 
 - (void)handleSyncUnreadUpdate:(NSNotification *)notification {
@@ -338,6 +359,7 @@
     [titleView addSubview:nameLabel];
 
     UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 24, titleW, 14)];
+    subLabel.tag = 2001;
     if (self.room.memberCount > 0) {
         subLabel.text = [NSString stringWithFormat:NSLocalizedString(@"%d members", nil), (int)self.room.memberCount];
     } else {
@@ -437,12 +459,21 @@
 
     NSInteger tag = sheet.tag;
 
+    if (tag == 303) {
+        if (buttonIndex == 0) {
+            [self retryFailedMessage:msg];
+        } else if (buttonIndex == 1) {
+            [self deleteFailedMessage:msg];
+        }
+        return;
+    }
+
     if (tag == 301) {
         if (buttonIndex == _openInButtonIndex) {
             [self downloadAndOpenFile:msg];
         } else {
             NSInteger emojiStart = _openInButtonIndex + 1;
-            [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart];
+            [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart isSelf:_selectedIsSelf];
         }
         return;
     }
@@ -457,13 +488,13 @@
             return;
         }
         NSInteger emojiStart = _downloadButtonIndex + 1;
-        [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart];
+        [self handleActionSheetReaction:msg buttonIndex:buttonIndex emojiStart:emojiStart isSelf:_selectedIsSelf];
         return;
     }
 
     if (tag == 300 || tag == 200 || tag == 500) {
         BOOL isImage = (tag == 300);
-        BOOL isSelf = (tag == 200);
+        BOOL isSelf = _selectedIsSelf;
 
         if (buttonIndex == 0) {
             [self startReplyToMessage:msg];
@@ -572,8 +603,9 @@
             if (!msg.reactions) msg.reactions = [NSMutableDictionary dictionary];
             NSNumber *count = msg.reactions[emoji] ?: @0;
             msg.reactions[emoji] = @([count intValue] + 1);
-            [self buildDisplayItems];
-            [self.tableView reloadData];
+            if (!msg.myReactions) msg.myReactions = [NSMutableDictionary dictionary];
+            msg.myReactions[emoji] = @YES;
+            [self reloadTableAnimatedWithAutoScroll:NO];
         }
     }];
 }
@@ -591,9 +623,21 @@
 }
 
 - (void)deleteMessage:(MatrixMessage *)msg row:(NSInteger)row {
-    [[MatrixAPIClient sharedClient] redactMessage:self.room.roomId
-                                         eventId:msg.eventId
-                                      completion:^(NSDictionary *resp, NSError *err) {
+    MatrixAPIClient *client = [MatrixAPIClient sharedClient];
+    
+    [client deleteCachedMediaForMXC:msg.imageURL];
+    [client deleteCachedMediaForMXC:msg.videoURL];
+    [client deleteCachedMediaForMXC:msg.videoThumbnailURL];
+    [client deleteCachedMediaForMXC:msg.fileURL];
+    [client deleteCachedMediaForMXC:msg.audioURL];
+    
+    if (msg.eventId) {
+        [_messagesByEventId removeObjectForKey:msg.eventId];
+    }
+    
+    [client redactMessage:self.room.roomId
+                  eventId:msg.eventId
+               completion:^(NSDictionary *resp, NSError *err) {
         if (err) {
             [NeoAlert showAlertWithTitle:@"Error" message:[err localizedDescription] cancelTitle:@"OK" controller:self];
         } else {
@@ -741,7 +785,9 @@
     NSArray *cached = [client cachedMessagesForRoom:self.room.roomId];
     if (cached && [self.messages count] == 0) {
         [self.messages addObjectsFromArray:cached];
+        [self rebuildMessagesByEventId];
         [self buildDisplayItems];
+        _displayItemsSnapshot = [_displayItems copy];
         [self.tableView reloadData];
         [self scrollToBottom];
     }
@@ -750,6 +796,12 @@
     [client getRoomMessages:self.room.roomId completion:^(NSDictionary *response, NSError *error) {
         [self.spinner stopAnimating];
         if (error) return;
+        NSMutableArray *pendingLocal = [NSMutableArray array];
+        for (MatrixMessage *m in self.messages) {
+            if ([m.eventId hasPrefix:@"local_"]) {
+                [pendingLocal addObject:m];
+            }
+        }
         [self.messages removeAllObjects];
         NSArray *chunk = response[@"chunk"];
         _prevBatchToken = response[@"end"];
@@ -763,10 +815,11 @@
                 if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) {
                     NSString *targetId = relatesto[@"event_id"];
                     NSString *newBody = evt[@"content"][@"m.new_content"][@"body"];
-                    NSDictionary *target = [msgByEventId objectForKey:targetId];
-                    if (target && newBody) {
-                        MatrixMessage *targetMsg = (MatrixMessage *)target;
+                    MatrixMessage *targetMsg = [msgByEventId objectForKey:targetId];
+                    if (targetMsg && newBody) {
                         targetMsg.body = newBody;
+                    } else if (targetId && newBody) {
+                        [_syncProcessor.pendingEdits setObject:newBody forKey:targetId];
                     }
                     continue;
                 }
@@ -799,12 +852,17 @@
         }
 
         self.messages = newMessages;
+        if ([pendingLocal count] > 0) {
+            [self.messages addObjectsFromArray:pendingLocal];
+        }
+        [self rebuildMessagesByEventId];
         [self resolveAllReplies];
         [client cacheMessages:[self.messages copy] forRoom:self.room.roomId];
         [client saveMessageEvents:response[@"chunk"] forRoom:self.room.roomId];
         BOOL firstLoad = (_lastMessageLoad == 0);
         _lastMessageLoad = now;
         [self buildDisplayItems];
+        _displayItemsSnapshot = [_displayItems copy];
         [self.tableView reloadData];
         // First load: always bottom. Refresh: only if near bottom
         CGFloat nearBottom = self.tableView.contentOffset.y + self.tableView.bounds.size.height;
@@ -837,25 +895,21 @@
         }
         _prevBatchToken = response[@"end"];
         NSMutableArray *olderMessages = [NSMutableArray array];
-        NSMutableArray *existingEventIds = [NSMutableArray array];
-        for (MatrixMessage *m in self.messages) {
-            if (m.eventId) [existingEventIds addObject:m.eventId];
-        }
         for (NSDictionary *evt in [chunk reverseObjectEnumerator]) {
             NSString *type = evt[@"type"];
             if (![type isEqualToString:@"m.room.message"]) continue;
             NSString *eid = evt[@"event_id"];
-            if ([existingEventIds containsObject:eid]) continue;
+            if ([eid isKindOfClass:[NSString class]] && [_messagesByEventId objectForKey:eid]) continue;
             NSDictionary *relatesto = evt[@"content"][@"m.relates_to"];
             if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) {
                 NSString *targetId = relatesto[@"event_id"];
                 NSString *newBody = evt[@"content"][@"m.new_content"][@"body"];
                 if (targetId && newBody) {
-                    for (MatrixMessage *m in self.messages) {
-                        if ([m.eventId isEqualToString:targetId]) {
-                            m.body = newBody;
-                            break;
-                        }
+                    MatrixMessage *target = [targetId isKindOfClass:[NSString class]] ? [_messagesByEventId objectForKey:targetId] : nil;
+                    if (target) {
+                        target.body = newBody;
+                    } else if ([targetId isKindOfClass:[NSString class]]) {
+                        [_syncProcessor.pendingEdits setObject:newBody forKey:targetId];
                     }
                 }
                 continue;
@@ -863,15 +917,16 @@
             MatrixMessage *msg = [[MatrixMessage alloc] initWithDictionary:evt
                                                                     roomId:self.room.roomId];
             [olderMessages addObject:msg];
-            [existingEventIds addObject:eid];
         }
         if ([olderMessages count] == 0) return;
         NSIndexSet *indexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, [olderMessages count])];
         [self.messages insertObjects:olderMessages atIndexes:indexes];
+        [self rebuildMessagesByEventId];
         [client cacheMessages:[self.messages copy] forRoom:self.room.roomId];
         [self resolveAllReplies];
         CGFloat oldOffset = self.tableView.contentSize.height;
         [self buildDisplayItems];
+        _displayItemsSnapshot = [_displayItems copy];
         [self.tableView reloadData];
         CGFloat heightGain = self.tableView.contentSize.height - oldOffset;
         if (heightGain > 0) {
@@ -892,11 +947,14 @@
     [client syncWithSince:client.nextBatchToken timeout:20000 completion:^(NSDictionary *response, NSError *error) {
         if (!_syncActive) return;
         if (error) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            NSTimeInterval delay = _syncBackoff;
+            _syncBackoff = MIN(_syncBackoff * 2.0, 30.0);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 [self startSyncLoop];
             });
             return;
         }
+        _syncBackoff = 1.0;
 
         NSString *nextBatch = response[@"next_batch"];
         if (nextBatch) client.nextBatchToken = nextBatch;
@@ -905,8 +963,9 @@
         NSDictionary *roomData = [roomsJoin objectForKey:self.room.roomId];
         if (roomData) {
             [self.room updateNameFromStateEvents:roomData[@"state"][@"events"]
-                                  timelineEvents:roomData[@"timeline"][@"events"]];
+                                   timelineEvents:roomData[@"timeline"][@"events"]];
             [self setupNavBar];
+            [self processEphemeralEvents:roomData[@"ephemeral"][@"events"]];
             [self processSyncEvents:roomData[@"timeline"][@"events"]];
         }
 
@@ -914,96 +973,196 @@
     }];
 }
 
-- (void)processSyncEvents:(NSArray *)events {
-    if ([events count] == 0) return;
+- (void)processEphemeralEvents:(NSArray *)events {
+    if (![events isKindOfClass:[NSArray class]] || [events count] == 0) return;
+    NSString *myId = [[MatrixAPIClient sharedClient] userId];
+    BOOL typingChanged = NO;
+    BOOL receiptsChanged = NO;
 
-    BOOL needsReload = NO;
     for (NSDictionary *evt in events) {
+        if (![evt isKindOfClass:[NSDictionary class]]) continue;
         NSString *type = evt[@"type"];
 
-        if ([type isEqualToString:@"m.room.message"]) {
-            NSDictionary *relatesto = evt[@"content"][@"m.relates_to"];
-            if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) {
-                NSString *targetId = relatesto[@"event_id"];
-                NSString *newBody = evt[@"content"][@"m.new_content"][@"body"];
-                if (targetId && newBody) {
-                    for (MatrixMessage *m in self.messages) {
-                        if ([m.eventId isEqualToString:targetId]) {
-                            m.body = newBody;
-                            needsReload = YES;
-                            break;
+        if ([type isEqualToString:@"m.typing"]) {
+            NSArray *userIds = evt[@"content"][@"user_ids"];
+            if (![userIds isKindOfClass:[NSArray class]]) continue;
+            NSMutableArray *others = [NSMutableArray array];
+            for (NSString *uid in userIds) {
+                if ([uid isKindOfClass:[NSString class]] && ![uid isEqualToString:myId]) {
+                    [others addObject:uid];
+                }
+            }
+            if (![others isEqualToArray:_typingUserIds]) {
+                _typingUserIds = others;
+                typingChanged = YES;
+            }
+        }
+
+        if ([type isEqualToString:@"m.receipt"]) {
+            NSDictionary *content = evt[@"content"];
+            if (![content isKindOfClass:[NSDictionary class]]) continue;
+            for (NSString *eventId in content) {
+                if (![eventId isKindOfClass:[NSString class]]) continue;
+                NSDictionary *receiptTypes = content[eventId];
+                if (![receiptTypes isKindOfClass:[NSDictionary class]]) continue;
+                NSDictionary *readReceipts = receiptTypes[@"m.read"];
+                if (![readReceipts isKindOfClass:[NSDictionary class]]) continue;
+                for (NSString *uid in readReceipts) {
+                    if ([uid isKindOfClass:[NSString class]] && ![uid isEqualToString:myId]) {
+                        if (![_readEventIds containsObject:eventId]) {
+                            [_readEventIds addObject:eventId];
+                            receiptsChanged = YES;
                         }
+                        break;
                     }
-                }
-                continue;
-            }
-
-            BOOL exists = NO;
-            for (MatrixMessage *existing in self.messages) {
-                if ([existing.eventId isEqualToString:evt[@"event_id"]]) { exists = YES; break; }
-            }
-            if (exists) continue;
-
-            MatrixMessage *msg = [[MatrixMessage alloc] initWithDictionary:evt roomId:self.room.roomId];
-            [self.messages addObject:msg];
-            needsReload = YES;
-        }
-
-        if ([type isEqualToString:@"m.room.name"]) {
-            NSString *name = evt[@"content"][@"name"];
-            if ([name length] > 0) {
-                self.room.name = name;
-                [self setupNavBar];
-            }
-            continue;
-        }
-
-        if ([type isEqualToString:@"m.room.canonical_alias"]) {
-            NSString *alias = evt[@"content"][@"alias"];
-            if ([alias length] > 0) {
-                self.room.name = alias;
-                [self setupNavBar];
-            }
-            continue;
-        }
-
-        if ([type isEqualToString:@"m.room.redaction"]) {
-            NSString *redactedId = evt[@"redacts"];
-            for (MatrixMessage *msg in self.messages) {
-                if ([msg.eventId isEqualToString:redactedId]) {
-                    msg.isRedacted = YES;
-                    msg.body = NSLocalizedString(@"Deleted message", nil);
-                    needsReload = YES;
-                    break;
-                }
-            }
-        }
-
-        if ([type isEqualToString:@"m.reaction"]) {
-            NSDictionary *relatesto = evt[@"content"][@"m.relates_to"];
-            NSString *targetId = relatesto[@"event_id"];
-            NSString *emoji = relatesto[@"key"];
-            if (!targetId || !emoji) continue;
-            for (MatrixMessage *msg in self.messages) {
-                if ([msg.eventId isEqualToString:targetId]) {
-                    NSNumber *count = msg.reactions[emoji] ?: @0;
-                    msg.reactions[emoji] = @([count intValue] + 1);
-                    needsReload = YES;
-                    break;
                 }
             }
         }
     }
 
-    if (needsReload) {
+    if (typingChanged) {
+        [self updateTypingIndicator];
+    }
+    if (receiptsChanged) {
+        [self markReadMessages];
+        [self.tableView reloadData];
+    }
+}
+
+- (void)updateTypingIndicator {
+    if (_recordingState != 0) return;
+    // NSString *baseName = [MatrixAPIClient localNameForRoomId:self.room.roomId] ?: (self.room.name ?: self.room.roomId);
+    UIView *titleView = self.navigationItem.titleView;
+    UILabel *subLabel = (UILabel *)[titleView viewWithTag:2001];
+    if (!subLabel) return;
+
+    if ([_typingUserIds count] == 0) {
+        NSInteger count = [self.room memberCount];
+        subLabel.text = count > 0 ? [NSString stringWithFormat:NSLocalizedString(@"%d members", nil), (int)count] : @"";
+    } else if ([_typingUserIds count] == 1) {
+        subLabel.text = [NSString stringWithFormat:NSLocalizedString(@"%@ is typing…", nil),
+                         [self displayNameForSender:[_typingUserIds objectAtIndex:0]]];
+    } else {
+        subLabel.text = NSLocalizedString(@"Several people are typing…", nil);
+    }
+}
+
+- (void)processSyncEvents:(NSArray *)events {
+    if ([events count] == 0) return;
+
+    NSString *myId = [[MatrixAPIClient sharedClient] userId];
+    BOOL changed = [_syncProcessor applyEvents:events
+                                      messages:self.messages
+                             messagesByEventId:_messagesByEventId
+                                          room:self.room
+                                      myUserId:myId
+                                 roomNameChanged:^(NSString *newName) {
+        (void)newName;
+        [self setupNavBar];
+    }];
+
+    if (changed) {
+        [self markReadMessages];
         [[MatrixAPIClient sharedClient] cacheMessages:[self.messages copy] forRoom:self.room.roomId];
         [self resolveAllReplies];
-        [self buildDisplayItems];
+        [self reloadTableAnimatedWithAutoScroll:_shouldAutoScroll];
+    }
+}
+
+- (NSArray *)displayAdaptersForItems:(NSArray *)items {
+    NSMutableArray *adapters = [NSMutableArray arrayWithCapacity:[items count]];
+    for (id item in items) {
+        NeoDisplayAdapter *a = [[NeoDisplayAdapter alloc] init];
+        if ([item isKindOfClass:[NSString class]]) {
+            a.ident = [NSString stringWithFormat:@"sep:%@", item];
+        } else if ([item isKindOfClass:[MatrixMessage class]]) {
+            a.ident = [(MatrixMessage *)item eventId] ?: @"";
+        } else {
+            a.ident = [NSString stringWithFormat:@"obj:%p", item];
+        }
+        [adapters addObject:a];
+    }
+    return adapters;
+}
+
+- (void)reloadTableAnimatedWithAutoScroll:(BOOL)autoScroll {
+    NSArray *oldItems = _displayItemsSnapshot;
+    [self buildDisplayItems];
+    _displayItemsSnapshot = [_displayItems copy];
+
+    if ([oldItems count] == 0 || [self.tableView numberOfSections] == 0) {
         [self.tableView reloadData];
-        if (_shouldAutoScroll) {
+        if (autoScroll) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self scrollToBottom];
             });
+        }
+        return;
+    }
+
+    NSArray *oldAdapters = [self displayAdaptersForItems:oldItems];
+    NSArray *newAdapters = [self displayAdaptersForItems:_displayItems];
+
+    __block NSInteger totalOps = 0;
+    __block NSMutableArray *deleteIPs = [NSMutableArray array];
+    __block NSMutableArray *insertIPs = [NSMutableArray array];
+
+    [TGTableDeltaUpdater replaceItemsInTable:oldAdapters
+                                withNewItems:newAdapters
+                           singleUpdateBlock:^(NSArray<TGTableAlignment *> *deletes, NSArray<TGTableAlignment *> *inserts) {
+        for (TGTableAlignment *a in deletes) {
+            totalOps += a.len;
+            for (NSInteger i = 0; i < a.len; i++) {
+                [deleteIPs addObject:[NSIndexPath indexPathForRow:a.pos + i inSection:0]];
+            }
+        }
+        for (TGTableAlignment *a in inserts) {
+            totalOps += a.len;
+            for (NSInteger i = 0; i < a.len; i++) {
+                [insertIPs addObject:[NSIndexPath indexPathForRow:a.pos + i inSection:0]];
+            }
+        }
+    }];
+
+    if (totalOps == 0) {
+        // Same rows, content may have changed (edits, reactions, acks)
+        [self.tableView reloadData];
+        return;
+    }
+
+    if (totalOps > 60) {
+        [self.tableView reloadData];
+        if (autoScroll) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self scrollToBottom];
+            });
+        }
+        return;
+    }
+
+    [self.tableView beginUpdates];
+    if ([deleteIPs count] > 0) {
+        [self.tableView deleteRowsAtIndexPaths:deleteIPs withRowAnimation:UITableViewRowAnimationFade];
+    }
+    if ([insertIPs count] > 0) {
+        [self.tableView insertRowsAtIndexPaths:insertIPs withRowAnimation:UITableViewRowAnimationFade];
+    }
+    [self.tableView endUpdates];
+
+    if (autoScroll) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self scrollToBottom];
+        });
+    }
+}
+
+- (void)markReadMessages {
+    if ([_readEventIds count] == 0) return;
+    NSString *myId = [[MatrixAPIClient sharedClient] userId];
+    for (MatrixMessage *msg in self.messages) {
+        if (!msg.readByOther && myId && [msg.sender isEqualToString:myId] &&
+            msg.eventId && [_readEventIds containsObject:msg.eventId]) {
+            msg.readByOther = YES;
         }
     }
 }
@@ -1016,9 +1175,192 @@
 }
 
 - (void)resolveAllReplies {
-    for (MatrixMessage *msg in self.messages) {
-        [msg resolveReplyFromMessages:self.messages];
+    NSMutableDictionary *byId = [NSMutableDictionary dictionaryWithCapacity:[self.messages count]];
+    for (MatrixMessage *m in self.messages) {
+        if (m.eventId) [byId setObject:m forKey:m.eventId];
     }
+    for (MatrixMessage *msg in self.messages) {
+        if (msg.replyToEventId && [msg.replyToEventId length] > 0 && !msg.replyToBody) {
+            [msg resolveReplyFromDict:byId];
+        }
+    }
+}
+
+- (void)rebuildMessagesByEventId {
+    [_messagesByEventId removeAllObjects];
+    NSMutableDictionary *pending = _syncProcessor.pendingEdits;
+    for (MatrixMessage *m in self.messages) {
+        if ([m.eventId length] == 0) continue;
+        [_messagesByEventId setObject:m forKey:m.eventId];
+        NSString *pendingBody = [pending objectForKey:m.eventId];
+        if (pendingBody) {
+            m.body = pendingBody;
+            [pending removeObjectForKey:m.eventId];
+        }
+    }
+}
+
+#pragma mark - Optimistic sends
+
+- (NSString *)pendingUploadsDir {
+    NSString *dir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0]
+                     stringByAppendingPathComponent:@"PendingUploads"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
+    return dir;
+}
+
+- (NSString *)savePendingData:(NSData *)data extension:(NSString *)ext {
+    if (!data) return nil;
+    NSString *name = [NSString stringWithFormat:@"%@.%@", [[NSUUID UUID] UUIDString], ext];
+    NSString *path = [[self pendingUploadsDir] stringByAppendingPathComponent:name];
+    [data writeToFile:path atomically:NO];
+    return path;
+}
+
+- (void)deletePendingFileForMessage:(MatrixMessage *)msg {
+    if ([msg.pendingLocalPath length] > 0) {
+        [[NSFileManager defaultManager] removeItemAtPath:msg.pendingLocalPath error:nil];
+        msg.pendingLocalPath = nil;
+    }
+}
+
+- (void)finalizeLocalMessage:(MatrixMessage *)localMsg withEventId:(NSString *)realEventId {
+    MatrixMessage *synced = [realEventId isKindOfClass:[NSString class]] ? [_messagesByEventId objectForKey:realEventId] : nil;
+    if (synced && synced != localMsg) {
+        // Sync already delivered the real message — drop optimistic copy
+        [self.messages removeObject:localMsg];
+        [_messagesByEventId removeObjectForKey:localMsg.eventId];
+    } else {
+        [_messagesByEventId removeObjectForKey:localMsg.eventId];
+        localMsg.eventId = realEventId;
+        [_messagesByEventId setObject:localMsg forKey:realEventId];
+        if (![self.messages containsObject:localMsg]) {
+            [self.messages addObject:localMsg];
+        }
+    }
+    localMsg.uploading = NO;
+    localMsg.failed = NO;
+    [self deletePendingFileForMessage:localMsg];
+    [[MatrixAPIClient sharedClient] cacheMessages:[self.messages copy] forRoom:self.room.roomId];
+    [self reloadTableAnimatedWithAutoScroll:_shouldAutoScroll];
+}
+
+- (void)failLocalMessage:(MatrixMessage *)msg {
+    msg.uploading = NO;
+    msg.failed = YES;
+    [[MatrixAPIClient sharedClient] cacheMessages:[self.messages copy] forRoom:self.room.roomId];
+    [self reloadTableAnimatedWithAutoScroll:NO];
+}
+
+- (void)dispatchSendForMessage:(MatrixMessage *)msg {
+    MatrixAPIClient *client = [MatrixAPIClient sharedClient];
+    NSString *type = msg.msgType;
+
+    if ([type isEqualToString:@"m.text"]) {
+        void (^completion)(NSDictionary *, NSError *) = ^(NSDictionary *resp, NSError *err) {
+            NSString *eid = [resp isKindOfClass:[NSDictionary class]] ? resp[@"event_id"] : nil;
+            if (err || ![eid isKindOfClass:[NSString class]]) { [self failLocalMessage:msg]; return; }
+            [self finalizeLocalMessage:msg withEventId:eid];
+        };
+        if ([msg.replyToEventId length] > 0) {
+            [client sendReply:msg.body roomId:self.room.roomId replyToEventId:msg.replyToEventId completion:completion];
+        } else {
+            [client sendMessage:msg.body roomId:self.room.roomId completion:completion];
+        }
+        return;
+    }
+
+    if ([type isEqualToString:@"m.image"]) {
+        UIImage *img = msg.cachedImage;
+        if (!img) { [self failLocalMessage:msg]; return; }
+        [client uploadImage:img completion:^(NSString *contentURI, NSError *err) {
+            if (err || !contentURI) { [self failLocalMessage:msg]; return; }
+            msg.imageURL = contentURI;
+            [client sendImageMessage:contentURI roomId:self.room.roomId caption:msg.body completion:^(NSDictionary *resp, NSError *sendErr) {
+                NSString *eid = [resp isKindOfClass:[NSDictionary class]] ? resp[@"event_id"] : nil;
+                if (sendErr || ![eid isKindOfClass:[NSString class]]) { [self failLocalMessage:msg]; return; }
+                [self finalizeLocalMessage:msg withEventId:eid];
+            }];
+        }];
+        return;
+    }
+
+    if ([type isEqualToString:@"m.audio"]) {
+        NSData *data = [msg.pendingLocalPath length] > 0 ? [NSData dataWithContentsOfFile:msg.pendingLocalPath] : nil;
+        if (!data) { [self failLocalMessage:msg]; return; }
+        NSInteger size = [data length];
+        [client uploadData:data mimeType:@"audio/mp4" filename:@"voice.m4a" completion:^(NSString *contentURI, NSError *err) {
+            if (err || !contentURI) { [self failLocalMessage:msg]; return; }
+            msg.audioURL = contentURI;
+            [client sendAudioMessage:contentURI
+                            roomId:self.room.roomId
+                          filename:NSLocalizedString(@"Voice message", nil)
+                          mimeType:@"audio/mp4"
+                          duration:[msg.audioDuration integerValue]
+                              size:size
+                        completion:^(NSDictionary *resp, NSError *sendErr) {
+                NSString *eid = [resp isKindOfClass:[NSDictionary class]] ? resp[@"event_id"] : nil;
+                if (sendErr || ![eid isKindOfClass:[NSString class]]) { [self failLocalMessage:msg]; return; }
+                [self finalizeLocalMessage:msg withEventId:eid];
+            }];
+        }];
+        return;
+    }
+
+    if ([type isEqualToString:@"m.video"]) {
+        NSData *data = [msg.pendingLocalPath length] > 0 ? [NSData dataWithContentsOfFile:msg.pendingLocalPath] : nil;
+        if (!data) { [self failLocalMessage:msg]; return; }
+        NSInteger size = [data length];
+        [client uploadData:data mimeType:@"video/mp4" filename:@"video.mp4" completion:^(NSString *contentURI, NSError *err) {
+            if (err || !contentURI) { [self failLocalMessage:msg]; return; }
+            msg.videoURL = contentURI;
+            void (^sendWithThumb)(NSString *) = ^(NSString *thumbURI) {
+                [client sendVideoMessage:contentURI
+                                  roomId:self.room.roomId
+                               thumbnail:thumbURI
+                                duration:[msg.videoDuration integerValue]
+                                   width:msg.videoWidth
+                                  height:msg.videoHeight
+                                    size:size
+                              completion:^(NSDictionary *resp, NSError *sendErr) {
+                    NSString *eid = [resp isKindOfClass:[NSDictionary class]] ? resp[@"event_id"] : nil;
+                    if (sendErr || ![eid isKindOfClass:[NSString class]]) { [self failLocalMessage:msg]; return; }
+                    msg.videoThumbnailURL = thumbURI;
+                    [self finalizeLocalMessage:msg withEventId:eid];
+                }];
+            };
+            UIImage *thumb = msg.cachedVideoThumbnail;
+            if (thumb) {
+                NSData *thumbData = UIImageJPEGRepresentation(thumb, 0.7);
+                [client uploadData:thumbData mimeType:@"image/jpeg" filename:@"video_thumb.jpg" completion:^(NSString *thumbURI, NSError *thumbErr) {
+                    sendWithThumb(thumbURI);
+                }];
+            } else {
+                sendWithThumb(nil);
+            }
+        }];
+        return;
+    }
+
+    [self failLocalMessage:msg];
+}
+
+- (void)retryFailedMessage:(MatrixMessage *)msg {
+    msg.failed = NO;
+    msg.uploading = YES;
+    [self reloadTableAnimatedWithAutoScroll:NO];
+    [self dispatchSendForMessage:msg];
+}
+
+- (void)deleteFailedMessage:(MatrixMessage *)msg {
+    [self.messages removeObject:msg];
+    if ([msg.eventId length] > 0) [_messagesByEventId removeObjectForKey:msg.eventId];
+    [self deletePendingFileForMessage:msg];
+    [[MatrixAPIClient sharedClient] cacheMessages:[self.messages copy] forRoom:self.room.roomId];
+    [self reloadTableAnimatedWithAutoScroll:NO];
 }
 
 - (NSString *)displayNameForSender:(NSString *)sender {
@@ -1058,54 +1400,28 @@
 
     self.messageField.text = @"";
     [self updateSendButtonAppearance];
-    self.sendButton.enabled = NO;
 
-    void (^sendCompletion)(NSDictionary *, NSError *) = ^(NSDictionary *response, NSError *error) {
-        self.sendButton.enabled = YES;
-        if (error) {
-            [NeoAlert showAlertWithTitle:@"Error" message:[error localizedDescription] cancelTitle:@"OK" controller:self];
-            return;
-        }
-        NSString *eventId = response[@"event_id"];
-        if (!eventId) return;
+    [[MatrixAPIClient sharedClient] sendTyping:NO roomId:self.room.roomId completion:nil];
 
-        BOOL alreadyExists = NO;
-        for (MatrixMessage *m in self.messages) {
-            if ([m.eventId isEqualToString:eventId]) { alreadyExists = YES; break; }
-        }
-        if (alreadyExists) return;
-
-        MatrixMessage *msg = [[MatrixMessage alloc] init];
-        msg.eventId = eventId;
-        msg.sender = [[MatrixAPIClient sharedClient] userId];
-        msg.body = text;
-        msg.msgType = @"m.text";
-        msg.roomId = self.room.roomId;
-        msg.timestamp = [NSDate date];
-        // Preserve reply reference for local rendering
-        if (self.replyToMessage) {
-            msg.replyToEventId = self.replyToMessage.eventId;
-            msg.replyToSender = self.replyToMessage.sender;
-            msg.replyToBody = self.replyToMessage.body;
-        }
-        [self.messages addObject:msg];
-        [self dismissReply];
-        [self buildDisplayItems];
-        [self.tableView reloadData];
-        [self scrollToBottom];
-        [self playSentSound];
-    };
-
+    MatrixMessage *localMsg = [[MatrixMessage alloc] init];
+    localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
+    localMsg.sender = [[MatrixAPIClient sharedClient] userId];
+    localMsg.body = text;
+    localMsg.msgType = @"m.text";
+    localMsg.roomId = self.room.roomId;
+    localMsg.timestamp = [NSDate date];
     if (self.replyToMessage) {
-        [[MatrixAPIClient sharedClient] sendReply:text
-                                           roomId:self.room.roomId
-                                    replyToEventId:self.replyToMessage.eventId
-                                      completion:sendCompletion];
-    } else {
-        [[MatrixAPIClient sharedClient] sendMessage:text
-                                             roomId:self.room.roomId
-                                         completion:sendCompletion];
+        localMsg.replyToEventId = self.replyToMessage.eventId;
+        localMsg.replyToSender = self.replyToMessage.sender;
+        localMsg.replyToBody = self.replyToMessage.body;
     }
+    [self.messages addObject:localMsg];
+    [_messagesByEventId setObject:localMsg forKey:localMsg.eventId];
+    [self dismissReply];
+    [self reloadTableAnimatedWithAutoScroll:YES];
+    [self playSentSound];
+
+    [self dispatchSendForMessage:localMsg];
 }
 
 #pragma mark - Audio Recording
@@ -1286,66 +1602,23 @@
 }
 
 - (void)uploadAndSendAudio:(NSData *)audioData duration:(NSTimeInterval)duration {
-    MatrixAPIClient *client = [MatrixAPIClient sharedClient];
-    NSString *path = @"/_matrix/media/r0/upload?filename=audio.m4a";
-    NSMutableURLRequest *req = [client requestWithPath:path method:@"POST"];
-    [req setValue:@"audio/mp4" forHTTPHeaderField:@"Content-Type"];
-    [req setHTTPBody:audioData];
+    if (!audioData) return;
 
-    [NSURLConnection sendAsynchronousRequest:req queue:[NSOperationQueue mainQueue] completionHandler:^(NSURLResponse *resp, NSData *data, NSError *error) {
-        if (error || !data) {
-            NSLog(@"Audio upload error: %@", error);
-            return;
-        }
-        NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        NSString *contentURI = json[@"content_uri"];
-        if (!contentURI) return;
+    MatrixMessage *localMsg = [[MatrixMessage alloc] init];
+    localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
+    localMsg.sender = [[MatrixAPIClient sharedClient] userId];
+    localMsg.body = @"🎤 Voice message";
+    localMsg.msgType = @"m.audio";
+    localMsg.roomId = self.room.roomId;
+    localMsg.timestamp = [NSDate date];
+    localMsg.audioDuration = @((NSInteger)(duration * 1000));
+    localMsg.uploading = YES;
+    localMsg.pendingLocalPath = [self savePendingData:audioData extension:@"m4a"];
+    [self.messages addObject:localMsg];
+    [_messagesByEventId setObject:localMsg forKey:localMsg.eventId];
+    [self reloadTableAnimatedWithAutoScroll:YES];
 
-        NSDictionary *body = @{
-            @"msgtype": @"m.audio",
-            @"body": @"Voice message",
-            @"url": contentURI,
-            @"info": @{
-                @"duration": @((NSInteger)(duration * 1000)),
-                @"size": @([audioData length]),
-                @"mimetype": @"audio/mp4"
-            }
-        };
-
-        NSMutableURLRequest *msgReq = [client requestWithPath:[NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@", self.room.roomId, [[NSUUID UUID] UUIDString]] method:@"PUT"];
-        [msgReq setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-        [msgReq setHTTPBody:[NSJSONSerialization dataWithJSONObject:body options:0 error:nil]];
-
-        [NSURLConnection sendAsynchronousRequest:msgReq queue:[NSOperationQueue mainQueue] completionHandler:^(NSURLResponse *r, NSData *d, NSError *e) {
-            if (e) {
-                NSLog(@"Audio message send error: %@", e);
-                return;
-            }
-            NSDictionary *respJSON = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
-            NSString *eventId = respJSON[@"event_id"];
-            if (!eventId) return;
-
-            BOOL alreadyExists = NO;
-            for (MatrixMessage *m in self.messages) {
-                if ([m.eventId isEqualToString:eventId]) { alreadyExists = YES; break; }
-            }
-            if (alreadyExists) return;
-
-            MatrixMessage *msg = [[MatrixMessage alloc] init];
-            msg.eventId = eventId;
-            msg.sender = client.userId;
-            msg.body = @"🎤 Voice message";
-            msg.msgType = @"m.audio";
-            msg.roomId = self.room.roomId;
-            msg.timestamp = [NSDate date];
-            msg.audioURL = contentURI;
-            msg.audioDuration = @((NSInteger)(duration * 1000));
-            [self.messages addObject:msg];
-            [self buildDisplayItems];
-            [self.tableView reloadData];
-            [self scrollToBottom];
-        }];
-    }];
+    [self dispatchSendForMessage:localMsg];
 }
 
 - (void)updateSendButtonAppearance {
@@ -1381,6 +1654,12 @@
 
 - (void)textFieldDidChange {
     [self updateSendButtonAppearance];
+
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if ([self.messageField.text length] > 0 && now - _lastTypingSent > 10.0) {
+        _lastTypingSent = now;
+        [[MatrixAPIClient sharedClient] sendTyping:YES roomId:self.room.roomId completion:nil];
+    }
 }
 
 - (void)micTouchDown {
@@ -1449,100 +1728,46 @@
         UIImage *thumbnail = thumbRef ? [UIImage imageWithCGImage:thumbRef] : nil;
         if (thumbRef) CGImageRelease(thumbRef);
 
-        UIAlertView *uploadAlert = [[UIAlertView alloc] initWithTitle:NSLocalizedString(@"Uploading video...", nil)
-                                                               message:nil
-                                                              delegate:nil
-                                                     cancelButtonTitle:nil
-                                                     otherButtonTitles:nil];
-        [uploadAlert show];
+        MatrixMessage *localMsg = [[MatrixMessage alloc] init];
+        localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
+        localMsg.sender = [[MatrixAPIClient sharedClient] userId];
+        localMsg.body = @"Video";
+        localMsg.msgType = @"m.video";
+        localMsg.roomId = self.room.roomId;
+        localMsg.timestamp = [NSDate date];
+        localMsg.videoWidth = w;
+        localMsg.videoHeight = h;
+        localMsg.videoDuration = @(durationMs);
+        localMsg.cachedVideoThumbnail = thumbnail;
+        localMsg.uploading = YES;
+        localMsg.pendingLocalPath = [self savePendingData:videoData extension:@"mp4"];
+        [self.messages addObject:localMsg];
+        [_messagesByEventId setObject:localMsg forKey:localMsg.eventId];
+        [self reloadTableAnimatedWithAutoScroll:YES];
 
-        MatrixAPIClient *client = [MatrixAPIClient sharedClient];
-
-        if (thumbnail) {
-            NSData *thumbData = UIImageJPEGRepresentation(thumbnail, 0.7);
-            [client uploadData:thumbData mimeType:@"image/jpeg" filename:@"video_thumb.jpg" completion:^(NSString *thumbURI, NSError *thumbErr) {
-                [self sendVideoAfterUpload:videoData videoURL:videoURL thumbnailURI:thumbURI width:w height:h durationMs:durationMs uploadAlert:uploadAlert];
-            }];
-        } else {
-            [self sendVideoAfterUpload:videoData videoURL:videoURL thumbnailURI:nil width:w height:h durationMs:durationMs uploadAlert:uploadAlert];
-        }
+        [self dispatchSendForMessage:localMsg];
     } else {
         UIImage *image = info[UIImagePickerControllerOriginalImage];
         if (!image) return;
         UIImage *resized = [self resizeImageForUpload:image];
 
-        [[MatrixAPIClient sharedClient] uploadImage:resized completion:^(NSString *contentURI, NSError *err) {
-            if (err) {
-                [NeoAlert showAlertWithTitle:@"Upload Error" message:[err localizedDescription] cancelTitle:@"OK" controller:self];
-                return;
-            }
-            [[MatrixAPIClient sharedClient] sendImageMessage:contentURI
-                                                       roomId:self.room.roomId
-                                                      caption:@"Photo"
-                                                   completion:^(NSDictionary *resp, NSError *sendErr) {
-                if (sendErr) {
-                    [NeoAlert showAlertWithTitle:@"Send Error" message:[sendErr localizedDescription] cancelTitle:@"OK" controller:self];
-                    return;
-                }
-                MatrixMessage *msg = [[MatrixMessage alloc] init];
-                msg.eventId = resp[@"event_id"];
-                msg.sender = [[MatrixAPIClient sharedClient] userId];
-                msg.body = @"Photo";
-                msg.msgType = @"m.image";
-                msg.imageURL = contentURI;
-                msg.roomId = self.room.roomId;
-                msg.timestamp = [NSDate date];
-                [self.messages addObject:msg];
-            [self buildDisplayItems];
-            [self.tableView reloadData];
-            if (_shouldAutoScroll) {
-                [self scrollToBottom];
-            }
-        }];
-        }];
-    }
-}
+        MatrixMessage *localMsg = [[MatrixMessage alloc] init];
+        localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
+        localMsg.sender = [[MatrixAPIClient sharedClient] userId];
+        localMsg.body = @"Photo";
+        localMsg.msgType = @"m.image";
+        localMsg.roomId = self.room.roomId;
+        localMsg.timestamp = [NSDate date];
+        localMsg.cachedImage = resized;
+        localMsg.imageWidth = resized.size.width;
+        localMsg.imageHeight = resized.size.height;
+        localMsg.uploading = YES;
+        [self.messages addObject:localMsg];
+        [_messagesByEventId setObject:localMsg forKey:localMsg.eventId];
+        [self reloadTableAnimatedWithAutoScroll:YES];
 
-- (void)sendVideoAfterUpload:(NSData *)videoData videoURL:(NSURL *)videoURL thumbnailURI:(NSString *)thumbURI width:(CGFloat)w height:(CGFloat)h durationMs:(NSInteger)durationMs uploadAlert:(UIAlertView *)alert {
-    MatrixAPIClient *client = [MatrixAPIClient sharedClient];
-    [client uploadData:videoData mimeType:@"video/mp4" filename:@"video.mp4" completion:^(NSString *videoURI, NSError *videoErr) {
-        [alert dismissWithClickedButtonIndex:0 animated:YES];
-        if (videoErr) {
-            [NeoAlert showAlertWithTitle:@"Upload Error" message:[videoErr localizedDescription] cancelTitle:@"OK" controller:self];
-            return;
-        }
-        [client sendVideoMessage:videoURI
-                          roomId:self.room.roomId
-                       thumbnail:thumbURI
-                        duration:durationMs
-                           width:w
-                          height:h
-                            size:(NSInteger)[videoData length]
-                      completion:^(NSDictionary *resp, NSError *sendErr) {
-            if (sendErr) {
-                [NeoAlert showAlertWithTitle:@"Send Error" message:[sendErr localizedDescription] cancelTitle:@"OK" controller:self];
-                return;
-            }
-            MatrixMessage *msg = [[MatrixMessage alloc] init];
-            msg.eventId = resp[@"event_id"];
-            msg.sender = client.userId;
-            msg.body = @"Video";
-            msg.msgType = @"m.video";
-            msg.videoURL = videoURI;
-            msg.videoThumbnailURL = thumbURI;
-            msg.videoDuration = @(durationMs);
-            msg.videoWidth = w;
-            msg.videoHeight = h;
-            msg.roomId = self.room.roomId;
-            msg.timestamp = [NSDate date];
-            [self.messages addObject:msg];
-            [self buildDisplayItems];
-            [self.tableView reloadData];
-            if (_shouldAutoScroll) {
-                [self scrollToBottom];
-            }
-        }];
-    }];
+        [self dispatchSendForMessage:localMsg];
+    }
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
@@ -1746,7 +1971,7 @@
     // Resolve reply details
     if (msg.replyToEventId && [msg.replyToEventId length] > 0) {
         if (!msg.replyToSender || !msg.replyToBody) {
-            [msg resolveReplyFromMessages:self.messages];
+            [msg resolveReplyFromDict:_messagesByEventId];
         }
     }
 
@@ -1756,7 +1981,7 @@
             showTimestamp:showTimestamp
                  hasMedia:hasMedia
                 mediaView:mediaView
-          dateSeparator:nil];
+           dateSeparator:nil];
     NSString *displayBody = [[DemoModeManager sharedManager] obfuscateMessage:msg.body];
     [cell setMessage:msg.isRedacted ? msg.body : displayBody];
     cell.bubbleView.isEmojiOnly = isEmojiOnly;
@@ -1774,7 +1999,30 @@
     }
 
     if (isSelf) {
-        [cell setAck:1];
+        BOOL isPendingLocal = [msg.eventId hasPrefix:@"local_"];
+        NSInteger ackVal;
+        if (msg.failed) {
+            ackVal = 3;
+        } else if (isPendingLocal && !hasMedia) {
+            ackVal = 0;
+        } else {
+            ackVal = msg.readByOther ? 2 : 1;
+        }
+        [cell setAck:ackVal];
+    }
+
+    // Upload progress overlay
+    if (msg.uploading && mediaView) {
+        UIView *overlay = [[UIView alloc] initWithFrame:mediaView.bounds];
+        overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        overlay.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.35];
+        NeoProgressSpinnerView *spinner = [[NeoProgressSpinnerView alloc] initWithFrame:CGRectMake(0, 0, 40, 40) light:NO];
+        spinner.center = CGPointMake(overlay.bounds.size.width / 2, overlay.bounds.size.height / 2);
+        spinner.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin |
+                                   UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+        [overlay addSubview:spinner];
+        [spinner setProgress];
+        [mediaView addSubview:overlay];
     }
 
     // Reactions — pill buttons
@@ -1785,51 +2033,20 @@
         pillContainer.backgroundColor = [UIColor clearColor];
         [cell.contentView addSubview:pillContainer];
     }
-    // Clear old pill subviews
-    for (UIView *v in pillContainer.subviews) [v removeFromSuperview];
 
     if ([msg.reactions count] > 0) {
-        NSArray *sorted = [[msg.reactions allKeys] sortedArrayUsingComparator:^NSComparisonResult(NSString *e1, NSString *e2) {
-            return [msg.reactions[e2] compare:msg.reactions[e1]];
-        }];
-        NSInteger limit = MIN(7, (NSInteger)[sorted count]);
-
         CGRect bf = [cell.bubbleView bubbleFrame];
-        CGFloat pillX = isSelf ? (CGRectGetMaxX(bf) - 4) : (CGRectGetMinX(bf) + [MatrixBubbleView textXOffsetForType:MatrixBubbleMessageTypeIncoming]);
         CGFloat pillY = CGRectGetMaxY(bf) + 2;
-
-        for (NSInteger i = 0; i < limit; i++) {
-            NSString *emoji = sorted[i];
-            NSNumber *count = msg.reactions[emoji];
-
-            NeoReactionPillView *pill = [[NeoReactionPillView alloc] initWithFrame:CGRectZero];
-            pill.emoji = emoji;
-            pill.count = [count integerValue];
-            pill.pillSelected = NO;
-            [pill updateImage];
-
-            if (isSelf) {
-                pillX -= pill.frame.size.width + 3;
-                pill.frame = CGRectMake(pillX, 0, pill.frame.size.width, pill.frame.size.height);
-            } else {
-                pill.frame = CGRectMake(pillX, 0, pill.frame.size.width, pill.frame.size.height);
-                pillX += pill.frame.size.width + 3;
-            }
-
-            [pill addTarget:self action:@selector(reactionPillTapped:) forControlEvents:UIControlEventTouchUpInside];
-            objc_setAssociatedObject(pill, "msg", msg, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            objc_setAssociatedObject(pill, "emojiKey", emoji, OBJC_ASSOCIATION_COPY_NONATOMIC);
-
-            [pillContainer addSubview:pill];
-        }
-
-        if (isSelf) {
-            pillContainer.frame = CGRectMake(0, pillY, self.tableView.frame.size.width, 26);
-        } else {
-            pillContainer.frame = CGRectMake(0, pillY, self.tableView.frame.size.width, 26);
-        }
+        [NeoReactionViewBuilder populatePillContainer:pillContainer
+                                           forMessage:msg
+                                          bubbleFrame:bf
+                                               isSelf:isSelf
+                                               target:self
+                                               action:@selector(reactionPillTapped:)];
+        pillContainer.frame = CGRectMake(0, pillY, self.tableView.frame.size.width, 26);
         pillContainer.hidden = NO;
     } else {
+        for (UIView *v in pillContainer.subviews) [v removeFromSuperview];
         pillContainer.hidden = YES;
     }
 

@@ -33,6 +33,15 @@
                withNewItems:(NSArray<id<TGTableItem>> *)newItems
                applyDeletes:(void(^)(NSArray<TGTableAlignment *> *))applyDeletes
                applyInserts:(void(^)(NSArray<TGTableAlignment *> *))applyInserts {
+    [self replaceItemsInTable:oldItems withNewItems:newItems singleUpdateBlock:^(NSArray<TGTableAlignment *> *deletes, NSArray<TGTableAlignment *> *inserts) {
+        if (applyDeletes) applyDeletes(deletes);
+        if (applyInserts) applyInserts(inserts);
+    }];
+}
+
++ (void)replaceItemsInTable:(NSArray<id<TGTableItem>> *)oldItems
+               withNewItems:(NSArray<id<TGTableItem>> *)newItems
+          singleUpdateBlock:(void(^)(NSArray<TGTableAlignment *> *deletes, NSArray<TGTableAlignment *> *inserts))updateBlock {
     NSInteger m = [oldItems count];
     NSInteger n = [newItems count];
 
@@ -89,8 +98,7 @@
     free(keptOld);
     free(keptNew);
 
-    if (applyDeletes) applyDeletes(deletes);
-    if (applyInserts) applyInserts(inserts);
+    if (updateBlock) updateBlock(deletes, inserts);
 }
 
 @end

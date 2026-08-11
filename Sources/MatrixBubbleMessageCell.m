@@ -49,22 +49,29 @@
         self.dateSeparatorLabel.hidden = YES;
     }
 
-    [self.bubbleView removeFromSuperview];
-    self.bubbleView = nil;
-
     CGFloat y = dateSeparator ? 28 : 0;
     CGRect bubbleFrame = CGRectMake(0, y,
                                     self.contentView.frame.size.width,
                                     self.contentView.frame.size.height - y);
 
-    self.bubbleView = [[MatrixBubbleView alloc] initWithFrame:bubbleFrame
-                                                         type:type
-                                                     showUser:showUser
-                                                showTimestamp:showTimestamp
-                                                     hasMedia:hasMedia
-                                                    mediaView:mediaView];
-    [self.contentView addSubview:self.bubbleView];
-    [self.contentView sendSubviewToBack:self.bubbleView];
+    if (!self.bubbleView) {
+        self.bubbleView = [[MatrixBubbleView alloc] initWithFrame:bubbleFrame
+                                                             type:type
+                                                         showUser:showUser
+                                                    showTimestamp:showTimestamp
+                                                         hasMedia:hasMedia
+                                                        mediaView:mediaView];
+        [self.contentView addSubview:self.bubbleView];
+        [self.contentView sendSubviewToBack:self.bubbleView];
+    } else {
+        self.bubbleView.frame = bubbleFrame;
+        self.bubbleView.type = type;
+        self.bubbleView.showUser = showUser;
+        self.bubbleView.showTimestamp = showTimestamp;
+        self.bubbleView.hasMedia = hasMedia;
+        self.bubbleView.mediaView = mediaView;
+        [self.bubbleView setNeedsDisplay];
+    }
 }
 
 - (void)setMessage:(NSString *)msg {
@@ -100,6 +107,7 @@
     [super prepareForReuse];
     self.bubbleView.replySenderName = nil;
     self.bubbleView.replyBody = nil;
+    self.bubbleView.mediaView = nil;
 }
 
 @end

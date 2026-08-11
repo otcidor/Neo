@@ -66,7 +66,7 @@ static bool isEmojiChar(NSString *singleChar) {
     return palette[hash % 7];
 }
 
-@synthesize type, text, timestamp, showTimestamp, userName, showUser, isRedacted, ack, hasMedia, mediaView, selectedToShowCopyMenu, replySenderName, replyBody;
+@synthesize type, text, timestamp, showTimestamp, userName, showUser, isRedacted, ack, hasMedia, mediaView,selectedToShowCopyMenu, replySenderName, replyBody;
 
 - (void)setup {
     self.backgroundColor = [UIColor clearColor];
@@ -93,9 +93,6 @@ static bool isEmojiChar(NSString *singleChar) {
         self.showTimestamp = showTimestampFlag;
         self.hasMedia = hasMediaFlag;
         self.mediaView = mediaViewObj;
-        if (self.mediaView) {
-            [self addSubview:self.mediaView];
-        }
     }
     return self;
 }
@@ -150,6 +147,16 @@ static bool isEmojiChar(NSString *singleChar) {
 - (void)setReplyBody:(NSString *)b {
     replyBody = [b copy];
     [self setNeedsDisplay];
+}
+- (void)setMediaView:(UIView *)newMediaView {
+    if (mediaView != newMediaView) {
+        [mediaView removeFromSuperview];
+        mediaView = newMediaView;
+        if (mediaView) {
+            [self addSubview:mediaView];
+        }
+        [self setNeedsDisplay];
+    }
 }
 
 #pragma mark - Drawing
@@ -210,7 +217,7 @@ static bool isEmojiChar(NSString *singleChar) {
     CGFloat bx = (self.type == MatrixBubbleMessageTypeOutgoing)
         ? self.frame.size.width - bw
         : 0;
-    CGFloat replyH = ([self.replySenderName length] > 0) ? kReplyPreviewHeight : 0;
+    CGFloat replyH = ([self.replySenderName length] > 0 && [self.replyBody length] > 0) ? (kReplyPreviewHeight + 5) : 0;
     return CGRectMake(bx, kMarginTop, bw, bSize.height + userH + mediaH + replyH);
 }
 
@@ -295,9 +302,9 @@ static bool isEmojiChar(NSString *singleChar) {
 
         // Separator line below reply
         [[UIColor colorWithWhite:0.8 alpha:0.6] set];
-        UIRectFill(CGRectMake(textX, replyY + kReplyPreviewHeight + 1, contentWidth, 0.5));
+        UIRectFill(CGRectMake(textX, replyY + kReplyPreviewHeight - 1, contentWidth, 0.5));
 
-        contentY += kReplyPreviewHeight + 5;
+        contentY += kReplyPreviewHeight;
     }
 
     if (self.hasMedia && self.mediaView) {
@@ -307,7 +314,7 @@ static bool isEmojiChar(NSString *singleChar) {
 
     CGRect textFrame = CGRectMake(textX, contentY, textSize.width, textSize.height);
 
-    CGFloat tsY = contentY + textSize.height + 4;
+    CGFloat tsY = CGRectGetMaxY(bFrame) - kTimestampHeight - 4.0f;
     NSString *timeStr = @"";
     if (self.timestamp) {
         NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
@@ -319,7 +326,8 @@ static bool isEmojiChar(NSString *singleChar) {
     CGFloat const kAckSize = 12.0f;
     CGFloat const kAckGap = 4.0f;
     BOOL isOutgoing = (self.type == MatrixBubbleMessageTypeOutgoing);
-    CGFloat ackReserve = isOutgoing ? (kAckSize + kAckGap) : 0;
+    BOOL doubleCheck = (isOutgoing && ack == 2);
+    CGFloat ackReserve = isOutgoing ? (kAckSize + kAckGap + (doubleCheck ? 6.0f : 0)) : 0;
 
     CGFloat tsX = textX;
     if (isOutgoing) {
@@ -352,11 +360,39 @@ static bool isEmojiChar(NSString *singleChar) {
                   alignment:NSTextAlignmentLeft];
 
         if (isOutgoing && !IS_IOS7_OR_LATER) {
-            UIImage *ackImg = [UIImage imageNamed:@"MessageAckCheckSingle"];
-            if (ackImg) {
-                CGFloat ackX = tsX + tsSize.width + kAckGap;
-                CGFloat ackY = tsY + (tsSize.height - kAckSize) / 2.0f;
-                [ackImg drawInRect:CGRectMake(ackX, ackY, kAckSize, kAckSize)];
+            CGFloat ackX = tsX + tsSize.width + kAckGap;
+            CGFloat ackY = tsY + (tsSize.height - kAckSize) / 2.0f;
+            if (ack == 3) {
+                CGContextRef ctx = UIGraphicsGetCurrentContext();
+                CGContextSetFillColorWithColor(ctx, [UIColor colorWithRed:0.86f green:0.22f blue:0.15f alpha:1.0f].CGColor);
+                CGContextFillEllipseInRect(ctx, CGRectMake(ackX, ackY, kAckSize, kAckSize));
+                [[UIColor whiteColor] set];
+                [@"!" drawInRect:CGRectMake(ackX, ackY - 1.0f, kAckSize, kAckSize + 1.0f)
+                        withFont:[UIFont boldSystemFontOfSize:10]
+                   lineBreakMode:NSLineBreakByClipping
+                       alignment:NSTextAlignmentCenter];
+            } else if (ack == 0) {
+                CGContextRef ctx = UIGraphicsGetCurrentContext();
+                CGContextSetStrokeColorWithColor(ctx, [UIColor grayColor].CGColor);
+                CGContextSetLineWidth(ctx, 1.0f);
+                CGContextStrokeEllipseInRect(ctx, CGRectMake(ackX + 0.5f, ackY + 0.5f, kAckSize - 1.0f, kAckSize - 1.0f));
+                CGFloat cx = ackX + kAckSize / 2.0f;
+                CGFloat cy = ackY + kAckSize / 2.0f;
+                CGContextMoveToPoint(ctx, cx, cy);
+                CGContextAddLineToPoint(ctx, cx, ackY + 2.5f);
+                CGContextMoveToPoint(ctx, cx, cy);
+                CGContextAddLineToPoint(ctx, cx + 2.5f, cy + 1.5f);
+                CGContextStrokePath(ctx);
+            } else {
+                UIImage *ackImg = [UIImage imageNamed:@"MessageAckCheckSingle"];
+                if (ackImg) {
+                    if (ack == 2) {
+                        [ackImg drawInRect:CGRectMake(ackX, ackY, kAckSize, kAckSize)];
+                        [ackImg drawInRect:CGRectMake(ackX + 5.0f, ackY, kAckSize, kAckSize)];
+                    } else {
+                        [ackImg drawInRect:CGRectMake(ackX, ackY, kAckSize, kAckSize)];
+                    }
+                }
             }
         }
     }
@@ -577,7 +613,7 @@ static bool isEmojiChar(NSString *singleChar) {
 }
 
 + (CGFloat)replyPreviewHeight {
-    return kReplyPreviewHeight;
+    return kReplyPreviewHeight + 5;
 }
 
 @end
