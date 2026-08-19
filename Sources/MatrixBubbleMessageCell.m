@@ -103,6 +103,22 @@
     self.bubbleView.replyBody = body;
 }
 
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (!self.bubbleView) return;
+    CGFloat y = (self.dateSeparatorLabel && !self.dateSeparatorLabel.hidden) ? 28 : 0;
+    CGRect bf = CGRectMake(0, y,
+                           self.contentView.bounds.size.width,
+                           self.contentView.bounds.size.height - y);
+    if (!CGRectEqualToRect(self.bubbleView.frame, bf)) {
+        self.bubbleView.frame = bf;
+        [self.bubbleView setNeedsDisplay];
+    }
+    if (self.dateSeparatorLabel && !self.dateSeparatorLabel.hidden) {
+        self.dateSeparatorLabel.frame = CGRectMake(0, 4, self.contentView.bounds.size.width, 20);
+    }
+}
+
 - (void)prepareForReuse {
     [super prepareForReuse];
     self.bubbleView.replySenderName = nil;

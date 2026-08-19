@@ -321,7 +321,10 @@ static bool isEmojiChar(NSString *singleChar) {
         fmt.dateFormat = @"HH:mm";
         timeStr = [fmt stringFromDate:self.timestamp];
     }
-    CGSize tsSize = [timeStr sizeWithFont:[UIFont italicSystemFontOfSize:12]];
+    CGSize tsSize = [MatrixBubbleView neoSizeForString:timeStr
+                                                  font:[UIFont italicSystemFontOfSize:12]
+                                              maxWidth:CGFLOAT_MAX
+                                         lineBreakMode:NSLineBreakByClipping];
 
     CGFloat const kAckSize = 12.0f;
     CGFloat const kAckGap = 4.0f;
@@ -353,13 +356,28 @@ static bool isEmojiChar(NSString *singleChar) {
     }
 
     if (self.showTimestamp) {
-        [[UIColor grayColor] set];
-        [timeStr drawInRect:CGRectMake(tsX, tsY, tsSize.width, tsSize.height)
-                   withFont:[UIFont italicSystemFontOfSize:12]
-              lineBreakMode:NSLineBreakByClipping
-                  alignment:NSTextAlignmentLeft];
+        CGRect tsRect = CGRectMake(tsX, tsY, tsSize.width, tsSize.height);
+        UIFont *tsFont = [UIFont italicSystemFontOfSize:12];
+        if (IS_IOS7_OR_LATER && tsFont) {
+            NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
+            if (ps) ps.lineBreakMode = NSLineBreakByClipping;
+            NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
+            [attrs setObject:tsFont forKey:NSFontAttributeName];
+            [attrs setObject:[UIColor grayColor] forKey:NSForegroundColorAttributeName];
+            if (ps) [attrs setObject:ps forKey:NSParagraphStyleAttributeName];
+            [timeStr drawWithRect:tsRect
+                          options:NSStringDrawingUsesLineFragmentOrigin
+                       attributes:attrs
+                          context:nil];
+        } else {
+            [[UIColor grayColor] set];
+            [timeStr drawInRect:tsRect
+                       withFont:tsFont
+                  lineBreakMode:NSLineBreakByClipping
+                      alignment:NSTextAlignmentLeft];
+        }
 
-        if (isOutgoing && !IS_IOS7_OR_LATER) {
+        if (isOutgoing) {
             CGFloat ackX = tsX + tsSize.width + kAckGap;
             CGFloat ackY = tsY + (tsSize.height - kAckSize) / 2.0f;
             if (ack == 3) {
@@ -450,17 +468,39 @@ static bool isEmojiChar(NSString *singleChar) {
 
 - (void)drawTextWithLinks:(NSString *)displayText inRect:(CGRect)textFrame {
     if ([_linkResults count] == 0) {
-        [[UIColor darkTextColor] set];
-        [displayText drawInRect:textFrame
-                      withFont:[MatrixBubbleView font]
-                 lineBreakMode:NSLineBreakByWordWrapping
-                     alignment:NSTextAlignmentLeft];
+        UIFont *msgFont = [MatrixBubbleView font];
+        if (IS_IOS7_OR_LATER && msgFont) {
+            NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
+            if (ps) ps.lineBreakMode = NSLineBreakByWordWrapping;
+            NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
+            [attrs setObject:msgFont forKey:NSFontAttributeName];
+            [attrs setObject:[UIColor darkTextColor] forKey:NSForegroundColorAttributeName];
+            if (ps) [attrs setObject:ps forKey:NSParagraphStyleAttributeName];
+            [displayText drawWithRect:textFrame
+                              options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+                           attributes:attrs
+                              context:nil];
+        } else {
+            [[UIColor darkTextColor] set];
+            [displayText drawInRect:textFrame
+                           withFont:msgFont
+                      lineBreakMode:NSLineBreakByWordWrapping
+                          alignment:NSTextAlignmentLeft];
+        }
         return;
     }
 
     NSMutableAttributedString *attrStr = [[NSMutableAttributedString alloc] initWithString:displayText];
     NSRange fullRange = NSMakeRange(0, [displayText length]);
     UIFont *font = [MatrixBubbleView font];
+    if (!font) {
+        [[UIColor darkTextColor] set];
+        [displayText drawInRect:textFrame
+                       withFont:nil
+                  lineBreakMode:NSLineBreakByWordWrapping
+                      alignment:NSTextAlignmentLeft];
+        return;
+    }
     [attrStr addAttribute:NSFontAttributeName value:font range:fullRange];
     [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor darkTextColor] range:fullRange];
 
@@ -555,12 +595,35 @@ static bool isEmojiChar(NSString *singleChar) {
     return [UIFont systemFontOfSize:15];
 }
 
++ (CGSize)neoSizeForString:(NSString *)str
+                      font:(UIFont *)font
+                 maxWidth:(CGFloat)maxWidth
+            lineBreakMode:(NSLineBreakMode)mode {
+    if ([str length] == 0) return CGSizeZero;
+    if (IS_IOS7_OR_LATER && font) {
+        NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
+        if (ps) ps.lineBreakMode = mode;
+        NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
+        [attrs setObject:font forKey:NSFontAttributeName];
+        if (ps) [attrs setObject:ps forKey:NSParagraphStyleAttributeName];
+        CGRect r = [str boundingRectWithSize:CGSizeMake(maxWidth, CGFLOAT_MAX)
+                                     options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+                                  attributes:attrs
+                                     context:nil];
+        return CGSizeMake(ceilf(r.size.width), ceilf(r.size.height));
+    }
+    return [str sizeWithFont:font
+           constrainedToSize:CGSizeMake(maxWidth, CGFLOAT_MAX)
+               lineBreakMode:mode];
+}
+
 + (CGSize)textSizeForText:(NSString *)txt {
     CGFloat maxW = [UIScreen mainScreen].applicationFrame.size.width * 0.75f;
     if ([txt length] == 0) return CGSizeZero;
-    CGSize size = [txt sizeWithFont:[MatrixBubbleView font]
-                  constrainedToSize:CGSizeMake(maxW - kBubblePaddingRight, CGFLOAT_MAX)
-                      lineBreakMode:NSLineBreakByWordWrapping];
+    CGSize size = [MatrixBubbleView neoSizeForString:txt
+                                                font:[MatrixBubbleView font]
+                                            maxWidth:maxW - kBubblePaddingRight
+                                       lineBreakMode:NSLineBreakByWordWrapping];
     size.width = MAX(size.width, 72);
     return size;
 }

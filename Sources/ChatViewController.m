@@ -30,6 +30,31 @@
 - (NSString *)uniqueIdentifier { return _ident ?: @""; }
 @end
 
+@interface NeoInputFieldView : UIView
+@end
+@implementation NeoInputFieldView
+- (id)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.userInteractionEnabled = NO;
+    }
+    return self;
+}
+- (void)drawRect:(CGRect)rect {
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    CGRect r = CGRectInset(self.bounds, 1.0f, 1.0f);
+    UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:8.0f];
+    CGContextSetShadowWithColor(ctx, CGSizeMake(0, 1), 1.0f, [UIColor colorWithWhite:0 alpha:0.15].CGColor);
+    [[UIColor whiteColor] setFill];
+    [path fill];
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+    [[UIColor colorWithWhite:0.72 alpha:1.0] setStroke];
+    path.lineWidth = 1.0f;
+    [path stroke];
+}
+@end
+
 @interface ChatViewController () <UIActionSheetDelegate, UIAlertViewDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate, NSURLConnectionDataDelegate>
 @end
 
@@ -63,7 +88,14 @@
     NSMutableSet *_readEventIds;
     NSMutableArray *_typingUserIds;
     NSTimeInterval _lastTypingSent;
+    UIView *_fieldBgView;
+    UILabel *_placeholderLabel;
+    CGFloat _inputBarHeight;
 }
+
+static const CGFloat kNeoInputBarBaseH = 44.0f;
+static const CGFloat kNeoInputFieldMinH = 34.0f;
+static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)loadView {
     [super loadView];
@@ -101,30 +133,39 @@
     UIView *inputView = [[UIView alloc] initWithFrame:CGRectMake(0, tableH, w, inputH)];
     inputView.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleWidth;
     [self.view addSubview:inputView];
+    self.inputContainer = inputView;
+    _inputBarHeight = kNeoInputBarBaseH;
 
     UIImageView *inputBg = [[UIImageView alloc] initWithFrame:inputView.bounds];
-    inputBg.image = [[UIImage imageNamed:@"input-bar"] stretchableImageWithLeftCapWidth:0 topCapHeight:0];
+    inputBg.image = [[UIImage imageNamed:@"input-bar"] stretchableImageWithLeftCapWidth:10 topCapHeight:14];
     inputBg.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [inputView addSubview:inputBg];
 
-    self.messageField = [[UITextField alloc] initWithFrame:CGRectMake(46, 6, w - 96, 32)];
-    self.messageField.placeholder = @"Type a message...";
-    self.messageField.borderStyle = UITextBorderStyleNone;
-    self.messageField.font = [UIFont systemFontOfSize:15];
+    _fieldBgView = [[NeoInputFieldView alloc] initWithFrame:CGRectMake(46, 5, w - 96, kNeoInputFieldMinH)];
+    [inputView addSubview:_fieldBgView];
+
+    self.messageField = [[UITextView alloc] initWithFrame:_fieldBgView.frame];
     self.messageField.delegate = self;
-    self.messageField.returnKeyType = UIReturnKeySend;
+    self.messageField.font = [UIFont systemFontOfSize:15];
+    self.messageField.returnKeyType = UIReturnKeyDefault;
     self.messageField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     self.messageField.backgroundColor = [UIColor clearColor];
-    self.messageField.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
-    UIView *paddingView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 0)];
-    self.messageField.leftView = paddingView;
-    self.messageField.leftViewMode = UITextFieldViewModeAlways;
-    [self.messageField addTarget:self action:@selector(textFieldDidChange) forControlEvents:UIControlEventEditingChanged];
-    UIImage *fieldImg = [UIImage imageNamed:@"input-field"];
-    if (fieldImg) {
-        self.messageField.background = [fieldImg stretchableImageWithLeftCapWidth:12 topCapHeight:12];
+    self.messageField.scrollEnabled = NO;
+    self.messageField.bounces = NO;
+    if (IS_IOS7_OR_LATER) {
+        self.messageField.textContainerInset = UIEdgeInsetsMake(5, 8, 5, 0);
+    } else {
+        self.messageField.contentInset = UIEdgeInsetsMake(6, 8, 6, 0);
     }
     [inputView addSubview:self.messageField];
+
+    _placeholderLabel = [[UILabel alloc] initWithFrame:CGRectMake(46 + 10, 0, w - 96 - 30, kNeoInputFieldMinH)];
+    _placeholderLabel.font = [UIFont systemFontOfSize:15];
+    _placeholderLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+    _placeholderLabel.backgroundColor = [UIColor clearColor];
+    _placeholderLabel.userInteractionEnabled = NO;
+    _placeholderLabel.text = @"Type a message...";
+    [inputView addSubview:_placeholderLabel];
 
     self.sendButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.sendButton.frame = CGRectMake(w - 40, 5, 34, 34);
@@ -146,6 +187,11 @@
     _sendButtonIsMicMode = NO;
     [self updateSendButtonAppearance];
 
+    UISwipeGestureRecognizer *swipeDown = [[UISwipeGestureRecognizer alloc]
+        initWithTarget:self action:@selector(handleInputBarSwipeDown)];
+    swipeDown.direction = UISwipeGestureRecognizerDirectionDown;
+    [inputView addGestureRecognizer:swipeDown];
+
     self.messages = [NSMutableArray array];
     self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
     self.spinner.center = CGPointMake(w / 2, 60);
@@ -162,8 +208,6 @@
     _syncBackoff = 1.0;
     _readEventIds = [NSMutableSet set];
     _typingUserIds = [NSMutableArray array];
-
-    self.inputContainer = inputView;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -680,7 +724,7 @@
     CGFloat tableH = inputToolbar.frame.origin.y - rpH;
     self.tableView.frame = CGRectMake(0, 0, w, tableH);
     self.replyPreviewView.frame = CGRectMake(0, tableH, w, rpH);
-    inputToolbar.frame = CGRectMake(0, tableH + rpH, w, 44);
+    inputToolbar.frame = CGRectMake(0, tableH + rpH, w, _inputBarHeight);
 
     [self.messageField becomeFirstResponder];
 }
@@ -689,22 +733,7 @@
     if (!self.replyPreviewView || self.replyPreviewView.hidden) return;
     self.replyPreviewView.hidden = YES;
     self.replyToMessage = nil;
-
-    CGFloat w = self.view.bounds.size.width;
-    CGFloat inputH = 44;
-    CGFloat tableH;
-    CGFloat toolBarY;
-
-    if (_keyboardHeight > 0) {
-        tableH = self.view.bounds.size.height - _keyboardHeight - inputH;
-        toolBarY = tableH;
-    } else {
-        tableH = self.view.bounds.size.height - inputH;
-        toolBarY = tableH;
-    }
-
-    self.tableView.frame = CGRectMake(0, 0, w, tableH);
-    self.messageField.superview.frame = CGRectMake(0, toolBarY, w, inputH);
+    [self layoutInputWithBarHeight:_inputBarHeight animated:NO];
 }
 
 - (void)profileTapped {
@@ -933,6 +962,12 @@
             self.tableView.contentOffset = CGPointMake(0, heightGain);
         }
     }];
+}
+
+- (void)handleInputBarSwipeDown {
+    if ([self.messageField isFirstResponder]) {
+        [self.messageField resignFirstResponder];
+    }
 }
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
@@ -1400,6 +1435,11 @@
 
     self.messageField.text = @"";
     [self updateSendButtonAppearance];
+    [self updatePlaceholderVisibility];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self updateInputBarSize];
+    });
+    [self.messageField resignFirstResponder];
 
     [[MatrixAPIClient sharedClient] sendTyping:NO roomId:self.room.roomId completion:nil];
 
@@ -1472,7 +1512,7 @@
     self.navigationItem.titleView = recordingNavView;
 
     _recordingLabel.hidden = YES;
-    self.messageField.hidden = YES;
+    [self setInputEditingHidden:YES];
 
     _recordingState = 1;
     [self updateRecordingButtons];
@@ -1526,7 +1566,7 @@
     }
     _audioRecorder = nil;
     _recordingLabel.hidden = YES;
-    self.messageField.hidden = NO;
+    [self setInputEditingHidden:NO];
     [self resetRecordingButtons];
 }
 
@@ -1544,7 +1584,7 @@
         _originalTitleView = nil;
     }
     _recordingLabel.hidden = YES;
-    self.messageField.hidden = NO;
+    [self setInputEditingHidden:NO];
 
     NSTimeInterval duration = _audioRecorder.currentTime;
     NSURL *url = _audioRecorder.url;
@@ -1574,7 +1614,7 @@
     }
 
     _recordingLabel.hidden = YES;
-    self.messageField.hidden = NO;
+    [self setInputEditingHidden:NO];
 
     NSTimeInterval duration = _audioRecorder.currentTime;
     NSURL *url = _audioRecorder.url;
@@ -1646,20 +1686,33 @@
     }
 }
 
-- (BOOL)textField:(UITextField *)textField
-    shouldChangeCharactersInRange:(NSRange)range
-        replacementString:(NSString *)string {
-    return YES;
-}
-
-- (void)textFieldDidChange {
+- (void)textViewDidChange:(UITextView *)textView {
     [self updateSendButtonAppearance];
+    [self updatePlaceholderVisibility];
 
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
     if ([self.messageField.text length] > 0 && now - _lastTypingSent > 10.0) {
         _lastTypingSent = now;
         [[MatrixAPIClient sharedClient] sendTyping:YES roomId:self.room.roomId completion:nil];
     }
+    self.messageField.scrollEnabled = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self updateInputBarSize];
+    });
+}
+
+- (void)setInputEditingHidden:(BOOL)hidden {
+    self.messageField.hidden = hidden;
+    _fieldBgView.hidden = hidden;
+    if (hidden) {
+        _placeholderLabel.hidden = YES;
+    } else {
+        [self updatePlaceholderVisibility];
+    }
+}
+
+- (void)updatePlaceholderVisibility {
+    _placeholderLabel.hidden = ([self.messageField.text length] > 0);
 }
 
 - (void)micTouchDown {
@@ -1770,11 +1823,6 @@
     }
 }
 
-- (BOOL)textFieldShouldReturn:(UITextField *)textField {
-    [self sendTapped];
-    return YES;
-}
-
 #pragma mark - Scroll tracking
 
 - (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
@@ -1796,53 +1844,100 @@
     }
 }
 
+#pragma mark - Input bar
+
+- (void)updateInputBarSize {
+    UITextView *tv = self.messageField;
+    CGFloat textH;
+    if (IS_IOS7_OR_LATER) {
+        CGFloat cw = tv.bounds.size.width - tv.textContainerInset.left - tv.textContainerInset.right;
+        tv.textContainer.size = CGSizeMake(cw, CGFLOAT_MAX);
+        textH = [tv.layoutManager usedRectForTextContainer:tv.textContainer].size.height;
+    } else {
+        tv.contentSize = CGSizeMake(tv.bounds.size.width, tv.contentSize.height);
+        CGFloat insetsV = tv.contentInset.top + tv.contentInset.bottom;
+        textH = MAX(tv.contentSize.height - insetsV, 0.0f);
+    }
+    CGFloat baseInsetsV = 10.0f;
+    CGFloat contentFieldH = textH + baseInsetsV;
+    CGFloat fieldH = MIN(MAX(contentFieldH, kNeoInputFieldMinH), kNeoInputFieldMaxH);
+    tv.scrollEnabled = (contentFieldH > kNeoInputFieldMaxH - 1.0f);
+    if (fieldH > contentFieldH + 0.5f) {
+        CGFloat slack = fieldH - contentFieldH;
+        if (IS_IOS7_OR_LATER) {
+            CGFloat side = (10.0f + slack) / 2.0f;
+            tv.textContainerInset = UIEdgeInsetsMake(side, 8, side, 0);
+        } else {
+            CGFloat side = (12.0f + slack) / 2.0f;
+            tv.contentInset = UIEdgeInsetsMake(side, 8, side, 0);
+        }
+    } else {
+        if (IS_IOS7_OR_LATER) {
+            tv.textContainerInset = UIEdgeInsetsMake(5, 8, 5, 0);
+        } else {
+            tv.contentInset = UIEdgeInsetsMake(6, 8, 6, 0);
+        }
+    }
+    if (fabsf(fieldH - tv.frame.size.height) < 0.5f) return;
+    [self setInputBarHeight:kNeoInputBarBaseH + (fieldH - kNeoInputFieldMinH) animated:YES];
+}
+
+- (void)setInputBarHeight:(CGFloat)newH animated:(BOOL)animated {
+    if (fabsf(newH - _inputBarHeight) < 0.5f) return;
+    [self layoutInputWithBarHeight:newH animated:animated];
+}
+
+- (void)layoutInputWithBarHeight:(CGFloat)barH animated:(BOOL)animated {
+    _inputBarHeight = barH;
+
+    CGFloat replyH = (self.replyPreviewView && !self.replyPreviewView.hidden) ? [ReplyBubbleView viewHeight] : 0;
+    CGFloat w = self.view.bounds.size.width;
+    CGFloat tableH = self.view.bounds.size.height - _keyboardHeight - replyH - barH;
+    CGFloat fieldH = kNeoInputFieldMinH + (barH - kNeoInputBarBaseH);
+    CGFloat fieldX = 46;
+    CGFloat fieldW = w - 96;
+    CGFloat fieldY = (barH - fieldH) / 2.0f;
+
+    void (^apply)(void) = ^{
+        self.tableView.frame = CGRectMake(0, 0, w, tableH);
+        self.inputContainer.frame = CGRectMake(0, tableH + replyH, w, barH);
+        self.messageField.frame = CGRectMake(fieldX, fieldY, fieldW, fieldH);
+        if (IS_IOS7_OR_LATER) {
+            UIEdgeInsets ti = self.messageField.textContainerInset;
+            self.messageField.textContainer.size = CGSizeMake(fieldW - ti.left - ti.right, fieldH - ti.top - ti.bottom);
+        }
+        _fieldBgView.frame = CGRectMake(fieldX, fieldY, fieldW, fieldH);
+        _placeholderLabel.frame = CGRectMake(fieldX + 10, fieldY, fieldW - 30, fieldH);
+        self.sendButton.frame = CGRectMake(w - 40, barH - 39, 34, 34);
+        UIButton *cameraBtn = (UIButton *)[self.inputContainer viewWithTag:93];
+        cameraBtn.frame = CGRectMake(8, barH - 39, 34, 34);
+        if (replyH > 0 && self.replyPreviewView) {
+            self.replyPreviewView.frame = CGRectMake(0, tableH, w, replyH);
+        }
+    };
+
+    if (animated) {
+        [UIView animateWithDuration:0.2 animations:apply];
+    } else {
+        apply();
+    }
+    if (_shouldAutoScroll) [self scrollToBottom];
+}
+
 #pragma mark - Keyboard
 
 - (void)keyboardWillShow:(NSNotification *)note {
     NSDictionary *info = [note userInfo];
     CGRect kbFrame = [info[UIKeyboardFrameEndUserInfoKey] CGRectValue];
     CGFloat kbHeight = kbFrame.size.height;
-    CGFloat duration = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
 
     _keyboardHeight = kbHeight;
-
-    CGFloat replyH = (self.replyPreviewView && !self.replyPreviewView.hidden) ? [ReplyBubbleView viewHeight] : 0;
-    CGFloat inputH = 44;
-    CGFloat totalInputH = inputH + replyH;
-
-    CGRect tableFrame = self.tableView.frame;
-    tableFrame.size.height = self.view.bounds.size.height - kbHeight - totalInputH;
-
-    UIView *inputToolbar = self.messageField.superview;
-    inputToolbar.frame = CGRectMake(0, tableFrame.size.height + replyH, self.view.bounds.size.width, inputH);
-
-    if (replyH > 0 && self.replyPreviewView) {
-        self.replyPreviewView.frame = CGRectMake(0, tableFrame.size.height, self.view.bounds.size.width, replyH);
-    }
-
-    [UIView animateWithDuration:duration animations:^{
-        self.tableView.frame = tableFrame;
-    }];
-
-    [self scrollToBottom];
+    [self layoutInputWithBarHeight:_inputBarHeight animated:YES];
 }
 
 - (void)keyboardWillHide:(NSNotification *)note {
     _keyboardHeight = 0;
-    CGFloat duration = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
-    CGFloat w = self.view.bounds.size.width;
-    CGFloat h = self.view.bounds.size.height;
-    CGFloat replyH = (self.replyPreviewView && !self.replyPreviewView.hidden) ? [ReplyBubbleView viewHeight] : 0;
-    CGFloat totalInputH = 44 + replyH;
-    CGFloat tableH = h - totalInputH;
-
-    [UIView animateWithDuration:duration animations:^{
-        self.tableView.frame = CGRectMake(0, 0, w, tableH);
-        self.messageField.superview.frame = CGRectMake(0, tableH + replyH, w, 44);
-        if (replyH > 0 && self.replyPreviewView) {
-            self.replyPreviewView.frame = CGRectMake(0, tableH, w, replyH);
-        }
-    }];
+    [self layoutInputWithBarHeight:_inputBarHeight animated:YES];
 }
 
 #pragma mark - UITableView
