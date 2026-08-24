@@ -609,8 +609,10 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 - (void)getRoomMessages:(NSString *)roomId
              completion:(MatrixCompletion)completion {
     NSString *encodedId = [roomId stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
-    NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/messages?dir=b&limit=50",
-                      encodedId];
+    NSInteger limit = [[NSUserDefaults standardUserDefaults] integerForKey:@"neo_message_limit"];
+    if (limit <= 0) limit = 50;
+    NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/messages?dir=b&limit=%ld",
+                      encodedId, (long)limit];
     NSURLRequest *req = [self requestWithPath:path method:@"GET"];
     [self sendRequest:req completion:completion];
 }

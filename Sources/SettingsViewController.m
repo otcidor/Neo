@@ -14,7 +14,9 @@
 static NSString *const kBubbleStyleKey = @"neo_bubble_style";
 static NSString *const kWallpaperKey = @"neo_wallpaper";
 
-@interface SettingsViewController () <UIAlertViewDelegate>
+static NSString *const kMessageLimitKey = @"neo_message_limit";
+
+@interface SettingsViewController () <UIAlertViewDelegate, UIActionSheetDelegate>
 @end
 
 static NSString *kWpNames[] = {
@@ -105,7 +107,7 @@ static NSString *kWpImages[] = {
  numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 2;
     if (section == 1) {
-        NSInteger base = 5;
+        NSInteger base = 6;
         return [DemoModeManager sharedManager].demoModeUnlocked ? base + 1 : base;
     }
     if (section == 2) return 2;
@@ -198,7 +200,18 @@ static NSString *kWpImages[] = {
                 cell.accessoryView = toggle;
             }
             toggle.on = [[NSUserDefaults standardUserDefaults] boolForKey:@"neo_hide_networks_tab"];
-        } else if (indexPath.row == 5 && [DemoModeManager sharedManager].demoModeUnlocked) {
+        } else if (indexPath.row == 5) {
+            cell.textLabel.text = NSLocalizedString(@"Message Limit", nil);
+            cell.textLabel.textAlignment = NSTextAlignmentLeft;
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.selectionStyle = UITableViewCellSelectionStyleBlue;
+            NSInteger limit = [[NSUserDefaults standardUserDefaults] integerForKey:kMessageLimitKey];
+            if (limit <= 0) {
+                cell.detailTextLabel.text = NSLocalizedString(@"No limit", nil);
+            } else {
+                cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld", (long)limit];
+            }
+        } else if (indexPath.row == 6 && [DemoModeManager sharedManager].demoModeUnlocked) {
             cell.textLabel.text = @"Demo Mode";
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
             UISwitch *toggle = (UISwitch *)[cell.contentView viewWithTag:501];
@@ -299,6 +312,14 @@ static NSString *kWpImages[] = {
         } else if (indexPath.row == 3) {
             ThemeSelectionViewController *vc = [[ThemeSelectionViewController alloc] init];
             [self.navigationController pushViewController:vc animated:YES];
+        } else if (indexPath.row == 5) {
+            UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:NSLocalizedString(@"Message Limit", nil)
+                                                               delegate:self
+                                                      cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
+                                                 destructiveButtonTitle:nil
+                                                      otherButtonTitles:@"20", @"50", NSLocalizedString(@"No limit", nil), nil];
+            sheet.tag = 555;
+            [sheet showInView:self.view];
         }
         return;
     }
@@ -335,6 +356,18 @@ static NSString *kWpImages[] = {
     _tableView.backgroundColor = [tm backgroundColor];
     [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
     if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
+}
+
+- (void)actionSheet:(UIActionSheet *)actionSheet
+    clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (actionSheet.tag != 555) return;
+    if (buttonIndex == 3 || buttonIndex < 0) return;
+    NSInteger limits[] = {20, 50, 0};
+    if (buttonIndex < 3) {
+        [[NSUserDefaults standardUserDefaults] setInteger:limits[buttonIndex] forKey:kMessageLimitKey];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+    [_tableView reloadData];
 }
 
 - (void)alertView:(UIAlertView *)alertView
