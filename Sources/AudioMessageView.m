@@ -39,9 +39,10 @@
         self.progressSlider.maximumValue = 1.0;
         self.progressSlider.value = 0.0;
         self.progressSlider.continuous = YES;
-        [self.progressSlider setThumbImage:[UIImage imageNamed:@"Scrubber"] forState:UIControlStateNormal];
-        [self.progressSlider setMinimumTrackImage:[UIImage imageNamed:@"ScrubberTrackProgressInc"] forState:UIControlStateNormal];
-        [self.progressSlider setMaximumTrackImage:[UIImage imageNamed:@"ScrubberBar"] forState:UIControlStateNormal];
+        UIImage *thumb = [UIImage imageNamed:@"Scrubber"];
+        [self.progressSlider setThumbImage:thumb forState:UIControlStateNormal];
+        [self.progressSlider setThumbImage:thumb forState:UIControlStateHighlighted];
+        [self updateTrackImages];
         [self.progressSlider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
         [self.progressSlider addTarget:self action:@selector(sliderTouchUp:) forControlEvents:UIControlEventTouchUpInside];
         [self.progressSlider addTarget:self action:@selector(sliderTouchUp:) forControlEvents:UIControlEventTouchUpOutside];
@@ -60,6 +61,25 @@
         [self addSubview:self.spinner];
     }
     return self;
+}
+
+- (void)setIsOutgoing:(BOOL)isOutgoing {
+    _isOutgoing = isOutgoing;
+    [self updateTrackImages];
+}
+
+- (void)updateTrackImages {
+    NSString *minTrackName = self.isOutgoing ? @"ScrubberTrackProgressOut" : @"ScrubberTrackProgressInc";
+    UIImage *minTrackRaw = [UIImage imageNamed:minTrackName];
+    UIImage *minTrack = [minTrackRaw stretchableImageWithLeftCapWidth:4 topCapHeight:0];
+
+    UIImage *maxTrackRaw = [UIImage imageNamed:@"ScrubberBar"];
+    UIImage *maxTrack = [maxTrackRaw stretchableImageWithLeftCapWidth:4 topCapHeight:0];
+
+    [self.progressSlider setMinimumTrackImage:minTrack forState:UIControlStateNormal];
+    [self.progressSlider setMinimumTrackImage:minTrack forState:UIControlStateHighlighted];
+    [self.progressSlider setMaximumTrackImage:maxTrack forState:UIControlStateNormal];
+    [self.progressSlider setMaximumTrackImage:maxTrack forState:UIControlStateHighlighted];
 }
 
 - (void)setAudioData:(NSData *)audioData {

@@ -8,6 +8,7 @@
 @property (nonatomic, strong) NSString *mxcURL;   // for download
 @property (nonatomic, readonly, getter=isPlaying) BOOL playing;
 @property (nonatomic, readonly, getter=isDownloaded) BOOL downloaded;
+@property (nonatomic, assign) BOOL isOutgoing;
 
 - (void)startDownload;
 - (void)stop;

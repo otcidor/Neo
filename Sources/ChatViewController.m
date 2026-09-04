@@ -2190,6 +2190,48 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     return body;
 }
 
+- (CGSize)mediaSizeForImageMessage:(MatrixMessage *)msg {
+    CGFloat origW = 0;
+    CGFloat origH = 0;
+    if (msg.cachedImage) {
+        origW = msg.cachedImage.size.width;
+        origH = msg.cachedImage.size.height;
+    }
+    if (origW <= 0 || origH <= 0) {
+        origW = msg.imageWidth;
+        origH = msg.imageHeight;
+    }
+    if (origW <= 0 || origH <= 0) {
+        origW = 200.0f;
+        origH = 150.0f;
+    }
+
+    CGFloat maxW = 210.0f;
+    CGFloat maxH = 220.0f;
+    CGFloat minW = 130.0f;
+    CGFloat minH = 100.0f;
+
+    CGFloat ratio = origH / origW;
+
+    CGFloat targetW = maxW;
+    CGFloat targetH = roundf(targetW * ratio);
+
+    if (targetH > maxH) {
+        targetH = maxH;
+        targetW = roundf(targetH / ratio);
+    }
+
+    if (targetW > maxW) {
+        targetW = maxW;
+        targetH = roundf(targetW * ratio);
+    }
+
+    targetW = MAX(minW, MIN(maxW, targetW));
+    targetH = MAX(minH, MIN(maxH, targetH));
+
+    return CGSizeMake(targetW, targetH);
+}
+
 #pragma mark - UITableView
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -2291,11 +2333,13 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         mediaView = videoView;
     } else if (isAudio) {
         AudioMessageView *audioView = [[AudioMessageView alloc] initWithFrame:CGRectMake(0, 0, 200, 50)];
+        audioView.isOutgoing = isSelf;
         audioView.mxcURL = msg.audioURL;
         audioView.duration = msg.audioDuration;
         mediaView = audioView;
     } else if (hasMedia) {
-        UIImageView *preview = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 150, 130)];
+        CGSize imgSize = [self mediaSizeForImageMessage:msg];
+        UIImageView *preview = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, imgSize.width, imgSize.height)];
         preview.contentMode = UIViewContentModeScaleAspectFill;
         preview.clipsToBounds = YES;
         preview.backgroundColor = [UIColor colorWithWhite:0.88 alpha:1.0];
@@ -2307,6 +2351,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
             NSData *pData = [NSData dataWithContentsOfFile:msg.pendingLocalPath options:NSDataReadingMappedIfSafe error:nil];
             if (pData) {
                 msg.cachedImage = [UIImage imageWithData:pData];
+                msg.imageWidth = msg.cachedImage.size.width;
+                msg.imageHeight = msg.cachedImage.size.height;
                 preview.image = msg.cachedImage;
             }
         } else {
@@ -2315,6 +2361,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                 completion:^(UIImage *img, NSError *err) {
                 if (img) {
                     msg.cachedImage = img;
+                    msg.imageWidth = img.size.width;
+                    msg.imageHeight = img.size.height;
                     dispatch_async(dispatch_get_main_queue(), ^{
                         [tableView reloadRowsAtIndexPaths:@[cellPath]
                                          withRowAnimation:UITableViewRowAnimationNone];
@@ -2771,11 +2819,12 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                                                      isRedacted:msg.isRedacted
                                                     mediaHeight:vidH];
     } else if (hasMedia) {
+        CGSize imgSize = [self mediaSizeForImageMessage:msg];
         bubbleH = [MatrixBubbleView cellHeightForMediaWithText:caption
                                                        showUser:showUser
                                                   showTimestamp:showTimestamp
                                                      isRedacted:msg.isRedacted
-                                                    mediaHeight:130];
+                                                    mediaHeight:imgSize.height];
     } else {
         NSUInteger emojiCount = 0;
         BOOL emojiOnly = ![msg.msgType isEqualToString:@"m.image"] && ![msg.body hasPrefix:@"mxc://"]
