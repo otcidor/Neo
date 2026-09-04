@@ -2091,6 +2091,105 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     [self layoutInputWithBarHeight:_inputBarHeight animated:YES];
 }
 
+- (NSString *)displayCaptionForMessage:(MatrixMessage *)msg {
+    if (!msg) return nil;
+    if (msg.isRedacted) return msg.body;
+
+    NSString *body = [msg.body stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if ([body length] == 0) return nil;
+
+    NSString *type = msg.msgType;
+    BOOL isAudio = [type isEqualToString:@"m.audio"] || [type isEqualToString:@"m.voice"];
+    BOOL isVideo = [type isEqualToString:@"m.video"];
+    BOOL isFile = [type isEqualToString:@"m.file"];
+    BOOL isImage = [type isEqualToString:@"m.image"] || [msg.body hasPrefix:@"mxc://"];
+
+    if (!isImage && !isVideo && !isAudio && !isFile) {
+        return body;
+    }
+
+    // 1. Archivos (m.file): La tarjeta FileMessageView ya muestra fileName.
+    if (isFile) {
+        if ([msg.fileName length] > 0 && [body isEqualToString:msg.fileName]) {
+            return nil;
+        }
+        if ([body isEqualToString:@"File"] || [body isEqualToString:@"Archivo"]) {
+            return nil;
+        }
+        return body;
+    }
+
+    // 2. Audio / Notas de voz (m.audio):
+    if (isAudio) {
+        if ([body isEqualToString:@"🎤 Voice message"] ||
+            [body isEqualToString:@"Voice message"] ||
+            [body isEqualToString:@"Mensaje de voz"] ||
+            [body isEqualToString:@"voice.m4a"] ||
+            [body isEqualToString:@"audio.mp4"] ||
+            [body isEqualToString:@"voice.ogg"] ||
+            [body isEqualToString:@"audio.ogg"]) {
+            return nil;
+        }
+        if ([body rangeOfCharacterFromSet:[NSCharacterSet whitespaceCharacterSet]].location == NSNotFound) {
+            NSString *ext = [[body pathExtension] lowercaseString];
+            if ([ext isEqualToString:@"m4a"] || [ext isEqualToString:@"mp3"] ||
+                [ext isEqualToString:@"ogg"] || [ext isEqualToString:@"wav"] ||
+                [ext isEqualToString:@"opus"] || [ext isEqualToString:@"aac"]) {
+                return nil;
+            }
+        }
+        return body;
+    }
+
+    // 3. Fotos y Videos (m.image, m.video):
+    if ([body caseInsensitiveCompare:@"Photo"] == NSOrderedSame ||
+        [body caseInsensitiveCompare:@"Foto"] == NSOrderedSame ||
+        [body caseInsensitiveCompare:@"Video"] == NSOrderedSame ||
+        [body caseInsensitiveCompare:@"Vídeo"] == NSOrderedSame) {
+        return nil;
+    }
+
+    if ([body hasPrefix:@"mxc://"]) {
+        return nil;
+    }
+
+    // Si tiene espacios (ej. "mira esta foto", "look at this photo", "Tienes que ver el archivo.pdf", "Buen domingo"):
+    // Es una frase o texto humano real. Solo se descarta si es un archivo de sistema con extensión multimedia.
+    NSRange spaceRange = [body rangeOfCharacterFromSet:[NSCharacterSet whitespaceCharacterSet]];
+    if (spaceRange.location != NSNotFound) {
+        NSString *ext = [[body pathExtension] lowercaseString];
+        if (ext.length > 0 && ([ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"] ||
+                               [ext isEqualToString:@"png"] || [ext isEqualToString:@"gif"] ||
+                               [ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"])) {
+            if ([body hasPrefix:@"IMG_"] || [body hasPrefix:@"VID_"] ||
+                [body hasPrefix:@"PXL_"] || [body hasPrefix:@"elementold-"] ||
+                [body hasPrefix:@"image"] || [body hasPrefix:@"video"]) {
+                return nil;
+            }
+        }
+        return body;
+    }
+
+    // Si no tiene espacios (una sola palabra):
+    NSString *ext = [[body pathExtension] lowercaseString];
+    if (ext.length > 0) {
+        static NSSet *mediaExts = nil;
+        if (!mediaExts) {
+            mediaExts = [NSSet setWithObjects:@"jpg", @"jpeg", @"png", @"gif", @"webp", @"bmp",
+                                             @"mp4", @"mov", @"m4v", @"3gp", @"mkv", @"avi", nil];
+        }
+        if ([mediaExts containsObject:ext]) {
+            return nil;
+        }
+    }
+
+    if ([body hasPrefix:@"IMG_"] || [body hasPrefix:@"PXL_"] || [body hasPrefix:@"VID_"] || [body hasPrefix:@"Screenshot_"]) {
+        return nil;
+    }
+
+    return body;
+}
+
 #pragma mark - UITableView
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -2246,7 +2345,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                  hasMedia:hasMedia
                 mediaView:mediaView
            dateSeparator:nil];
-    NSString *displayBody = [[DemoModeManager sharedManager] obfuscateMessage:msg.body];
+    NSString *caption = [self displayCaptionForMessage:msg];
+    NSString *displayBody = [[DemoModeManager sharedManager] obfuscateMessage:caption ?: @""];
     [cell setMessage:msg.isRedacted ? msg.body : displayBody];
     cell.bubbleView.isEmojiOnly = isEmojiOnly;
     [cell setTimestamp:msg.timestamp];
@@ -2643,15 +2743,16 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                      isVideo ||
                      isFile);
 
+    NSString *caption = [self displayCaptionForMessage:msg];
     CGFloat bubbleH;
     if (isFile) {
-        bubbleH = [MatrixBubbleView cellHeightForMediaWithText:msg.fileName
+        bubbleH = [MatrixBubbleView cellHeightForMediaWithText:caption
                                                        showUser:showUser
                                                   showTimestamp:showTimestamp
                                                      isRedacted:msg.isRedacted
                                                     mediaHeight:60];
     } else if (isAudio) {
-        bubbleH = [MatrixBubbleView cellHeightForMediaWithText:msg.body
+        bubbleH = [MatrixBubbleView cellHeightForMediaWithText:caption
                                                        showUser:showUser
                                                   showTimestamp:showTimestamp
                                                      isRedacted:msg.isRedacted
@@ -2664,13 +2765,13 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
             vidH = vidW * ratio;
             if (vidH > 200) { vidH = 200; vidW = vidH / ratio; }
         }
-        bubbleH = [MatrixBubbleView cellHeightForMediaWithText:msg.body
+        bubbleH = [MatrixBubbleView cellHeightForMediaWithText:caption
                                                        showUser:showUser
                                                   showTimestamp:showTimestamp
                                                      isRedacted:msg.isRedacted
                                                     mediaHeight:vidH];
     } else if (hasMedia) {
-        bubbleH = [MatrixBubbleView cellHeightForMediaWithText:msg.body
+        bubbleH = [MatrixBubbleView cellHeightForMediaWithText:caption
                                                        showUser:showUser
                                                   showTimestamp:showTimestamp
                                                      isRedacted:msg.isRedacted
