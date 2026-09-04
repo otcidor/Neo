@@ -19,6 +19,8 @@ typedef enum {
 @property (nonatomic, assign) NSInteger unreadCount;
 @property (nonatomic, copy) NSString *lastMessageSender;
 @property (nonatomic, copy) NSString *avatarUrl;
+@property (nonatomic, assign) BOOL hasExplicitName;
+@property (nonatomic, assign) BOOL hasExplicitAvatar;
 - (instancetype)initWithDictionary:(NSDictionary *)dict;
 - (void)updateNameFromStateEvents:(NSArray *)stateEvents timelineEvents:(NSArray *)timelineEvents;
 + (NSString *)displayNameForRoomId:(NSString *)roomId fromSyncData:(NSDictionary *)roomData;

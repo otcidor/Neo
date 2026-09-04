@@ -2,6 +2,18 @@
 
 typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
 
+extern NSString *const NeoCacheDidClearNotification;
+
+static inline NSString *NeoURLEncode(NSString *str) {
+    if (!str || [str length] == 0) return @"";
+    return (__bridge_transfer NSString *)CFURLCreateStringByAddingPercentEscapes(
+        kCFAllocatorDefault,
+        (__bridge CFStringRef)str,
+        NULL,
+        CFSTR(":/?#[]@!$&'()*+,;="),
+        kCFStringEncodingUTF8);
+}
+
 @interface MatrixAPIClient : NSObject
 
 @property (nonatomic, copy) NSString *homeserver;
@@ -66,9 +78,23 @@ typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
            filename:(NSString *)filename
         completion:(void(^)(NSString *contentURI, NSError *error))completion;
 
+- (void)uploadFileAtPath:(NSString *)filePath
+                mimeType:(NSString *)mimeType
+                filename:(NSString *)filename
+                progress:(void(^)(float fraction))progress
+              completion:(void(^)(NSString *contentURI, NSError *error))completion;
+
 - (void)sendImageMessage:(NSString *)imageURL
                    roomId:(NSString *)roomId
                   caption:(NSString *)caption
+               completion:(MatrixCompletion)completion;
+
+- (void)sendImageMessage:(NSString *)imageURL
+                   roomId:(NSString *)roomId
+                  caption:(NSString *)caption
+                    width:(CGFloat)width
+                   height:(CGFloat)height
+                     size:(NSInteger)size
                completion:(MatrixCompletion)completion;
 
 - (void)sendFileMessage:(NSString *)fileURL
@@ -85,9 +111,6 @@ typedef void (^MatrixCompletion)(NSDictionary *response, NSError *error);
                 duration:(NSInteger)duration
                     size:(NSInteger)size
               completion:(MatrixCompletion)completion;
-
-- (void)registerPusherWithPushKey:(NSString *)pushKey
-                        completion:(MatrixCompletion)completion;
 
 - (void)getRoomMessages:(NSString *)roomId
              completion:(MatrixCompletion)completion;

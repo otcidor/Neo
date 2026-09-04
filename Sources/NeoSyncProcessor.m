@@ -26,7 +26,7 @@
         NSString *type = evt[@"type"];
         if (![type isKindOfClass:[NSString class]]) continue;
 
-        if ([type isEqualToString:@"m.room.message"]) {
+        if ([type isEqualToString:@"m.room.message"] || [type isEqualToString:@"m.room.encrypted"]) {
             NSDictionary *content = evt[@"content"];
             if (![content isKindOfClass:[NSDictionary class]]) continue;
             NSDictionary *relatesto = content[@"m.relates_to"];
@@ -93,6 +93,9 @@
 
         if ([type isEqualToString:@"m.room.redaction"]) {
             NSString *redactedId = evt[@"redacts"];
+            if (![redactedId isKindOfClass:[NSString class]] && [evt[@"content"] isKindOfClass:[NSDictionary class]]) {
+                redactedId = evt[@"content"][@"redacts"];
+            }
             if (![redactedId isKindOfClass:[NSString class]]) continue;
             MatrixMessage *target = [messagesByEventId objectForKey:redactedId];
             if (target) {

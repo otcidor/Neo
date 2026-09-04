@@ -2,6 +2,7 @@
 #import "NeoCompatibility.h"
 #import "LoginViewController.h"
 #import "MatrixAPIClient.h"
+#import "MatrixSyncManager.h"
 #import "ThemeManager.h"
 #import "RoomListViewController.h"
 #import "TabBarController.h"
@@ -173,6 +174,10 @@
         UIWindow *keyWindow = [[UIApplication sharedApplication] keyWindow];
         TabBarController *tbc = [[TabBarController alloc] init];
         keyWindow.rootViewController = tbc;
+
+        // Fresh session: kick the foreground sync engine (cold-start full sync —
+        // the token was cleared on logout, so this seeds the whole room list).
+        [[MatrixSyncManager sharedManager] startSync];
     }];
 }
 

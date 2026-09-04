@@ -2,6 +2,8 @@
 
 extern NSString *const MatrixSyncNewMessageNotification;
 extern NSString *const MatrixSyncUnreadUpdateNotification;
+extern NSString *const MatrixRoomBatchNotification;
+extern NSString *const MatrixSessionExpiredNotification;
 
 @class MatrixRoom;
 

@@ -170,6 +170,15 @@
             _msgType = @"m.text";
             _imageURL = @"";
         }
+
+        NSString *eventType = dict[@"type"];
+        if ([eventType isEqualToString:@"m.room.encrypted"]) {
+            _body = NSLocalizedString(@"🔒 Encrypted message (unsupported)", nil);
+            _msgType = @"m.text";
+        } else if ([_msgType isEqualToString:@"m.emote"]) {
+            _body = [NSString stringWithFormat:@"* %@", _body];
+        }
+
         // Redacted
         if (dict[@"unsigned"][@"redacted_because"]) {
             self.isRedacted = YES;
@@ -183,6 +192,12 @@
             NSDictionary *inReplyTo = relatesTo[@"m.in_reply_to"];
             if ([inReplyTo isKindOfClass:[NSDictionary class]]) {
                 _replyToEventId = inReplyTo[@"event_id"];
+                if ([_body hasPrefix:@"> "]) {
+                    NSRange doubleNewline = [_body rangeOfString:@"\n\n"];
+                    if (doubleNewline.location != NSNotFound && doubleNewline.location + 2 < [_body length]) {
+                        _body = [_body substringFromIndex:doubleNewline.location + 2];
+                    }
+                }
             }
             // Edit detection (overrides reply reference)
             if ([relatesTo[@"rel_type"] isEqualToString:@"m.replace"]) {

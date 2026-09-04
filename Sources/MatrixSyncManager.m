@@ -4,6 +4,8 @@
 
 NSString *const MatrixSyncNewMessageNotification = @"MatrixSyncNewMessageNotification";
 NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNotification";
+NSString *const MatrixRoomBatchNotification = @"MatrixRoomBatchNotification";
+NSString *const MatrixSessionExpiredNotification = @"MatrixSessionExpiredNotification";
 
 static NSString *const kUnreadCountsKey = @"neo_unread_counts";
 static NSString *const kTotalUnreadKey = @"neo_total_unread";
@@ -44,6 +46,11 @@ static const NSInteger kMaxNotifPerRoom = 3;
             _unreadCounts = [NSMutableDictionary dictionary];
         }
         _totalUnread = [defaults integerForKey:kTotalUnreadKey];
+
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(resetUnread)
+                                                     name:NeoCacheDidClearNotification
+                                                   object:nil];
     }
     return self;
 }
@@ -67,10 +74,22 @@ static const NSInteger kMaxNotifPerRoom = 3;
         return;
     }
 
+    // True only for the cold-start full sync (no delta token yet). Listeners use
+    // it to skip client-side unread heuristics on replayed history.
+    BOOL isInitial = (client.nextBatchToken == nil);
+
     [client syncWithSince:client.nextBatchToken timeout:30000 completion:^(NSDictionary *response, NSError *error) {
         if (!self.syncing) return;
 
         if (error) {
+            if ([error code] == 401) {
+                // Rejected access token: retrying forever is useless (elementold:
+                // auth failure is not a retryable error). Stop and ask to re-login.
+                [self stopSync];
+                [[NSNotificationCenter defaultCenter] postNotificationName:MatrixSessionExpiredNotification
+                                                                    object:nil];
+                return;
+            }
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
                 [self performSync];
             });
@@ -79,6 +98,22 @@ static const NSInteger kMaxNotifPerRoom = 3;
 
         NSString *nextBatch = response[@"next_batch"];
         if (nextBatch) client.nextBatchToken = nextBatch;
+
+        // Broadcast the raw room batches BEFORE any per-message filtering below
+        // (16h cutoff, dedup): room-list/timeline consumers need every batch —
+        // including state deltas and leave events — regardless of age filters.
+        NSDictionary *joinRooms = response[@"rooms"][@"join"];
+        NSDictionary *leaveRooms = response[@"rooms"][@"leave"];
+        if ([joinRooms isKindOfClass:[NSDictionary class]] && ([joinRooms count] > 0 ||
+            ([leaveRooms isKindOfClass:[NSDictionary class]] && [leaveRooms count] > 0))) {
+            [[NSNotificationCenter defaultCenter] postNotificationName:MatrixRoomBatchNotification
+                                                                 object:nil
+                                                               userInfo:@{
+                @"join": joinRooms,
+                @"leave": [leaveRooms allKeys] ?: @[],
+                @"is_initial": @(isInitial)
+            }];
+        }
 
         UIApplicationState appState = [[UIApplication sharedApplication] applicationState];
         BOOL isBackground = (appState == UIApplicationStateBackground);
@@ -123,7 +158,7 @@ static const NSInteger kMaxNotifPerRoom = 3;
 
                 // Skip own messages
                 NSString *sender = evt[@"sender"];
-                if ([sender isEqualToString:myId]) continue;
+                BOOL isOwn = (myId && [sender isEqualToString:myId]);
 
                 // ---- 16h cutoff: skip messages older than 16 hours ----
                 NSNumber *ts = evt[@"origin_server_ts"];
@@ -142,6 +177,7 @@ static const NSInteger kMaxNotifPerRoom = 3;
                     }
                 }
 
+                if (!isOwn) {
                 NSNumber *count = self.unreadCounts[roomId] ?: @0;
                 self.unreadCounts[roomId] = @([count intValue] + 1);
                 self.totalUnread++;
@@ -181,6 +217,7 @@ static const NSInteger kMaxNotifPerRoom = 3;
             note.applicationIconBadgeNumber = self.totalUnread;
             [[UIApplication sharedApplication] scheduleLocalNotification:note];
         }
+                }
                 }
 
                 NSDictionary *userInfo = @{@"room_id": roomId, @"event": evt};

@@ -132,3 +132,6 @@
 "Clear Cache" = "Clear Cache";
 "Are you sure?" = "Are you sure?";
 "Clear" = "Clear";
+"Cache Cleared" = "Cache Cleared";
+"Local cache has been cleared." = "Local cache has been cleared.";
+"🔒 Encrypted message (unsupported)" = "🔒 Encrypted message (unsupported)";

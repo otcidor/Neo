@@ -132,3 +132,6 @@
 "Clear Cache" = "Limpiar caché";
 "Are you sure?" = "¿Estás seguro?";
 "Clear" = "Limpiar";
+"Cache Cleared" = "Caché vaciada";
+"Local cache has been cleared." = "La caché local ha sido vaciada.";
+"🔒 Encrypted message (unsupported)" = "🔒 Mensaje cifrado (no soportado)";

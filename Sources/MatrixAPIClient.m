@@ -1,6 +1,7 @@
 #import "MatrixAPIClient.h"
 #import "MatrixModels.h"
 #import "NeoCompatibility.h"
+#import "NeoCurlTransport.h"
 #import <Security/Security.h>
 #import <CommonCrypto/CommonDigest.h>
 
@@ -29,6 +30,8 @@ static NSString *const kDefaultsKeyAccessToken = @"matrix_access_token";
 static NSString *const kDefaultsKeyDeviceId = @"matrix_device_id";
 static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
 static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
+
+NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 
 @implementation MatrixAPIClient {
     NSInteger _activeImageDownloads;
@@ -72,68 +75,6 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     [defaults setObject:self.deviceId forKey:kDefaultsKeyDeviceId];
     [defaults setObject:self.userId forKey:kDefaultsKeyUserId];
     [defaults synchronize];
-
-    if (self.deviceId) {
-        NSString *path = @"/var/mobile/Library/MatrixClient";
-        NSError *err = nil;
-        [[NSFileManager defaultManager] createDirectoryAtPath:path
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:nil];
-        [self.deviceId writeToFile:[path stringByAppendingPathComponent:@"device_id"]
-                        atomically:YES
-                          encoding:NSUTF8StringEncoding
-                             error:&err];
-        if (err) {
-            NSLog(@"MatrixAPIClient: Failed to write device_id: %@", err);
-        }
-
-    }
-
-    // Write access_token for MatrixPushd
-    if (self.accessToken) {
-        NSString *path = @"/var/mobile/Library/MatrixClient";
-        [[NSFileManager defaultManager] createDirectoryAtPath:path
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:nil];
-        NSString *tokenPath = [path stringByAppendingPathComponent:@"access_token"];
-        NSError *tokenErr = nil;
-        [self.accessToken writeToFile:tokenPath
-                           atomically:YES
-                             encoding:NSUTF8StringEncoding
-                                error:&tokenErr];
-        if (tokenErr) {
-            NSLog(@"[MatrixAPIClient] Failed to write access_token: %@", tokenErr);
-        } else {
-            NSLog(@"[MatrixAPIClient] access_token written to %@", tokenPath);
-        }
-    }
-
-    // Shared keychain for daemon
-    if (self.accessToken) {
-        [self keychainSet:@"win.otcidor.neo.token" value:self.accessToken];
-    }
-    if (self.homeserver) {
-        [self keychainSet:@"win.otcidor.neo.homeserver" value:self.homeserver];
-    }
-}
-
-- (void)keychainSet:(NSString *)key value:(NSString *)value {
-    NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
-    NSDictionary *query = @{
-        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecAttrAccount: key,
-        (__bridge id)kSecAttrAccessible: (__bridge id)kSecAttrAccessibleAlways
-    };
-    SecItemDelete((__bridge CFDictionaryRef)query);
-
-    NSMutableDictionary *addQuery = [query mutableCopy];
-    addQuery[(__bridge id)kSecValueData] = data;
-    OSStatus status = SecItemAdd((__bridge CFDictionaryRef)addQuery, NULL);
-    if (status != errSecSuccess) {
-        NSLog(@"[MatrixAPIClient] Keychain save failed: %d", (int)status);
-    }
 }
 
 - (void)clearCredentials {
@@ -148,6 +89,10 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 }
 
 - (void)clearAllCaches {
+    self.nextBatchToken = nil;
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:kDefaultsKeyNextBatch];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+
     [self.messageCache removeAllObjects];
     [self.memberCache removeAllObjects];
     [self.avatarCache removeAllObjects];
@@ -170,6 +115,8 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     for (NSString *file in cacheFiles) {
         [fm removeItemAtPath:file error:nil];
     }
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:NeoCacheDidClearNotification object:nil];
 }
 
 #pragma mark - HTTP
@@ -299,7 +246,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
          completion:(MatrixCompletion)completion {
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
-                      roomId, txnId];
+                      NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
     NSDictionary *msgBody = @{
         @"msgtype": @"m.text",
@@ -321,7 +268,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
         completion:(MatrixCompletion)completion {
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
-                      roomId, txnId];
+                      NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
     NSDictionary *msgBody = @{
         @"msgtype": @"m.text",
@@ -347,7 +294,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:
         @"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
-        roomId, txnId];
+        NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
     NSDictionary *msgBody = @{
         @"msgtype": @"m.text",
@@ -377,7 +324,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:
         @"/_matrix/client/r0/rooms/%@/send/m.reaction/%@",
-        roomId, txnId];
+        NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
     NSDictionary *body = @{
         @"m.relates_to": @{
@@ -400,7 +347,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
            completion:(MatrixCompletion)completion {
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/redact/%@/%@",
-                     roomId, eventId, txnId];
+                     NeoURLEncode(roomId), NeoURLEncode(eventId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
     NSDictionary *body = @{@"reason": @"Deleted"};
     NSError *err = nil;
@@ -418,7 +365,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
         return;
     }
     NSString *path = [NSString stringWithFormat:
-        @"/_matrix/client/r0/rooms/%@/receipt/m.read/%@", roomId, eventId];
+        @"/_matrix/client/r0/rooms/%@/receipt/m.read/%@", NeoURLEncode(roomId), NeoURLEncode(eventId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"POST"];
     NSData *emptyJson = [NSJSONSerialization dataWithJSONObject:@{} options:0 error:nil];
     [req setHTTPBody:emptyJson];
@@ -434,9 +381,9 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
         if (completion) completion(nil, nil);
         return;
     }
-    NSString *escapedUser = [self.userId stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    NSString *escapedUser = NeoURLEncode(self.userId);
     NSString *path = [NSString stringWithFormat:
-        @"/_matrix/client/r0/rooms/%@/typing/%@", roomId, escapedUser];
+        @"/_matrix/client/r0/rooms/%@/typing/%@", NeoURLEncode(roomId), escapedUser];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
     NSMutableDictionary *body = [NSMutableDictionary dictionary];
     body[@"typing"] = @(typing);
@@ -456,7 +403,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
               completion:(MatrixCompletion)completion {
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
-                      roomId, txnId];
+                      NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
 
     NSMutableDictionary *msgBody = [NSMutableDictionary dictionary];
@@ -480,27 +427,166 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     [self sendRequest:req completion:completion];
 }
 
+- (void)uploadFileAtPath:(NSString *)filePath
+                mimeType:(NSString *)mimeType
+                filename:(NSString *)filename
+                progress:(void(^)(float fraction))progress
+              completion:(void(^)(NSString *contentURI, NSError *error))completion {
+    [self uploadFileAtPath:filePath
+                  mimeType:mimeType
+                  filename:filename
+                   isRetry:NO
+                  progress:progress
+                completion:completion];
+}
+
+- (void)uploadFileAtPath:(NSString *)filePath
+                mimeType:(NSString *)mimeType
+                filename:(NSString *)filename
+                 isRetry:(BOOL)isRetry
+                progress:(void(^)(float fraction))progress
+              completion:(void(^)(NSString *contentURI, NSError *error))completion {
+    NSString *basePath = isRetry ? @"/_matrix/media/r0/upload" : @"/_matrix/media/v3/upload";
+    NSString *url = [NSString stringWithFormat:@"%@%@?filename=%@", self.homeserver, basePath, NeoURLEncode(filename ?: @"file")];
+
+    NSMutableDictionary *headers = [NSMutableDictionary dictionary];
+    headers[@"Content-Type"] = mimeType ?: @"application/octet-stream";
+    headers[@"User-Agent"] = @"MatrixClient-iOS6/1.0";
+    if (self.accessToken) {
+        headers[@"Authorization"] = [NSString stringWithFormat:@"Bearer %@", self.accessToken];
+    }
+
+    [NeoCurlTransport uploadFile:filePath
+                           toURL:url
+                         headers:headers
+                        progress:progress
+                      completion:^(NSData *respData, NSInteger statusCode, NSError *curlErr) {
+        if (statusCode == 404 && !isRetry) {
+            NSLog(@"[Neo] Media v3 upload returned 404, retrying with r0 endpoint via libcurl...");
+            [self uploadFileAtPath:filePath
+                          mimeType:mimeType
+                          filename:filename
+                           isRetry:YES
+                          progress:progress
+                        completion:completion];
+            return;
+        }
+
+        if (statusCode >= 400 || curlErr) {
+            NSString *errMsg = nil;
+            if (respData && [respData length] > 0) {
+                NSDictionary *errJson = [NSJSONSerialization JSONObjectWithData:respData options:0 error:nil];
+                if ([errJson isKindOfClass:[NSDictionary class]] && errJson[@"error"]) {
+                    errMsg = errJson[@"error"];
+                } else {
+                    errMsg = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                }
+            }
+            if (!errMsg || [errMsg length] == 0) {
+                errMsg = curlErr ? [curlErr localizedDescription] : [NSHTTPURLResponse localizedStringForStatusCode:statusCode];
+            }
+            NSLog(@"[Neo] Media libcurl upload failed (HTTP %ld): %@", (long)statusCode, errMsg);
+            NSError *err = [NSError errorWithDomain:@"MatrixAPIClient" code:statusCode userInfo:@{NSLocalizedDescriptionKey: errMsg}];
+            if (completion) completion(nil, err);
+            return;
+        }
+
+        NSError *jsonErr = nil;
+        NSDictionary *json = respData ? [NSJSONSerialization JSONObjectWithData:respData options:0 error:&jsonErr] : nil;
+        if (jsonErr) {
+            NSLog(@"[Neo] Media upload JSON error: %@", jsonErr);
+            if (completion) completion(nil, jsonErr);
+            return;
+        }
+
+        NSString *contentURI = [json isKindOfClass:[NSDictionary class]] ? json[@"content_uri"] : nil;
+        if (!contentURI || [contentURI length] == 0) {
+            NSLog(@"[Neo] Media upload missing content_uri: %@", json);
+            NSError *err = [NSError errorWithDomain:@"MatrixAPIClient" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Missing content_uri"}];
+            if (completion) completion(nil, err);
+            return;
+        }
+
+        if (completion) completion(contentURI, nil);
+    }];
+}
+
 - (void)uploadData:(NSData *)data
           mimeType:(NSString *)mimeType
-           filename:(NSString *)filename
+          filename:(NSString *)filename
         completion:(void(^)(NSString *contentURI, NSError *error))completion {
-    NSString *path = @"/_matrix/media/r0/upload";
-    if ([filename length] > 0) {
-        NSString *enc = [filename stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
-        path = [NSString stringWithFormat:@"/_matrix/media/r0/upload?filename=%@", enc];
-    }
-    NSMutableURLRequest *req = [self requestWithPath:path method:@"POST"];
-    [req setValue:mimeType forHTTPHeaderField:@"Content-Type"];
-    [req setHTTPBody:data];
+    [self uploadData:data
+            mimeType:mimeType
+            filename:filename
+             isRetry:NO
+          completion:completion];
+}
 
-    [NSURLConnection sendAsynchronousRequest:req
-                                       queue:[NSOperationQueue mainQueue]
-                           completionHandler:^(NSURLResponse *urlResp, NSData *respData, NSError *connErr) {
-        if (connErr) { completion(nil, connErr); return; }
+- (void)uploadData:(NSData *)data
+          mimeType:(NSString *)mimeType
+          filename:(NSString *)filename
+           isRetry:(BOOL)isRetry
+        completion:(void(^)(NSString *contentURI, NSError *error))completion {
+    NSString *basePath = isRetry ? @"/_matrix/media/r0/upload" : @"/_matrix/media/v3/upload";
+    NSString *url = [NSString stringWithFormat:@"%@%@?filename=%@", self.homeserver, basePath, NeoURLEncode(filename ?: @"file")];
+
+    NSMutableDictionary *headers = [NSMutableDictionary dictionary];
+    headers[@"Content-Type"] = mimeType ?: @"application/octet-stream";
+    headers[@"User-Agent"] = @"MatrixClient-iOS6/1.0";
+    if (self.accessToken) {
+        headers[@"Authorization"] = [NSString stringWithFormat:@"Bearer %@", self.accessToken];
+    }
+
+    [NeoCurlTransport uploadData:data
+                           toURL:url
+                         headers:headers
+                      completion:^(NSData *respData, NSInteger statusCode, NSError *curlErr) {
+        if (statusCode == 404 && !isRetry) {
+            NSLog(@"[Neo] Media v3 upload returned 404, retrying with r0 endpoint via libcurl...");
+            [self uploadData:data
+                    mimeType:mimeType
+                    filename:filename
+                     isRetry:YES
+                  completion:completion];
+            return;
+        }
+
+        if (statusCode >= 400 || curlErr) {
+            NSString *errMsg = nil;
+            if (respData && [respData length] > 0) {
+                NSDictionary *errJson = [NSJSONSerialization JSONObjectWithData:respData options:0 error:nil];
+                if ([errJson isKindOfClass:[NSDictionary class]] && errJson[@"error"]) {
+                    errMsg = errJson[@"error"];
+                } else {
+                    errMsg = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                }
+            }
+            if (!errMsg || [errMsg length] == 0) {
+                errMsg = curlErr ? [curlErr localizedDescription] : [NSHTTPURLResponse localizedStringForStatusCode:statusCode];
+            }
+            NSLog(@"[Neo] Media libcurl uploadData failed (HTTP %ld): %@", (long)statusCode, errMsg);
+            NSError *err = [NSError errorWithDomain:@"MatrixAPIClient" code:statusCode userInfo:@{NSLocalizedDescriptionKey: errMsg}];
+            if (completion) completion(nil, err);
+            return;
+        }
+
         NSError *jsonErr = nil;
-        NSDictionary *json = [NSJSONSerialization JSONObjectWithData:respData options:0 error:&jsonErr];
-        if (jsonErr) { completion(nil, jsonErr); return; }
-        completion(json[@"content_uri"], nil);
+        NSDictionary *json = respData ? [NSJSONSerialization JSONObjectWithData:respData options:0 error:&jsonErr] : nil;
+        if (jsonErr) {
+            NSLog(@"[Neo] Media upload JSON error: %@", jsonErr);
+            if (completion) completion(nil, jsonErr);
+            return;
+        }
+
+        NSString *contentURI = [json isKindOfClass:[NSDictionary class]] ? json[@"content_uri"] : nil;
+        if (!contentURI || [contentURI length] == 0) {
+            NSLog(@"[Neo] Media upload missing content_uri: %@", json);
+            NSError *err = [NSError errorWithDomain:@"MatrixAPIClient" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Missing content_uri"}];
+            if (completion) completion(nil, err);
+            return;
+        }
+
+        if (completion) completion(contentURI, nil);
     }];
 }
 
@@ -508,18 +594,44 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
                    roomId:(NSString *)roomId
                   caption:(NSString *)caption
                completion:(MatrixCompletion)completion {
+    [self sendImageMessage:imageURL
+                    roomId:roomId
+                   caption:caption
+                     width:0
+                    height:0
+                      size:0
+                completion:completion];
+}
+
+- (void)sendImageMessage:(NSString *)imageURL
+                   roomId:(NSString *)roomId
+                  caption:(NSString *)caption
+                    width:(CGFloat)width
+                   height:(CGFloat)height
+                     size:(NSInteger)size
+               completion:(MatrixCompletion)completion {
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
-                     roomId, txnId];
+                     NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
-    NSDictionary *msgBody = @{
-        @"msgtype": @"m.image",
-        @"body": caption ?: @"",
-        @"url": imageURL
-    };
+
+    NSMutableDictionary *msgBody = [NSMutableDictionary dictionary];
+    msgBody[@"msgtype"] = @"m.image";
+    msgBody[@"body"] = ([caption length] > 0) ? caption : @"Photo";
+    if (imageURL) msgBody[@"url"] = imageURL;
+
+    NSMutableDictionary *info = [NSMutableDictionary dictionary];
+    if (width > 0) info[@"w"] = @((int)width);
+    if (height > 0) info[@"h"] = @((int)height);
+    if (size > 0) info[@"size"] = @(size);
+    info[@"mimetype"] = @"image/jpeg";
+    if ([info count] > 0) {
+        msgBody[@"info"] = info;
+    }
+
     NSError *err = nil;
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msgBody options:0 error:&err];
-    if (err) { completion(nil, err); return; }
+    if (err) { if (completion) completion(nil, err); return; }
     [req setHTTPBody:jsonData];
     [self sendRequest:req completion:completion];
 }
@@ -532,7 +644,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
              completion:(MatrixCompletion)completion {
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
-                      roomId, txnId];
+                      NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
 
     NSMutableDictionary *msgBody = [NSMutableDictionary dictionary];
@@ -561,7 +673,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
               completion:(MatrixCompletion)completion {
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
-                      roomId, txnId];
+                      NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
 
     NSMutableDictionary *msgBody = [NSMutableDictionary dictionary];
@@ -582,33 +694,9 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
     [self sendRequest:req completion:completion];
 }
 
-- (void)registerPusherWithPushKey:(NSString *)pushKey
-                       completion:(MatrixCompletion)completion {
-    NSMutableURLRequest *req = [self requestWithPath:@"/_matrix/client/r0/pushers/set"
-                                              method:@"POST"];
-    NSDictionary *pusherData = @{
-        @"kind": @"http",
-        @"app_id": @"win.otcidor.matrixpush",
-        @"pushkey": pushKey,
-        @"data": @{
-            @"url": @"https://push.otcidor.win/_matrix/push/v1/notify"
-        },
-        @"lang": @"en",
-        @"device_display_name": @"iPhone 5 (iOS 6)"
-    };
-    NSError *err = nil;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:pusherData options:0 error:&err];
-    if (err) {
-        completion(nil, err);
-        return;
-    }
-    [req setHTTPBody:jsonData];
-    [self sendRequest:req completion:completion];
-}
-
 - (void)getRoomMessages:(NSString *)roomId
              completion:(MatrixCompletion)completion {
-    NSString *encodedId = [roomId stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    NSString *encodedId = NeoURLEncode(roomId);
     NSInteger limit = [[NSUserDefaults standardUserDefaults] integerForKey:@"neo_message_limit"];
     if (limit <= 0) limit = 50;
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/messages?dir=b&limit=%ld",
@@ -625,7 +713,7 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
         return;
     }
 
-    NSString *encodedId = [roomId stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    NSString *encodedId = NeoURLEncode(roomId);
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/members", encodedId];
     NSURLRequest *req = [self requestWithPath:path method:@"GET"];
 
@@ -696,6 +784,8 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
         completion(members, nil);
     }];
 }
+
+
 
 #pragma mark - Cache
 
@@ -857,8 +947,9 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
         return;
     }
 
-    [self downloadFromURL:[self mxcURLToHTTP:mxcURL thumbnail:NO]
-               fallbackURL:[self mxcURLToHTTP:mxcURL thumbnail:YES]
+    // Avatars: 256x256 thumbnail primary (60pt views need ~120px @2x); full download only as fallback
+    [self downloadFromURL:[self mxcURLToHTTP:mxcURL thumbnail:YES]
+               fallbackURL:[self mxcURLToHTTP:mxcURL thumbnail:NO]
                   cacheKey:mxcURL
                  completion:completion];
 }
@@ -1129,21 +1220,23 @@ static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 
 - (void)uploadImage:(UIImage *)image
          completion:(void(^)(NSString *contentURI, NSError *error))completion {
-    NSData *imageData = UIImageJPEGRepresentation(image, 0.54);
-    NSString *path = @"/_matrix/media/r0/upload";
-    NSMutableURLRequest *req = [self requestWithPath:path method:@"POST"];
-    [req setValue:@"image/jpeg" forHTTPHeaderField:@"Content-Type"];
-    [req setHTTPBody:imageData];
-
-    [NSURLConnection sendAsynchronousRequest:req
-                                       queue:[NSOperationQueue mainQueue]
-                           completionHandler:^(NSURLResponse *urlResp, NSData *data, NSError *connErr) {
-        if (connErr) { completion(nil, connErr); return; }
-        NSError *jsonErr = nil;
-        NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
-        if (jsonErr) { completion(nil, jsonErr); return; }
-        completion(json[@"content_uri"], nil);
-    }];
+    if (!image) {
+        if (completion) {
+            NSError *err = [NSError errorWithDomain:@"MatrixAPIClient"
+                                               code:-1
+                                           userInfo:@{NSLocalizedDescriptionKey: @"Image is nil"}];
+            completion(nil, err);
+        }
+        return;
+    }
+    NSData *imageData = UIImageJPEGRepresentation(image, 0.80);
+    if (!imageData) {
+        imageData = UIImageJPEGRepresentation(image, 0.50);
+    }
+    [self uploadData:imageData
+            mimeType:@"image/jpeg"
+            filename:@"image.jpg"
+          completion:completion];
 }
 
 #pragma mark - Local room names

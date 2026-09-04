@@ -24,8 +24,8 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 }
 
 @implementation RoomListViewController {
-    NSTimeInterval _lastRoomLoad;
     NSMutableDictionary *_roomAvatars;
+    NSTimer *_saveCacheTimer;
 }
 
 - (void)loadView {
@@ -44,15 +44,22 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     [self.view addSubview:self.tableView];
 
-    self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
-    self.spinner.center = self.view.center;
-    self.spinner.hidesWhenStopped = YES;
-    [self.view addSubview:self.spinner];
-
     self.rooms = [NSMutableArray array];
     _roomAvatars = [NSMutableDictionary dictionary];
     [self loadRoomsFromCache];
 
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleUnreadUpdate:)
+                                                 name:MatrixSyncUnreadUpdateNotification
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleRoomBatch:)
+                                                 name:MatrixRoomBatchNotification
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleSessionExpired)
+                                                 name:MatrixSessionExpiredNotification
+                                               object:nil];
 }
 
 - (void)viewDidLoad {
@@ -96,6 +103,11 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(handleDemoModeChanged)
                                                  name:NeoDemoModeDidChangeNotification
+                                               object:nil];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleCacheDidClear)
+                                                 name:NeoCacheDidClearNotification
                                                object:nil];
 
     [self updateTitleView];
@@ -197,9 +209,22 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
     NSArray *oldFiltered = [self.filteredRooms copy];
 
+    NSMutableArray *base = [NSMutableArray array];
+    for (MatrixRoom *r in self.rooms) {
+        if ([[ArchiveManager sharedManager] isArchivedRoomId:r.roomId]) continue;
+        if (self.spaceFilter != nil && [self.spaceFilter length] > 0) {
+            NSString *bridge = [[SpaceManager sharedManager] bridgeTypeForRoomId:r.roomId];
+            if (!bridge ||
+                [bridge rangeOfString:self.spaceFilter options:NSCaseInsensitiveSearch].location == NSNotFound) {
+                continue;
+            }
+        }
+        [base addObject:r];
+    }
+
     if ([query length] > 0) {
         NSMutableArray *tmp = [NSMutableArray array];
-        for (MatrixRoom *r in self.rooms) {
+        for (MatrixRoom *r in base) {
             BOOL nameMatch = [[r.name lowercaseString]
                 rangeOfString:query].location != NSNotFound;
             BOOL msgMatch = [[r.lastMessage lowercaseString]
@@ -208,7 +233,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         }
         self.filteredRooms = tmp;
     } else {
-        self.filteredRooms = [NSMutableArray arrayWithArray:self.rooms];
+        self.filteredRooms = base;
     }
 
     if ([query length] > 0 || !oldFiltered) {
@@ -216,12 +241,29 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     } else {
         [TGTableDeltaUpdater replaceItemsInTable:oldFiltered
                                     withNewItems:self.filteredRooms
-                                    applyDeletes:^(NSArray<TGTableAlignment *> *deletes) {
-            (void)deletes;
-        } applyInserts:^(NSArray<TGTableAlignment *> *inserts) {
-            (void)inserts;
+                            singleUpdateBlock:^(NSArray<TGTableAlignment *> *deletes,
+                                                NSArray<TGTableAlignment *> *inserts) {
+            [self.tableView beginUpdates];
+            for (TGTableAlignment *al in deletes) {
+                NSMutableArray *idxs = [NSMutableArray array];
+                for (NSInteger i = al.pos; i < al.pos + al.len; i++) {
+                    [idxs addObject:[NSIndexPath indexPathForRow:i inSection:0]];
+                }
+                if ([idxs count]) {
+                    [self.tableView deleteRowsAtIndexPaths:idxs withRowAnimation:UITableViewRowAnimationFade];
+                }
+            }
+            for (TGTableAlignment *al in inserts) {
+                NSMutableArray *idxs = [NSMutableArray array];
+                for (NSInteger i = al.pos; i < al.pos + al.len; i++) {
+                    [idxs addObject:[NSIndexPath indexPathForRow:i inSection:0]];
+                }
+                if ([idxs count]) {
+                    [self.tableView insertRowsAtIndexPaths:idxs withRowAnimation:UITableViewRowAnimationFade];
+                }
+            }
+            [self.tableView endUpdates];
         }];
-        [self.tableView reloadData];
     }
     [self updateSubtitle];
 }
@@ -251,58 +293,107 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-    if ([self.rooms count] == 0 || now - _lastRoomLoad > 120.0) {
-        [self loadRooms];
-    } else {
-        [self applyFilters];
-    }
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(handleUnreadUpdate:)
-                                                 name:MatrixSyncUnreadUpdateNotification
-                                               object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(handleNewMessage:)
-                                                 name:MatrixSyncNewMessageNotification
-                                               object:nil];
+    // Data is always current: the model is fed by MatrixRoomBatchNotification
+    // (persistent observer since loadView). Just re-render the current filters.
+    [self applyFilters];
 }
 
-- (void)viewDidDisappear:(BOOL)animated {
-    [super viewDidDisappear:animated];
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:MatrixSyncUnreadUpdateNotification object:nil];
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:MatrixSyncNewMessageNotification object:nil];
+- (void)handleSessionExpired {
+    if (self.spaceFilter != nil) return; // only the main list acts
+    [[MatrixAPIClient sharedClient] clearCredentials];
+    LoginViewController *login = [[LoginViewController alloc] init];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:login];
+    UIWindow *window = self.view.window ?: [[UIApplication sharedApplication] keyWindow];
+    window.rootViewController = nav;
+    [window makeKeyAndVisible];
 }
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [_saveCacheTimer invalidate];
 }
 
-- (void)handleNewMessage:(NSNotification *)notification {
+- (void)handleCacheDidClear {
+    [_saveCacheTimer invalidate];
+    _saveCacheTimer = nil;
+    [self.rooms removeAllObjects];
+    [self.filteredRooms removeAllObjects];
+    [_roomAvatars removeAllObjects];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.tableView reloadData];
+        [self updateSubtitle];
+    });
+}
+
+- (void)handleRoomBatch:(NSNotification *)notification {
     NSDictionary *userInfo = [notification userInfo];
-    NSString *roomId = userInfo[@"room_id"];
-    NSDictionary *evt = userInfo[@"event"];
-    if (![roomId isKindOfClass:[NSString class]] || ![evt isKindOfClass:[NSDictionary class]]) return;
+    NSDictionary *join = userInfo[@"join"];
+    NSArray *leave = userInfo[@"leave"];
+    if (![join isKindOfClass:[NSDictionary class]]) join = nil;
+    if (![leave isKindOfClass:[NSArray class]]) leave = nil;
 
     BOOL changed = NO;
-    for (MatrixRoom *r in self.rooms) {
-        if (![r.roomId isEqualToString:roomId]) continue;
-        NSString *type = evt[@"type"];
-        NSDictionary *content = evt[@"content"];
-        if (![content isKindOfClass:[NSDictionary class]]) break;
-        if ([type isEqualToString:@"m.room.name"] && [content[@"name"] length] > 0) {
-            r.name = content[@"name"];
-            changed = YES;
-        }
-        if ([type isEqualToString:@"m.room.message"] && [content[@"body"] length] > 0) {
-            r.lastMessage = content[@"body"];
-            r.lastMessageSender = evt[@"sender"];
-            NSNumber *ts = evt[@"origin_server_ts"];
-            if ([ts isKindOfClass:[NSNumber class]]) {
-                r.lastMessageDate = [NSDate dateWithTimeIntervalSince1970:[ts doubleValue] / 1000.0];
+
+    // Rooms left / kicked
+    for (NSString *roomId in leave) {
+        if (![roomId isKindOfClass:[NSString class]]) continue;
+        for (NSInteger i = 0; i < [self.rooms count]; i++) {
+            MatrixRoom *r = [self.rooms objectAtIndex:i];
+            if ([r.roomId isEqualToString:roomId]) {
+                [self.rooms removeObjectAtIndex:i];
+                [_roomAvatars removeObjectForKey:roomId];
+                changed = YES;
+                break;
             }
-            changed = YES;
         }
-        break;
+    }
+
+    if (join) {
+        // Space/bridge map (m.space.child + uk.half-shot.bridge deltas) feeds the filters.
+        [[SpaceManager sharedManager] buildSpaceMapFromSyncResponse:@{
+            @"rooms": @{@"join": join}
+        }];
+
+        NSString *myId = [[MatrixAPIClient sharedClient] userId];
+        NSMutableArray *pendingAvatarDownloads = nil;
+
+        for (NSString *roomId in [join allKeys]) {
+            if (![roomId isKindOfClass:[NSString class]]) continue;
+            NSDictionary *roomData = [join objectForKey:roomId];
+            if (![roomData isKindOfClass:[NSDictionary class]]) continue;
+
+            MatrixRoom *room = nil;
+            for (MatrixRoom *r in self.rooms) {
+                if ([r.roomId isEqualToString:roomId]) { room = r; break; }
+            }
+            if (!room) {
+                room = [[MatrixRoom alloc] initWithDictionary:@{@"room_id": roomId}];
+                [self.rooms addObject:room];
+                changed = YES;
+            }
+
+            if ([self applyRoomData:room data:roomData myUserId:myId]) {
+                changed = YES;
+                if ([room.avatarUrl length] > 0 && ![_roomAvatars objectForKey:roomId]) {
+                    if (!pendingAvatarDownloads) pendingAvatarDownloads = [NSMutableArray array];
+                    [pendingAvatarDownloads addObject:@[roomId, room.avatarUrl]];
+                }
+            }
+        }
+
+        if (changed) {
+            for (NSArray *pair in pendingAvatarDownloads) {
+                [[MatrixAPIClient sharedClient] downloadImageFromMXC:[pair objectAtIndex:1]
+                                                          completion:^(UIImage *image, NSError *dlErr) {
+                    if (image) {
+                        [_roomAvatars setObject:image forKey:[pair objectAtIndex:0]];
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            [self.tableView reloadData];
+                        });
+                    }
+                }];
+            }
+        }
     }
 
     if (changed) {
@@ -314,13 +405,117 @@ static UIColor *colorForTheme(SpaceTheme theme) {
             if (!d2) return NSOrderedAscending;
             return [d2 compare:d1];
         }];
-        self.filteredRooms = [NSMutableArray arrayWithArray:self.rooms];
-        [self updateSubtitle];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self.tableView reloadData];
-        });
-        [self saveRoomsToCache];
+        [self applyFilters];
+        [self scheduleCacheSave];
     }
+}
+
+// Apply a /sync room batch as deltas on top of the persisted model (elementold
+// style). Real state events (name/alias/avatar) always win; member-derived
+// fallbacks apply ONLY when no explicit name/avatar has ever been seen — an
+// incremental batch with no state can never clobber a good name.
+- (BOOL)applyRoomData:(MatrixRoom *)room data:(NSDictionary *)roomData myUserId:(NSString *)myId {
+    __block BOOL changed = NO;
+    __block NSString *fallbackName = nil;
+    __block NSString *fallbackAvatar = nil;
+    void (^considerEvent)(NSDictionary *) = ^(NSDictionary *evt) {
+        if (![evt isKindOfClass:[NSDictionary class]]) return;
+        NSString *type = evt[@"type"];
+        NSDictionary *content = evt[@"content"];
+        if (![content isKindOfClass:[NSDictionary class]]) return;
+
+        if ([type isEqualToString:@"m.room.name"]) {
+            NSString *n = content[@"name"];
+            if ([n isKindOfClass:[NSString class]] && [n length] > 0 && ![n isEqualToString:room.name]) {
+                room.name = n;
+                room.hasExplicitName = YES;
+                changed = YES;
+            }
+        } else if ([type isEqualToString:@"m.room.canonical_alias"]) {
+            NSString *a = content[@"alias"];
+            if ([a isKindOfClass:[NSString class]] && [a length] > 0 && ![a isEqualToString:room.name]) {
+                room.name = a;
+                room.hasExplicitName = YES;
+                changed = YES;
+            }
+        } else if ([type isEqualToString:@"m.room.avatar"]) {
+            NSString *u = content[@"url"];
+            if ([u isKindOfClass:[NSString class]] && [u length] > 0 && ![u isEqualToString:room.avatarUrl]) {
+                room.avatarUrl = u;
+                room.hasExplicitAvatar = YES;
+                changed = YES;
+            }
+        } else if ([type isEqualToString:@"m.room.member"]) {
+            NSString *membership = content[@"membership"];
+            NSString *uid = evt[@"state_key"];
+            if ([membership isEqualToString:@"join"] && [uid isKindOfClass:[NSString class]] &&
+                myId && ![uid isEqualToString:myId]) {
+                if (!fallbackName) {
+                    NSString *dn = content[@"displayname"];
+                    fallbackName = ([dn isKindOfClass:[NSString class]] && [dn length] > 0) ? dn : uid;
+                }
+                if (!fallbackAvatar) {
+                    NSString *au = content[@"avatar_url"];
+                    if ([au isKindOfClass:[NSString class]] && [au length] > 0) fallbackAvatar = au;
+                }
+            }
+        } else if ([type isEqualToString:@"m.room.message"]) {
+            NSDictionary *rel = content[@"m.relates_to"];
+            if ([rel isKindOfClass:[NSDictionary class]] && [rel[@"rel_type"] isEqualToString:@"m.replace"]) {
+                return;
+            }
+            NSString *body = content[@"body"];
+            if ([body isKindOfClass:[NSString class]] && [body length] > 0 && ![body isEqualToString:room.lastMessage]) {
+                room.lastMessage = body;
+                id sender = evt[@"sender"];
+                room.lastMessageSender = [sender isKindOfClass:[NSString class]] ? sender : @"";
+                NSNumber *ts = evt[@"origin_server_ts"];
+                if ([ts isKindOfClass:[NSNumber class]]) {
+                    room.lastMessageDate = [NSDate dateWithTimeIntervalSince1970:[ts doubleValue] / 1000.0];
+                }
+                changed = YES;
+            }
+        }
+    };
+
+    NSArray *stateEvents = roomData[@"state"][@"events"];
+    if ([stateEvents isKindOfClass:[NSArray class]]) {
+        for (NSDictionary *evt in stateEvents) considerEvent(evt);
+    }
+    NSArray *timelineEvents = roomData[@"timeline"][@"events"];
+    if ([timelineEvents isKindOfClass:[NSArray class]]) {
+        for (NSDictionary *evt in timelineEvents) considerEvent(evt);
+    }
+
+    NSDictionary *summary = roomData[@"summary"];
+    if ([summary isKindOfClass:[NSDictionary class]]) {
+        int c = [summary[@"m.joined_member_count"] intValue];
+        if (c == 0) c = [summary[@"joined_member_count"] intValue];
+        if (c > 0 && room.memberCount != c) {
+            room.memberCount = c;
+            changed = YES;
+        }
+    }
+
+    if (!room.hasExplicitName && fallbackName && ![fallbackName isEqualToString:room.name]) {
+        room.name = fallbackName;
+        changed = YES;
+    }
+    if (!room.hasExplicitAvatar && fallbackAvatar && ![fallbackAvatar isEqualToString:room.avatarUrl]) {
+        room.avatarUrl = fallbackAvatar;
+        changed = YES;
+    }
+    return changed;
+}
+
+- (void)scheduleCacheSave {
+    if (self.spaceFilter != nil) return;
+    [_saveCacheTimer invalidate];
+    _saveCacheTimer = [NSTimer scheduledTimerWithTimeInterval:2.0
+                                                       target:self
+                                                     selector:@selector(saveRoomsToCache)
+                                                     userInfo:nil
+                                                      repeats:NO];
 }
 
 - (NSString *)roomCachePath {
@@ -342,6 +537,8 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         double ts = [d[@"lastMessageTs"] doubleValue];
         if (ts > 0) room.lastMessageDate = [NSDate dateWithTimeIntervalSince1970:ts];
         room.avatarUrl = d[@"avatarUrl"] ?: @"";
+        room.hasExplicitName = [d[@"hasExplicitName"] boolValue];
+        room.hasExplicitAvatar = [d[@"hasExplicitAvatar"] boolValue];
         [self.rooms addObject:room];
         
         if ([room.avatarUrl length] > 0) {
@@ -363,7 +560,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
             @"lastMessage": r.lastMessage ?: @"",
             @"lastMessageSender": r.lastMessageSender ?: @"",
             @"lastMessageTs": r.lastMessageDate ? @([r.lastMessageDate timeIntervalSince1970]) : @0,
-            @"avatarUrl": r.avatarUrl ?: @""
+            @"avatarUrl": r.avatarUrl ?: @"",
+            @"hasExplicitName": @(r.hasExplicitName),
+            @"hasExplicitAvatar": @(r.hasExplicitAvatar)
         }];
     }
     [cached writeToFile:[self roomCachePath] atomically:YES];
@@ -430,190 +629,6 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.tableView reloadData];
     });
-}
-
-- (void)loadRooms {
-    [self.spinner startAnimating];
-    [[MatrixAPIClient sharedClient] getJoinedRoomsWithCompletion:^(NSDictionary *response, NSError *error) {
-        [self.spinner stopAnimating];
-        if (error) {
-            if ([error code] == 401) {
-                [[MatrixAPIClient sharedClient] clearCredentials];
-                LoginViewController *login = [[LoginViewController alloc] init];
-                [self.navigationController setViewControllers:@[login] animated:YES];
-                return;
-            }
-            return;
-        }
-
-        NSArray *roomIds = response[@"joined_rooms"];
-        [self.rooms removeAllObjects];
-
-        for (NSString *roomId in roomIds) {
-            MatrixRoom *room = [[MatrixRoom alloc] initWithDictionary:@{@"room_id": roomId}];
-            [self.rooms addObject:room];
-        }
-
-        _lastRoomLoad = [[NSDate date] timeIntervalSince1970];
-
-        [[MatrixAPIClient sharedClient] syncWithSince:nil timeout:30000 completion:^(NSDictionary *syncResp, NSError *syncErr) {
-            if (syncResp) {
-                [[SpaceManager sharedManager] buildSpaceMapFromSyncResponse:syncResp];
-
-                NSDictionary *join = syncResp[@"rooms"][@"join"];
-                [join enumerateKeysAndObjectsUsingBlock:^(NSString *roomId, NSDictionary *roomData, BOOL *stop) {
-                    NSString *displayName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
-                    BOOL hasRealName = [MatrixRoom roomHasNameFromSyncData:roomData];
-
-                    // For DMs, try to get real display name from member cache
-                    NSDictionary *summary = roomData[@"summary"];
-                    int count = [summary[@"m.joined_member_count"] intValue] ?: [summary[@"joined_member_count"] intValue];
-                    if (count <= 4 && !hasRealName) {
-                        NSString *myId = [[MatrixAPIClient sharedClient] userId];
-                        NSDictionary *members = [[MatrixAPIClient sharedClient] cachedMembersForRoom:roomId];
-                        for (NSString *uid in members) {
-                            if (![uid isEqualToString:myId]) {
-                                NSString *dname = members[uid][@"displayname"];
-                                if ([dname length] > 0) {
-                                    displayName = dname;
-                                }
-                                break;
-                            }
-                        }
-                    }
-
-                    NSString *avatarUrl = nil;
-                    BOOL isDM = (count <= 4);
-                    NSArray *stateEvents = roomData[@"state"][@"events"];
-                    for (NSDictionary *evt in stateEvents) {
-                        NSString *type = evt[@"type"];
-                        if ([type isEqualToString:@"m.room.avatar"]) {
-                            NSString *roomAvatar = evt[@"content"][@"url"];
-                            if ([roomAvatar length] > 0) {
-                                avatarUrl = roomAvatar;
-                                break;
-                            }
-                        }
-                        if (isDM && [type isEqualToString:@"m.room.member"]) {
-                            NSString *userId = evt[@"state_key"];
-                            NSString *myId = [[MatrixAPIClient sharedClient] userId];
-                            if (![userId isEqualToString:myId]) {
-                                NSString *memberAvatar = evt[@"content"][@"avatar_url"];
-                                if ([memberAvatar length] > 0) {
-                                    avatarUrl = memberAvatar;
-                                }
-                            }
-                        }
-                    }
-                    // Fallback: member cache from API /members
-                    if (!avatarUrl && isDM) {
-                        NSDictionary *members = [[MatrixAPIClient sharedClient] cachedMembersForRoom:roomId];
-                        NSString *myId = [[MatrixAPIClient sharedClient] userId];
-                        for (NSString *uid in members) {
-                            if (![uid isEqualToString:myId]) {
-                                NSString *mAvatar = members[uid][@"avatar_url"];
-                                if ([mAvatar length] > 0) {
-                                    avatarUrl = mAvatar;
-                                }
-                                break;
-                            }
-                        }
-                    }
-
-                    NSString *lastMsgText = nil;
-                    NSString *lastMsgTs = nil;
-                    NSString *lastMsgSender = nil;
-                    NSArray *timelineEvents = roomData[@"timeline"][@"events"];
-                    if ([timelineEvents isKindOfClass:[NSArray class]]) {
-                        for (NSDictionary *tev in [timelineEvents reverseObjectEnumerator]) {
-                            if ([tev[@"type"] isEqualToString:@"m.room.message"]) {
-                                lastMsgText = tev[@"content"][@"body"];
-                                lastMsgTs = tev[@"origin_server_ts"];
-                                lastMsgSender = tev[@"sender"];
-                                break;
-                            }
-                        }
-                    }
-
-                    for (MatrixRoom *r in self.rooms) {
-                        if ([r.roomId isEqualToString:roomId]) {
-                            r.name = displayName;
-                            r.memberCount = count;
-                            r.lastMessage = lastMsgText;
-                            r.lastMessageSender = lastMsgSender;
-                            if (lastMsgTs) {
-                                double ts = [lastMsgTs doubleValue] / 1000.0;
-                                r.lastMessageDate = [NSDate dateWithTimeIntervalSince1970:ts];
-                            }
-                            NSDictionary *unread = roomData[@"unread_notifications"];
-                            if (unread) {
-                                r.unreadCount = [unread[@"notification_count"] integerValue];
-                            }
-                            break;
-                        }
-                    }
-
-                     if (avatarUrl) {
-                        [[MatrixAPIClient sharedClient] downloadImageFromMXC:avatarUrl completion:^(UIImage *image, NSError *dlErr) {
-                             if (image) {
-                                [_roomAvatars setObject:image forKey:roomId];
-                                dispatch_async(dispatch_get_main_queue(), ^{
-                                    [self.tableView reloadData];
-                                });
-                            }
-                        }];
-                    }
-                    
-                    // Store avatar URL on room object for cache persistence
-                    for (MatrixRoom *r in self.rooms) {
-                        if ([r.roomId isEqualToString:roomId]) {
-                            r.avatarUrl = avatarUrl;
-                            break;
-                        }
-                    }
-                }];
-
-                if ([self.spaceFilter length] > 0) {
-                    NSMutableArray *filtered = [NSMutableArray array];
-                    for (MatrixRoom *r in self.rooms) {
-                        NSString *bridge = [[SpaceManager sharedManager] bridgeTypeForRoomId:r.roomId];
-                        if (bridge && [bridge rangeOfString:self.spaceFilter
-                                                     options:NSCaseInsensitiveSearch].location != NSNotFound) {
-                            [filtered addObject:r];
-                        }
-                    }
-                    self.rooms = filtered;
-                    NSLog(@"[Filter] '%@' → %d rooms", self.spaceFilter, (int)[self.rooms count]);
-                }
-
-                // Filter archived
-                NSMutableArray *notArchived = [NSMutableArray array];
-                for (MatrixRoom *r in self.rooms) {
-                    if (![[ArchiveManager sharedManager] isArchivedRoomId:r.roomId]) {
-                        [notArchived addObject:r];
-                    }
-                }
-                self.rooms = notArchived;
-
-                // Sort by last message, newest first
-                [self.rooms sortUsingComparator:^NSComparisonResult(MatrixRoom *r1, MatrixRoom *r2) {
-                    NSDate *d1 = r1.lastMessageDate;
-                    NSDate *d2 = r2.lastMessageDate;
-                    if (!d1 && !d2) return NSOrderedSame;
-                    if (!d1) return NSOrderedDescending;
-                    if (!d2) return NSOrderedAscending;
-                    return [d2 compare:d1];
-                }];
-
-                self.filteredRooms = [NSMutableArray arrayWithArray:self.rooms];
-                [self updateSubtitle];
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [self.tableView reloadData];
-                });
-                [self saveRoomsToCache];
-            }
-        }];
-    }];
 }
 
 - (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {

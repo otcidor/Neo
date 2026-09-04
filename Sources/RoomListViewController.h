@@ -6,7 +6,6 @@
 
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) NSMutableArray *rooms;
-@property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @property (nonatomic, copy) NSString *nextBatch;
 
 @property (nonatomic, copy) NSString *spaceFilter;
@@ -17,7 +16,7 @@
 @property (nonatomic, strong) NSMutableArray *filteredRooms;
 @property (nonatomic, copy) NSString *activeSegment;
 
-- (void)loadRooms;
+- (void)loadRoomsFromCache;
 - (void)navigateToRoom:(NSString *)roomId;
 
 @end

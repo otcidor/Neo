@@ -384,6 +384,13 @@ static NSString *kWpImages[] = {
             [window makeKeyAndVisible];
         } else if (alertView.tag == 1002) {
             [[MatrixAPIClient sharedClient] clearAllCaches];
+            UIAlertView *doneAlert = [[UIAlertView alloc]
+                initWithTitle:NSLocalizedString(@"Cache Cleared", nil)
+                      message:NSLocalizedString(@"Local cache has been cleared.", nil)
+                     delegate:nil
+            cancelButtonTitle:NSLocalizedString(@"OK", nil)
+            otherButtonTitles:nil];
+            [doneAlert show];
         }
     }
 }

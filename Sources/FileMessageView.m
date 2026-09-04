@@ -103,13 +103,21 @@
         if ([mime hasPrefix:@"image/"]) return @"filetype_icon_png";
         if ([mime isEqualToString:@"application/pdf"]) return @"filetype_icon_pdf";
         if ([mime hasPrefix:@"text/"]) return @"filetype_icon_txt";
-        if ([mime containsString:@"zip"] || [mime containsString:@"rar"] || [mime containsString:@"tar"] || [mime containsString:@"gzip"] || [mime containsString:@"bzip"])
+        // iOS 6: no NSString containsString: (iOS 8+) — use rangeOfString:
+        if ([mime rangeOfString:@"zip"].location != NSNotFound ||
+            [mime rangeOfString:@"rar"].location != NSNotFound ||
+            [mime rangeOfString:@"tar"].location != NSNotFound ||
+            [mime rangeOfString:@"gzip"].location != NSNotFound ||
+            [mime rangeOfString:@"bzip"].location != NSNotFound)
             return @"filetype_icon_zip";
-        if ([mime containsString:@"msword"] || [mime containsString:@"wordprocessingml"])
+        if ([mime rangeOfString:@"msword"].location != NSNotFound ||
+            [mime rangeOfString:@"wordprocessingml"].location != NSNotFound)
             return @"filetype_icon_doc";
-        if ([mime containsString:@"spreadsheet"] || [mime containsString:@"excel"])
+        if ([mime rangeOfString:@"spreadsheet"].location != NSNotFound ||
+            [mime rangeOfString:@"excel"].location != NSNotFound)
             return @"filetype_icon_xls";
-        if ([mime containsString:@"presentation"] || [mime containsString:@"powerpoint"])
+        if ([mime rangeOfString:@"presentation"].location != NSNotFound ||
+            [mime rangeOfString:@"powerpoint"].location != NSNotFound)
             return @"filetype_icon_ppt";
     }
 

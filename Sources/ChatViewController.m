@@ -245,17 +245,6 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         [self.tableView addGestureRecognizer:lp];
         _longPressAdded = YES;
     }
-
-    if (!_syncActive && ![[MatrixSyncManager sharedManager] isSyncing]) {
-        _syncActive = YES;
-        MatrixAPIClient *client = [MatrixAPIClient sharedClient];
-        [client syncWithSince:nil timeout:0 completion:^(NSDictionary *response, NSError *error) {
-            if (response[@"next_batch"]) {
-                client.nextBatchToken = response[@"next_batch"];
-            }
-            [self startSyncLoop];
-        }];
-    }
 }
 
 - (void)handleDemoModeChanged {
@@ -346,40 +335,31 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 }
 
 - (void)addSyncObservers {
+    // The global engine (MatrixSyncManager) owns the /sync stream; this VC is a
+    // consumer of the per-room batches while it is open (elementold-style).
     [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(handleSyncNewMessage:)
-                                                 name:MatrixSyncNewMessageNotification
-                                               object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(handleSyncUnreadUpdate:)
-                                                 name:MatrixSyncUnreadUpdateNotification
+                                             selector:@selector(handleSyncBatch:)
+                                                 name:MatrixRoomBatchNotification
                                                object:nil];
 }
 
 - (void)removeSyncObservers {
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:MatrixSyncNewMessageNotification object:nil];
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:MatrixSyncUnreadUpdateNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:MatrixRoomBatchNotification object:nil];
 }
 
-- (void)handleSyncNewMessage:(NSNotification *)notification {
-    NSDictionary *userInfo = [notification userInfo];
-    NSString *roomId = userInfo[@"room_id"];
-    if (![roomId isEqualToString:self.room.roomId]) return;
+- (void)handleSyncBatch:(NSNotification *)notification {
+    if (!self.room.roomId) return;
+    NSDictionary *join = [notification userInfo][@"join"];
+    if (![join isKindOfClass:[NSDictionary class]]) return;
 
-    NSDictionary *evt = userInfo[@"event"];
-    if (!evt) return;
+    NSDictionary *roomData = [join objectForKey:self.room.roomId];
+    if (![roomData isKindOfClass:[NSDictionary class]]) return;
 
-    NSString *type = evt[@"type"];
-    if (![type isEqualToString:@"m.room.message"]) return;
-
-    NSString *eventId = evt[@"event_id"];
-    if ([eventId isKindOfClass:[NSString class]] && [_messagesByEventId objectForKey:eventId]) return;
-
-    [self processSyncEvents:@[evt]];
-}
-
-- (void)handleSyncUnreadUpdate:(NSNotification *)notification {
-    // ChatViewController doesn't need badge — RoomListViewController handles it
+    [self.room updateNameFromStateEvents:roomData[@"state"][@"events"]
+                           timelineEvents:roomData[@"timeline"][@"events"]];
+    [self setupNavBar];
+    [self processEphemeralEvents:roomData[@"ephemeral"][@"events"]];
+    [self processSyncEvents:roomData[@"timeline"][@"events"]];
 }
 
 - (void)setupNavBar {
@@ -839,7 +819,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         for (NSDictionary *evt in [chunk reverseObjectEnumerator]) {
             NSString *type = evt[@"type"];
 
-            if ([type isEqualToString:@"m.room.message"]) {
+            if ([type isEqualToString:@"m.room.message"] || [type isEqualToString:@"m.room.encrypted"]) {
                 NSDictionary *relatesto = evt[@"content"][@"m.relates_to"];
                 if ([relatesto[@"rel_type"] isEqualToString:@"m.replace"]) {
                     NSString *targetId = relatesto[@"event_id"];
@@ -861,10 +841,15 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
             if ([type isEqualToString:@"m.room.redaction"]) {
                 NSString *redactedId = evt[@"redacts"];
-                MatrixMessage *target = [msgByEventId objectForKey:redactedId];
-                if (target) {
-                    target.isRedacted = YES;
-                    target.body = NSLocalizedString(@"Deleted message", nil);
+                if (!redactedId && [evt[@"content"] isKindOfClass:[NSDictionary class]]) {
+                    redactedId = evt[@"content"][@"redacts"];
+                }
+                if (redactedId) {
+                    MatrixMessage *target = [msgByEventId objectForKey:redactedId];
+                    if (target) {
+                        target.isRedacted = YES;
+                        target.body = NSLocalizedString(@"Deleted message", nil);
+                    }
                 }
             }
 
@@ -907,9 +892,10 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     if (_loadingMore || !_prevBatchToken) return;
     _loadingMore = YES;
     MatrixAPIClient *client = [MatrixAPIClient sharedClient];
-    NSString *encodedId = [self.room.roomId stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    NSString *encodedId = NeoURLEncode(self.room.roomId);
+    NSString *encodedFrom = NeoURLEncode(_prevBatchToken);
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/messages?dir=b&limit=%d&from=%@",
-                      encodedId, (int)_loadPageSize, _prevBatchToken];
+                      encodedId, (int)_loadPageSize, encodedFrom];
     NSMutableURLRequest *req = [client requestWithPath:path method:@"GET"];
     [NSURLConnection sendAsynchronousRequest:req
                                        queue:[NSOperationQueue mainQueue]
@@ -927,7 +913,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         NSMutableArray *olderMessages = [NSMutableArray array];
         for (NSDictionary *evt in [chunk reverseObjectEnumerator]) {
             NSString *type = evt[@"type"];
-            if (![type isEqualToString:@"m.room.message"]) continue;
+            if (![type isEqualToString:@"m.room.message"] && ![type isEqualToString:@"m.room.encrypted"]) continue;
             NSString *eid = evt[@"event_id"];
             if ([eid isKindOfClass:[NSString class]] && [_messagesByEventId objectForKey:eid]) continue;
             NSDictionary *relatesto = evt[@"content"][@"m.relates_to"];
@@ -975,38 +961,6 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     if (scrollView.contentOffset.y < -30 && !_loadingMore && _prevBatchToken) {
         [self loadMoreMessages];
     }
-}
-
-- (void)startSyncLoop {
-    if (!_syncActive) return;
-    MatrixAPIClient *client = [MatrixAPIClient sharedClient];
-    [client syncWithSince:client.nextBatchToken timeout:20000 completion:^(NSDictionary *response, NSError *error) {
-        if (!_syncActive) return;
-        if (error) {
-            NSTimeInterval delay = _syncBackoff;
-            _syncBackoff = MIN(_syncBackoff * 2.0, 30.0);
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [self startSyncLoop];
-            });
-            return;
-        }
-        _syncBackoff = 1.0;
-
-        NSString *nextBatch = response[@"next_batch"];
-        if (nextBatch) client.nextBatchToken = nextBatch;
-
-        NSDictionary *roomsJoin = response[@"rooms"][@"join"];
-        NSDictionary *roomData = [roomsJoin objectForKey:self.room.roomId];
-        if (roomData) {
-            [self.room updateNameFromStateEvents:roomData[@"state"][@"events"]
-                                   timelineEvents:roomData[@"timeline"][@"events"]];
-            [self setupNavBar];
-            [self processEphemeralEvents:roomData[@"ephemeral"][@"events"]];
-            [self processSyncEvents:roomData[@"timeline"][@"events"]];
-        }
-
-        [self startSyncLoop];
-    }];
 }
 
 - (void)processEphemeralEvents:(NSArray *)events {
@@ -1331,14 +1285,51 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     }
 
     if ([type isEqualToString:@"m.image"]) {
-        UIImage *img = msg.cachedImage;
-        if (!img) { [self failLocalMessage:msg]; return; }
-        [client uploadImage:img completion:^(NSString *contentURI, NSError *err) {
-            if (err || !contentURI) { [self failLocalMessage:msg]; return; }
+        NSString *filePath = msg.pendingLocalPath;
+        if ([filePath length] == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
+            if (msg.cachedImage) {
+                NSData *data = UIImageJPEGRepresentation(msg.cachedImage, 0.85);
+                if (data) {
+                    filePath = [self savePendingData:data extension:@"jpg"];
+                    msg.pendingLocalPath = filePath;
+                }
+            }
+        }
+        if ([filePath length] == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
+            NSLog(@"[Neo] Cannot send image: no image file found");
+            [self failLocalMessage:msg];
+            return;
+        }
+
+        NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:nil];
+        NSInteger size = [attrs[NSFileSize] integerValue];
+        CGFloat w = msg.imageWidth > 0 ? msg.imageWidth : (msg.cachedImage ? msg.cachedImage.size.width : 0);
+        CGFloat h = msg.imageHeight > 0 ? msg.imageHeight : (msg.cachedImage ? msg.cachedImage.size.height : 0);
+
+        [client uploadFileAtPath:filePath
+                        mimeType:@"image/jpeg"
+                        filename:@"image.jpg"
+                        progress:nil
+                      completion:^(NSString *contentURI, NSError *err) {
+            if (err || !contentURI) {
+                NSLog(@"[Neo] Image upload failed: %@", err);
+                [self failLocalMessage:msg];
+                return;
+            }
             msg.imageURL = contentURI;
-            [client sendImageMessage:contentURI roomId:self.room.roomId caption:msg.body completion:^(NSDictionary *resp, NSError *sendErr) {
+            [client sendImageMessage:contentURI
+                              roomId:self.room.roomId
+                             caption:msg.body
+                               width:w
+                              height:h
+                                size:size
+                          completion:^(NSDictionary *resp, NSError *sendErr) {
                 NSString *eid = [resp isKindOfClass:[NSDictionary class]] ? resp[@"event_id"] : nil;
-                if (sendErr || ![eid isKindOfClass:[NSString class]]) { [self failLocalMessage:msg]; return; }
+                if (sendErr || ![eid isKindOfClass:[NSString class]]) {
+                    NSLog(@"[Neo] Send image message event failed: %@", sendErr);
+                    [self failLocalMessage:msg];
+                    return;
+                }
                 [self finalizeLocalMessage:msg withEventId:eid];
             }];
         }];
@@ -1346,21 +1337,38 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     }
 
     if ([type isEqualToString:@"m.audio"]) {
-        NSData *data = [msg.pendingLocalPath length] > 0 ? [NSData dataWithContentsOfFile:msg.pendingLocalPath] : nil;
-        if (!data) { [self failLocalMessage:msg]; return; }
-        NSInteger size = [data length];
-        [client uploadData:data mimeType:@"audio/mp4" filename:@"voice.m4a" completion:^(NSString *contentURI, NSError *err) {
-            if (err || !contentURI) { [self failLocalMessage:msg]; return; }
+        NSString *filePath = msg.pendingLocalPath;
+        if ([filePath length] == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
+            [self failLocalMessage:msg];
+            return;
+        }
+        NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:nil];
+        NSInteger size = [attrs[NSFileSize] integerValue];
+
+        [client uploadFileAtPath:filePath
+                        mimeType:@"audio/mp4"
+                        filename:@"voice.m4a"
+                        progress:nil
+                      completion:^(NSString *contentURI, NSError *err) {
+            if (err || !contentURI) {
+                NSLog(@"[Neo] Audio upload failed: %@", err);
+                [self failLocalMessage:msg];
+                return;
+            }
             msg.audioURL = contentURI;
             [client sendAudioMessage:contentURI
-                            roomId:self.room.roomId
-                          filename:NSLocalizedString(@"Voice message", nil)
-                          mimeType:@"audio/mp4"
-                          duration:[msg.audioDuration integerValue]
-                              size:size
-                        completion:^(NSDictionary *resp, NSError *sendErr) {
+                              roomId:self.room.roomId
+                            filename:NSLocalizedString(@"Voice message", nil)
+                            mimeType:@"audio/mp4"
+                            duration:[msg.audioDuration integerValue]
+                                size:size
+                          completion:^(NSDictionary *resp, NSError *sendErr) {
                 NSString *eid = [resp isKindOfClass:[NSDictionary class]] ? resp[@"event_id"] : nil;
-                if (sendErr || ![eid isKindOfClass:[NSString class]]) { [self failLocalMessage:msg]; return; }
+                if (sendErr || ![eid isKindOfClass:[NSString class]]) {
+                    NSLog(@"[Neo] Send audio message event failed: %@", sendErr);
+                    [self failLocalMessage:msg];
+                    return;
+                }
                 [self finalizeLocalMessage:msg withEventId:eid];
             }];
         }];
@@ -1368,11 +1376,25 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     }
 
     if ([type isEqualToString:@"m.video"]) {
-        NSData *data = [msg.pendingLocalPath length] > 0 ? [NSData dataWithContentsOfFile:msg.pendingLocalPath] : nil;
-        if (!data) { [self failLocalMessage:msg]; return; }
-        NSInteger size = [data length];
-        [client uploadData:data mimeType:@"video/mp4" filename:@"video.mp4" completion:^(NSString *contentURI, NSError *err) {
-            if (err || !contentURI) { [self failLocalMessage:msg]; return; }
+        NSString *filePath = msg.pendingLocalPath;
+        if ([filePath length] == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
+            NSLog(@"[Neo] Cannot send video: no pending file at %@", msg.pendingLocalPath);
+            [self failLocalMessage:msg];
+            return;
+        }
+        NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:nil];
+        NSInteger size = [attrs[NSFileSize] integerValue];
+
+        [client uploadFileAtPath:filePath
+                        mimeType:@"video/mp4"
+                        filename:@"video.mp4"
+                        progress:nil
+                      completion:^(NSString *contentURI, NSError *err) {
+            if (err || !contentURI) {
+                NSLog(@"[Neo] Video upload failed: %@", err);
+                [self failLocalMessage:msg];
+                return;
+            }
             msg.videoURL = contentURI;
             void (^sendWithThumb)(NSString *) = ^(NSString *thumbURI) {
                 [client sendVideoMessage:contentURI
@@ -1384,12 +1406,28 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                                     size:size
                               completion:^(NSDictionary *resp, NSError *sendErr) {
                     NSString *eid = [resp isKindOfClass:[NSDictionary class]] ? resp[@"event_id"] : nil;
-                    if (sendErr || ![eid isKindOfClass:[NSString class]]) { [self failLocalMessage:msg]; return; }
+                    if (sendErr || ![eid isKindOfClass:[NSString class]]) {
+                        NSLog(@"[Neo] Send video message event failed: %@", sendErr);
+                        [self failLocalMessage:msg];
+                        return;
+                    }
                     msg.videoThumbnailURL = thumbURI;
                     [self finalizeLocalMessage:msg withEventId:eid];
                 }];
             };
             UIImage *thumb = msg.cachedVideoThumbnail;
+            if (!thumb && [msg.pendingLocalPath length] > 0) {
+                AVAsset *asset = [AVAsset assetWithURL:[NSURL fileURLWithPath:msg.pendingLocalPath]];
+                AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
+                gen.appliesPreferredTrackTransform = YES;
+                gen.maximumSize = CGSizeMake(480, 480);
+                CGImageRef tRef = [gen copyCGImageAtTime:CMTimeMake(1, 1) actualTime:NULL error:nil];
+                if (tRef) {
+                    thumb = [UIImage imageWithCGImage:tRef];
+                    CGImageRelease(tRef);
+                    msg.cachedVideoThumbnail = thumb;
+                }
+            }
             if (thumb) {
                 NSData *thumbData = UIImageJPEGRepresentation(thumb, 0.7);
                 [client uploadData:thumbData mimeType:@"image/jpeg" filename:@"video_thumb.jpg" completion:^(NSString *thumbURI, NSError *thumbErr) {
@@ -1750,17 +1788,115 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 }
 
 - (UIImage *)resizeImageForUpload:(UIImage *)image {
-    CGFloat maxDim = 1280.0f;
+    CGFloat maxDim = 2560.0f;
     CGSize size = image.size;
-    if (size.width <= maxDim && size.height <= maxDim)
+    CGFloat width = size.width;
+    CGFloat height = size.height;
+
+    if (width <= maxDim && height <= maxDim && image.imageOrientation == UIImageOrientationUp) {
         return image;
-    CGFloat ratio = MIN(maxDim / size.width, maxDim / size.height);
-    CGSize newSize = CGSizeMake(roundf(size.width * ratio), roundf(size.height * ratio));
-    UIGraphicsBeginImageContextWithOptions(newSize, NO, 0.0f);
+    }
+
+    CGFloat ratio = 1.0f;
+    if (width > maxDim || height > maxDim) {
+        ratio = MIN(maxDim / width, maxDim / height);
+    }
+    CGSize newSize = CGSizeMake(roundf(width * ratio), roundf(height * ratio));
+
+    UIGraphicsBeginImageContextWithOptions(newSize, NO, 1.0f);
     [image drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
     UIImage *resized = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
-    return resized;
+
+    return resized ?: image;
+}
+
+- (void)compressAndSaveVideoAtURL:(NSURL *)videoURL completion:(void(^)(NSString *outputPath, CGSize naturalSize, NSTimeInterval duration, UIImage *thumbnail))completion {
+    AVAsset *asset = [AVAsset assetWithURL:videoURL];
+
+    // Extract natural size taking preferredTransform into account
+    CGFloat w = 0, h = 0;
+    if ([[asset tracksWithMediaType:AVMediaTypeVideo] count] > 0) {
+        AVAssetTrack *track = [asset tracksWithMediaType:AVMediaTypeVideo][0];
+        CGSize size = track.naturalSize;
+        CGAffineTransform t = track.preferredTransform;
+        if (t.a == 0 && (t.b == 1.0 || t.b == -1.0)) {
+            w = size.height;
+            h = size.width;
+        } else {
+            w = size.width;
+            h = size.height;
+        }
+    }
+    NSTimeInterval duration = CMTimeGetSeconds(asset.duration);
+
+    // Generate lightweight thumbnail
+    AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
+    gen.appliesPreferredTrackTransform = YES;
+    gen.maximumSize = CGSizeMake(480, 480);
+    CMTime thumbTime = CMTimeMakeWithSeconds(MIN(1.0, duration * 0.5), 600);
+    CGImageRef thumbRef = [gen copyCGImageAtTime:thumbTime actualTime:NULL error:nil];
+    UIImage *thumbnail = thumbRef ? [UIImage imageWithCGImage:thumbRef] : nil;
+    if (thumbRef) CGImageRelease(thumbRef);
+
+    NSString *pendingName = [NSString stringWithFormat:@"%@.mp4", [[NSUUID UUID] UUIDString]];
+    NSString *outputPath = [[self pendingUploadsDir] stringByAppendingPathComponent:pendingName];
+    NSURL *outputURL = [NSURL fileURLWithPath:outputPath];
+
+    NSArray *compatiblePresets = [AVAssetExportSession exportPresetsCompatibleWithAsset:asset];
+    NSString *preset = nil;
+    AVAssetExportSession *exporter = [[AVAssetExportSession alloc] initWithAsset:asset presetName:AVAssetExportPresetPassthrough];
+    if (exporter && [exporter.supportedFileTypes containsObject:AVFileTypeMPEG4]) {
+        preset = AVAssetExportPresetPassthrough;
+    } else {
+        exporter = nil;
+        if ([compatiblePresets containsObject:AVAssetExportPresetMediumQuality]) {
+            preset = AVAssetExportPresetMediumQuality;
+        } else if ([compatiblePresets containsObject:AVAssetExportPreset640x480]) {
+            preset = AVAssetExportPreset640x480;
+        }
+        if (preset) {
+            exporter = [[AVAssetExportSession alloc] initWithAsset:asset presetName:preset];
+        }
+    }
+
+    if (exporter) {
+        exporter.outputURL = outputURL;
+        exporter.outputFileType = AVFileTypeMPEG4;
+        exporter.shouldOptimizeForNetworkUse = YES;
+
+        [exporter exportAsynchronouslyWithCompletionHandler:^{
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (exporter.status == AVAssetExportSessionStatusCompleted && [[NSFileManager defaultManager] fileExistsAtPath:outputPath]) {
+                    AVAsset *exportedAsset = [AVAsset assetWithURL:outputURL];
+                    CGFloat expW = w, expH = h;
+                    if ([[exportedAsset tracksWithMediaType:AVMediaTypeVideo] count] > 0) {
+                        AVAssetTrack *expTrack = [exportedAsset tracksWithMediaType:AVMediaTypeVideo][0];
+                        CGSize expSize = expTrack.naturalSize;
+                        CGAffineTransform t = expTrack.preferredTransform;
+                        if (t.a == 0 && (t.b == 1.0 || t.b == -1.0)) {
+                            expW = expSize.height;
+                            expH = expSize.width;
+                        } else {
+                            expW = expSize.width;
+                            expH = expSize.height;
+                        }
+                    }
+                    if (completion) completion(outputPath, CGSizeMake(expW, expH), duration, thumbnail);
+                } else {
+                    NSLog(@"[Neo] Video export failed with status %ld: %@. Falling back to direct copy.", (long)exporter.status, exporter.error);
+                    [[NSFileManager defaultManager] removeItemAtPath:outputPath error:nil];
+                    NSError *cpErr = nil;
+                    [[NSFileManager defaultManager] copyItemAtPath:[videoURL path] toPath:outputPath error:&cpErr];
+                    if (completion) completion(outputPath, CGSizeMake(w, h), duration, thumbnail);
+                }
+            });
+        }];
+    } else {
+        NSError *cpErr = nil;
+        [[NSFileManager defaultManager] copyItemAtPath:[videoURL path] toPath:outputPath error:&cpErr];
+        if (completion) completion(outputPath, CGSizeMake(w, h), duration, thumbnail);
+    }
 }
 
 - (void)cameraTapped {
@@ -1781,28 +1917,6 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         NSURL *videoURL = info[UIImagePickerControllerMediaURL];
         if (!videoURL) return;
 
-        NSData *videoData = [NSData dataWithContentsOfURL:videoURL];
-        if (!videoData) return;
-
-        AVAsset *asset = [AVAsset assetWithURL:videoURL];
-        CGFloat w = 0, h = 0;
-        if ([[asset tracksWithMediaType:AVMediaTypeVideo] count] > 0) {
-            AVAssetTrack *track = [asset tracksWithMediaType:AVMediaTypeVideo][0];
-            CGSize size = track.naturalSize;
-            w = size.width;
-            h = size.height;
-        }
-        CMTime durationTime = asset.duration;
-        NSInteger durationMs = (NSInteger)(CMTimeGetSeconds(durationTime) * 1000);
-
-        // Generate thumbnail
-        AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
-        gen.appliesPreferredTrackTransform = YES;
-        CMTime thumbTime = CMTimeMake(1, 1);
-        CGImageRef thumbRef = [gen copyCGImageAtTime:thumbTime actualTime:NULL error:nil];
-        UIImage *thumbnail = thumbRef ? [UIImage imageWithCGImage:thumbRef] : nil;
-        if (thumbRef) CGImageRelease(thumbRef);
-
         MatrixMessage *localMsg = [[MatrixMessage alloc] init];
         localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
         localMsg.sender = [[MatrixAPIClient sharedClient] userId];
@@ -1810,21 +1924,35 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         localMsg.msgType = @"m.video";
         localMsg.roomId = self.room.roomId;
         localMsg.timestamp = [NSDate date];
-        localMsg.videoWidth = w;
-        localMsg.videoHeight = h;
-        localMsg.videoDuration = @(durationMs);
-        localMsg.cachedVideoThumbnail = thumbnail;
         localMsg.uploading = YES;
-        localMsg.pendingLocalPath = [self savePendingData:videoData extension:@"mp4"];
         [self.messages addObject:localMsg];
         [_messagesByEventId setObject:localMsg forKey:localMsg.eventId];
         [self reloadTableAnimatedWithAutoScroll:YES];
 
-        [self dispatchSendForMessage:localMsg];
+        __weak typeof(self) weakSelf = self;
+        [self compressAndSaveVideoAtURL:videoURL completion:^(NSString *outputPath, CGSize naturalSize, NSTimeInterval duration, UIImage *thumbnail) {
+            typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            if (!outputPath) {
+                [strongSelf failLocalMessage:localMsg];
+                return;
+            }
+            localMsg.pendingLocalPath = outputPath;
+            localMsg.videoWidth = naturalSize.width;
+            localMsg.videoHeight = naturalSize.height;
+            localMsg.videoDuration = @((NSInteger)(duration * 1000));
+            localMsg.cachedVideoThumbnail = thumbnail;
+            [strongSelf reloadTableAnimatedWithAutoScroll:NO];
+            [strongSelf dispatchSendForMessage:localMsg];
+        }];
     } else {
         UIImage *image = info[UIImagePickerControllerOriginalImage];
         if (!image) return;
         UIImage *resized = [self resizeImageForUpload:image];
+        NSData *imageData = UIImageJPEGRepresentation(resized, 0.85);
+        if (!imageData) {
+            imageData = UIImageJPEGRepresentation(resized, 0.60);
+        }
 
         MatrixMessage *localMsg = [[MatrixMessage alloc] init];
         localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
@@ -1837,6 +1965,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         localMsg.imageWidth = resized.size.width;
         localMsg.imageHeight = resized.size.height;
         localMsg.uploading = YES;
+        localMsg.pendingLocalPath = [self savePendingData:imageData extension:@"jpg"];
         [self.messages addObject:localMsg];
         [_messagesByEventId setObject:localMsg forKey:localMsg.eventId];
         [self reloadTableAnimatedWithAutoScroll:YES];
@@ -2010,7 +2139,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                      isFile);
 
     BOOL isEmojiOnly = NO;
-    if (!hasMedia && [msg.msgType isEqualToString:@"m.text"] && [msg.body length] > 0) {
+    BOOL isText = [msg.msgType isEqualToString:@"m.text"] || [msg.msgType isEqualToString:@"m.notice"] || [msg.msgType isEqualToString:@"m.emote"];
+    if (!hasMedia && isText && [msg.body length] > 0) {
         NSUInteger count = 0;
         isEmojiOnly = [MatrixBubbleView stringContainsEmojiOnly:msg.body length:&count] && count <= 3;
     }
@@ -2045,6 +2175,17 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         videoView.duration = msg.videoDuration;
         if (msg.cachedVideoThumbnail) {
             videoView.thumbnailImage = msg.cachedVideoThumbnail;
+        } else if ([msg.pendingLocalPath length] > 0 && [[NSFileManager defaultManager] fileExistsAtPath:msg.pendingLocalPath]) {
+            AVAsset *asset = [AVAsset assetWithURL:[NSURL fileURLWithPath:msg.pendingLocalPath]];
+            AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
+            gen.appliesPreferredTrackTransform = YES;
+            gen.maximumSize = CGSizeMake(480, 480);
+            CGImageRef tRef = [gen copyCGImageAtTime:CMTimeMake(1, 1) actualTime:NULL error:nil];
+            if (tRef) {
+                msg.cachedVideoThumbnail = [UIImage imageWithCGImage:tRef];
+                CGImageRelease(tRef);
+                videoView.thumbnailImage = msg.cachedVideoThumbnail;
+            }
         } else {
             [videoView startThumbnailDownload];
         }
@@ -2063,6 +2204,12 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
         if (msg.cachedImage) {
             preview.image = msg.cachedImage;
+        } else if ([msg.pendingLocalPath length] > 0 && [[NSFileManager defaultManager] fileExistsAtPath:msg.pendingLocalPath]) {
+            NSData *pData = [NSData dataWithContentsOfFile:msg.pendingLocalPath options:NSDataReadingMappedIfSafe error:nil];
+            if (pData) {
+                msg.cachedImage = [UIImage imageWithData:pData];
+                preview.image = msg.cachedImage;
+            }
         } else {
             NSIndexPath *cellPath = indexPath;
             [[MatrixAPIClient sharedClient] downloadImageFromMXC:msg.imageURL

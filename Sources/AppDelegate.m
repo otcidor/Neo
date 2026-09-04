@@ -42,8 +42,16 @@
     return YES;
 }
 
-- (void)applicationDidEnterBackground:(UIApplication *)application {
+- (void)applicationDidBecomeActive:(UIApplication *)application {
+    // The sync engine runs in the foreground too — the room list and the open
+    // chat are consumers of its /sync stream (MatrixRoomBatchNotification).
     [[MatrixSyncManager sharedManager] startSync];
+}
+
+- (void)applicationDidEnterBackground:(UIApplication *)application {
+    if (![[MatrixSyncManager sharedManager] isSyncing]) {
+        [[MatrixSyncManager sharedManager] startSync];
+    }
 
     self.backgroundTaskId = [application beginBackgroundTaskWithExpirationHandler:^{
         [[MatrixSyncManager sharedManager] stopSync];
@@ -53,7 +61,6 @@
 }
 
 - (void)applicationWillEnterForeground:(UIApplication *)application {
-    [[MatrixSyncManager sharedManager] stopSync];
     [[MatrixSyncManager sharedManager] cancelAllPendingNotifications];
 
     if (self.backgroundTaskId != UIBackgroundTaskInvalid) {
