@@ -151,12 +151,13 @@
                     _audioDuration = info[@"duration"];
                     _videoDuration = info[@"duration"];
                 }
-                _videoThumbnailURL = info[@"thumbnail_url"] ?: @"";
+                _videoThumbnailURL = info[@"thumbnail_url"] ?: content[@"thumbnail_url"] ?: @"";
             } else {
                 _imageWidth = 320;
                 _imageHeight = 240;
                 _videoWidth = 320;
                 _videoHeight = 240;
+                _videoThumbnailURL = content[@"thumbnail_url"] ?: @"";
             }
 
             if ([_msgType isEqualToString:@"m.file"]) {

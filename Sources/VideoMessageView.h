@@ -13,6 +13,7 @@
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
 
 - (void)startThumbnailDownload;
+- (void)startThumbnailDownloadWithCompletion:(void(^)(UIImage *image))completion;
 - (void)stop;
 
 @end

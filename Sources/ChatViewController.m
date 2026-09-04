@@ -91,6 +91,7 @@
     UIView *_fieldBgView;
     UILabel *_placeholderLabel;
     CGFloat _inputBarHeight;
+    NSCache *_rowHeightCache;
 }
 
 static const CGFloat kNeoInputBarBaseH = 44.0f;
@@ -99,6 +100,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)loadView {
     [super loadView];
+
+    _rowHeightCache = [[NSCache alloc] init];
+    _rowHeightCache.countLimit = 400;
 
     if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
         self.edgesForExtendedLayout = UIRectEdgeNone;
@@ -1417,16 +1421,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
             };
             UIImage *thumb = msg.cachedVideoThumbnail;
             if (!thumb && [msg.pendingLocalPath length] > 0) {
-                AVAsset *asset = [AVAsset assetWithURL:[NSURL fileURLWithPath:msg.pendingLocalPath]];
-                AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
-                gen.appliesPreferredTrackTransform = YES;
-                gen.maximumSize = CGSizeMake(480, 480);
-                CGImageRef tRef = [gen copyCGImageAtTime:CMTimeMake(1, 1) actualTime:NULL error:nil];
-                if (tRef) {
-                    thumb = [UIImage imageWithCGImage:tRef];
-                    CGImageRelease(tRef);
-                    msg.cachedVideoThumbnail = thumb;
-                }
+                thumb = [ChatViewController generateThumbnailForVideoURL:[NSURL fileURLWithPath:msg.pendingLocalPath]];
+                msg.cachedVideoThumbnail = thumb;
             }
             if (thumb) {
                 NSData *thumbData = UIImageJPEGRepresentation(thumb, 0.7);
@@ -1696,6 +1692,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 }
 
 - (void)dealloc {
+    [_rowHeightCache removeAllObjects];
+    _rowHeightCache = nil;
     [_recordingTimer invalidate];
     _recordingTimer = nil;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -1811,6 +1809,32 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     return resized ?: image;
 }
 
++ (UIImage *)generateThumbnailForVideoURL:(NSURL *)url {
+    if (!url) return nil;
+    AVAsset *asset = [AVAsset assetWithURL:url];
+    if (!asset) return nil;
+    AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
+    gen.appliesPreferredTrackTransform = YES;
+    gen.maximumSize = CGSizeMake(480, 480);
+    gen.requestedTimeToleranceBefore = kCMTimePositiveInfinity;
+    gen.requestedTimeToleranceAfter = kCMTimePositiveInfinity;
+
+    NSTimeInterval duration = CMTimeGetSeconds(asset.duration);
+    CMTime targetTime = CMTimeMakeWithSeconds((duration > 1.0) ? 0.5 : 0.0, 600);
+
+    NSError *err = nil;
+    CGImageRef imgRef = [gen copyCGImageAtTime:targetTime actualTime:NULL error:&err];
+    if (!imgRef && duration > 0.1) {
+        imgRef = [gen copyCGImageAtTime:kCMTimeZero actualTime:NULL error:&err];
+    }
+    if (imgRef) {
+        UIImage *img = [UIImage imageWithCGImage:imgRef];
+        CGImageRelease(imgRef);
+        return img;
+    }
+    return nil;
+}
+
 - (void)compressAndSaveVideoAtURL:(NSURL *)videoURL completion:(void(^)(NSString *outputPath, CGSize naturalSize, NSTimeInterval duration, UIImage *thumbnail))completion {
     AVAsset *asset = [AVAsset assetWithURL:videoURL];
 
@@ -1831,13 +1855,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     NSTimeInterval duration = CMTimeGetSeconds(asset.duration);
 
     // Generate lightweight thumbnail
-    AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
-    gen.appliesPreferredTrackTransform = YES;
-    gen.maximumSize = CGSizeMake(480, 480);
-    CMTime thumbTime = CMTimeMakeWithSeconds(MIN(1.0, duration * 0.5), 600);
-    CGImageRef thumbRef = [gen copyCGImageAtTime:thumbTime actualTime:NULL error:nil];
-    UIImage *thumbnail = thumbRef ? [UIImage imageWithCGImage:thumbRef] : nil;
-    if (thumbRef) CGImageRelease(thumbRef);
+    __block UIImage *thumbnail = [ChatViewController generateThumbnailForVideoURL:videoURL];
 
     NSString *pendingName = [NSString stringWithFormat:@"%@.mp4", [[NSUUID UUID] UUIDString]];
     NSString *outputPath = [[self pendingUploadsDir] stringByAppendingPathComponent:pendingName];
@@ -1882,12 +1900,14 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                             expH = expSize.height;
                         }
                     }
+                    if (!thumbnail) thumbnail = [ChatViewController generateThumbnailForVideoURL:outputURL];
                     if (completion) completion(outputPath, CGSizeMake(expW, expH), duration, thumbnail);
                 } else {
                     NSLog(@"[Neo] Video export failed with status %ld: %@. Falling back to direct copy.", (long)exporter.status, exporter.error);
                     [[NSFileManager defaultManager] removeItemAtPath:outputPath error:nil];
                     NSError *cpErr = nil;
                     [[NSFileManager defaultManager] copyItemAtPath:[videoURL path] toPath:outputPath error:&cpErr];
+                    if (!thumbnail) thumbnail = [ChatViewController generateThumbnailForVideoURL:[NSURL fileURLWithPath:outputPath]];
                     if (completion) completion(outputPath, CGSizeMake(w, h), duration, thumbnail);
                 }
             });
@@ -1895,6 +1915,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     } else {
         NSError *cpErr = nil;
         [[NSFileManager defaultManager] copyItemAtPath:[videoURL path] toPath:outputPath error:&cpErr];
+        if (!thumbnail) thumbnail = [ChatViewController generateThumbnailForVideoURL:[NSURL fileURLWithPath:outputPath]];
         if (completion) completion(outputPath, CGSizeMake(w, h), duration, thumbnail);
     }
 }
@@ -2316,19 +2337,43 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         videoView.duration = msg.videoDuration;
         if (msg.cachedVideoThumbnail) {
             videoView.thumbnailImage = msg.cachedVideoThumbnail;
-        } else if ([msg.pendingLocalPath length] > 0 && [[NSFileManager defaultManager] fileExistsAtPath:msg.pendingLocalPath]) {
-            AVAsset *asset = [AVAsset assetWithURL:[NSURL fileURLWithPath:msg.pendingLocalPath]];
-            AVAssetImageGenerator *gen = [[AVAssetImageGenerator alloc] initWithAsset:asset];
-            gen.appliesPreferredTrackTransform = YES;
-            gen.maximumSize = CGSizeMake(480, 480);
-            CGImageRef tRef = [gen copyCGImageAtTime:CMTimeMake(1, 1) actualTime:NULL error:nil];
-            if (tRef) {
-                msg.cachedVideoThumbnail = [UIImage imageWithCGImage:tRef];
-                CGImageRelease(tRef);
-                videoView.thumbnailImage = msg.cachedVideoThumbnail;
-            }
         } else {
-            [videoView startThumbnailDownload];
+            NSString *localVidPath = nil;
+            if ([msg.pendingLocalPath length] > 0 && [[NSFileManager defaultManager] fileExistsAtPath:msg.pendingLocalPath]) {
+                localVidPath = msg.pendingLocalPath;
+            } else if ([msg.videoURL length] > 0) {
+                NSString *cp = [self cachePathForMXC:msg.videoURL];
+                if ([[NSFileManager defaultManager] fileExistsAtPath:cp]) {
+                    localVidPath = cp;
+                }
+            }
+
+            if (localVidPath) {
+                NSIndexPath *cellPath = indexPath;
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    UIImage *thumb = [ChatViewController generateThumbnailForVideoURL:[NSURL fileURLWithPath:localVidPath]];
+                    if (thumb) {
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            msg.cachedVideoThumbnail = thumb;
+                            [tableView reloadRowsAtIndexPaths:@[cellPath] withRowAnimation:UITableViewRowAnimationNone];
+                        });
+                    }
+                });
+            } else {
+                NSString *thumbMXC = [msg.videoThumbnailURL length] > 0 ? msg.videoThumbnailURL : msg.videoURL;
+                if ([thumbMXC length] > 0) {
+                    [videoView.spinner startAnimating];
+                    NSIndexPath *cellPath = indexPath;
+                    [[MatrixAPIClient sharedClient] downloadImageFromMXC:thumbMXC completion:^(UIImage *thumbImg, NSError *thumbErr) {
+                        if (thumbImg) {
+                            msg.cachedVideoThumbnail = thumbImg;
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                [tableView reloadRowsAtIndexPaths:@[cellPath] withRowAnimation:UITableViewRowAnimationNone];
+                            });
+                        }
+                    }];
+                }
+            }
         }
         mediaView = videoView;
     } else if (isAudio) {
@@ -2535,6 +2580,19 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                     return;
                 }
                 [data writeToFile:cachePath atomically:YES];
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    UIImage *postThumb = [ChatViewController generateThumbnailForVideoURL:[NSURL fileURLWithPath:cachePath]];
+                    if (postThumb) {
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            for (MatrixMessage *m in self.messages) {
+                                if ([m.videoURL isEqualToString:mxcURL] && !m.cachedVideoThumbnail) {
+                                    m.cachedVideoThumbnail = postThumb;
+                                }
+                            }
+                            [self.tableView reloadData];
+                        });
+                    }
+                });
                 [self playVideoFromCache:cachePath mxcURL:mxcURL];
             });
         });
@@ -2776,10 +2834,18 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     }
 
     MatrixMessage *msg = (MatrixMessage *)item;
+    BOOL isFirstInGroup = [self isFirstInGroupAtIndexPath:indexPath];
+    NSString *cacheKey = msg.eventId ? [NSString stringWithFormat:@"%@_%d_%d_%d", msg.eventId, (int)[msg.reactions count], msg.isRedacted ? 1 : 0, isFirstInGroup ? 1 : 0] : nil;
+    if (cacheKey && _rowHeightCache) {
+        NSNumber *cached = [_rowHeightCache objectForKey:cacheKey];
+        if (cached) {
+            return [cached floatValue];
+        }
+    }
+
     NSString *myId = [[MatrixAPIClient sharedClient] userId];
     BOOL isSelf = (myId && [msg.sender isEqualToString:myId]);
     BOOL isGroupChat = YES;
-    BOOL isFirstInGroup = [self isFirstInGroupAtIndexPath:indexPath];
     BOOL showUser = (!isSelf && isGroupChat && isFirstInGroup);
     BOOL showTimestamp = YES;
     BOOL isAudio = [msg.msgType isEqualToString:@"m.audio"] || [msg.msgType isEqualToString:@"m.voice"];
@@ -2841,7 +2907,12 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
     CGFloat reactionH = ([msg.reactions count] > 0) ? 26 : 0;
     CGFloat replyH = (msg.replyToEventId && [msg.replyToEventId length] > 0) ? [MatrixBubbleView replyPreviewHeight] : 0;
-    return bubbleH + reactionH + replyH;
+    CGFloat totalH = bubbleH + reactionH + replyH;
+
+    if (cacheKey && _rowHeightCache) {
+        [_rowHeightCache setObject:@(totalH) forKey:cacheKey];
+    }
+    return totalH;
 }
 
 #pragma mark - Helpers

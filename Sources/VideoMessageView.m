@@ -7,7 +7,7 @@
 - (id)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.backgroundColor = [UIColor blackColor];
+        self.backgroundColor = [UIColor colorWithWhite:0.18 alpha:1.0];
         self.clipsToBounds = YES;
         self.layer.cornerRadius = 6;
 
@@ -22,7 +22,7 @@
         if (!playImg) playImg = [UIImage imageNamed:@"Video-play-button"];
         [_playOverlay setImage:playImg forState:UIControlStateNormal];
         [_playOverlay setImage:[UIImage imageNamed:@"VideoOverlayPlayDown"] forState:UIControlStateHighlighted];
-        _playOverlay.frame = CGRectMake(0, 0, 72, 72);
+        _playOverlay.frame = CGRectMake(0, 0, 48, 48);
         _playOverlay.center = CGPointMake(frame.size.width / 2, frame.size.height / 2);
         _playOverlay.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin |
                                          UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
@@ -53,10 +53,20 @@
     return self;
 }
 
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    _thumbnailView.frame = self.bounds;
+    _playOverlay.center = CGPointMake(self.bounds.size.width / 2.0f, self.bounds.size.height / 2.0f);
+    _durationLabel.frame = CGRectMake(6, self.bounds.size.height - 22, self.bounds.size.width - 12, 18);
+    _spinner.center = CGPointMake(self.bounds.size.width / 2.0f, self.bounds.size.height / 2.0f);
+}
+
 - (void)setThumbnailImage:(UIImage *)thumbnailImage {
     _thumbnailImage = thumbnailImage;
     _thumbnailView.image = thumbnailImage;
-    [self.spinner stopAnimating];
+    if (thumbnailImage) {
+        [self.spinner stopAnimating];
+    }
 }
 
 - (void)setDuration:(NSNumber *)duration {
@@ -79,28 +89,44 @@
 }
 
 - (void)startThumbnailDownload {
-    if (!self.thumbnailMxcURL || [self.thumbnailMxcURL length] == 0) return;
-    if (self.thumbnailImage) return;
+    [self startThumbnailDownloadWithCompletion:nil];
+}
+
+- (void)startThumbnailDownloadWithCompletion:(void(^)(UIImage *image))completion {
+    if (!self.thumbnailMxcURL || [self.thumbnailMxcURL length] == 0) {
+        if (completion) completion(nil);
+        return;
+    }
+    if (self.thumbnailImage) {
+        if (completion) completion(self.thumbnailImage);
+        return;
+    }
 
     NSString *cachePath = [self cachePathForThumbnailMXC:self.thumbnailMxcURL];
     if ([[NSFileManager defaultManager] fileExistsAtPath:cachePath]) {
         UIImage *cached = [UIImage imageWithContentsOfFile:cachePath];
         if (cached) {
             self.thumbnailImage = cached;
+            if (completion) completion(cached);
             return;
         }
     }
 
     [self.spinner startAnimating];
 
+    __weak typeof(self) weakSelf = self;
     [[MatrixAPIClient sharedClient] downloadImageFromMXC:self.thumbnailMxcURL
                                               completion:^(UIImage *image, NSError *error) {
-        [self.spinner stopAnimating];
-        if (image) {
-            self.thumbnailImage = image;
-            NSData *jpgData = UIImageJPEGRepresentation(image, 0.8);
-            [jpgData writeToFile:cachePath atomically:YES];
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) {
+            [strongSelf.spinner stopAnimating];
+            if (image) {
+                strongSelf.thumbnailImage = image;
+                NSData *jpgData = UIImageJPEGRepresentation(image, 0.8);
+                [jpgData writeToFile:cachePath atomically:YES];
+            }
         }
+        if (completion) completion(image);
     }];
 }
 
