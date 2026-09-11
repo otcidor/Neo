@@ -48,7 +48,9 @@
     ThemeManager *tm = [ThemeManager sharedManager];
     self.view.backgroundColor = [tm backgroundColor];
     _tableView.backgroundColor = [tm backgroundColor];
+    _tableView.separatorColor = [tm separatorColor];
     [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
+    if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
 }
 
 - (void)loadArchivedRooms {

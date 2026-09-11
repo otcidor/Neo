@@ -91,7 +91,31 @@
     [tm applyThemeToTabBar:self.tabBar];
     for (UIViewController *vc in self.viewControllers) {
         if ([vc isKindOfClass:[UINavigationController class]]) {
-            [tm applyThemeToNavigationBar:[(UINavigationController *)vc navigationBar]];
+            UINavigationBar *bar = [(UINavigationController *)vc navigationBar];
+            [tm applyThemeToNavigationBar:bar];
+            if (!IS_IOS7_OR_LATER && !tm.isDarkGlass) bar.barStyle = [tm barStyle];
+        }
+    }
+
+    if (tm.isDarkGlass) {
+        NSDictionary *selAttrs = @{
+            UITextAttributeTextColor: [UIColor colorWithRed:0.35 green:0.65 blue:1.0 alpha:1.0],
+            UITextAttributeTextShadowColor: [UIColor clearColor],
+            UITextAttributeTextShadowOffset: [NSValue valueWithCGSize:CGSizeZero]
+        };
+        NSDictionary *unselAttrs = @{
+            UITextAttributeTextColor: [UIColor colorWithWhite:0.60 alpha:1.0],
+            UITextAttributeTextShadowColor: [UIColor clearColor],
+            UITextAttributeTextShadowOffset: [NSValue valueWithCGSize:CGSizeZero]
+        };
+        for (UIViewController *vc in self.viewControllers) {
+            [vc.tabBarItem setTitleTextAttributes:unselAttrs forState:UIControlStateNormal];
+            [vc.tabBarItem setTitleTextAttributes:selAttrs forState:UIControlStateSelected];
+        }
+    } else {
+        for (UIViewController *vc in self.viewControllers) {
+            [vc.tabBarItem setTitleTextAttributes:nil forState:UIControlStateNormal];
+            [vc.tabBarItem setTitleTextAttributes:nil forState:UIControlStateSelected];
         }
     }
 }

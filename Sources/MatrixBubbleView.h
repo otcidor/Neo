@@ -22,6 +22,7 @@ typedef enum {
 @property (copy, nonatomic) NSString *replyBody;
 @property (assign, nonatomic) BOOL isEmojiOnly;
 @property (copy, nonatomic) NSString *senderId;
+@property (assign, nonatomic) BOOL isMentioned;
 
 + (BOOL)stringContainsEmojiOnly:(NSString *)string length:(NSUInteger *)count;
 + (UIColor *)colorForUserId:(NSString *)userId;

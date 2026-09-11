@@ -30,6 +30,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
 - (void)loadView {
     [super loadView];
+    if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
+        self.edgesForExtendedLayout = UIRectEdgeNone;
+    }
     self.view.backgroundColor = [UIColor whiteColor];
 
     CGFloat w = self.view.bounds.size.width;
@@ -72,7 +75,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         tint = [UIColor colorWithRed:r*0.3 green:g*0.3 blue:b*0.3 alpha:1.0];
     }
 
-    if (self.spaceFilter == nil) {
+    if (self.spaceFilter == nil || tm.isDarkGlass) {
         [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
     } else {
         if (IS_IOS7_OR_LATER) {
@@ -116,29 +119,54 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     CGFloat w = self.view.bounds.size.width;
 
     UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 44)];
-    headerView.backgroundColor = [UIColor colorWithWhite:0.93 alpha:1.0];
-
     self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, w, 44)];
     self.searchBar.placeholder = NSLocalizedString(@"Search", nil);
     self.searchBar.delegate = self;
-    self.searchBar.backgroundImage = [[UIImage alloc] init];
     self.searchBar.showsCancelButton = YES;
     [headerView addSubview:self.searchBar];
 
-    ThemeManager *tm_sb = [ThemeManager sharedManager];
-    if (tm_sb.isDarkMode) {
-        self.searchBar.barStyle = [tm_sb barStyle];
-        headerView.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
-    } else if (self.spaceFilter == nil) {
-        self.searchBar.barStyle = [tm_sb barStyle];
-    }
-
     self.tableView.tableHeaderView = headerView;
+    [self applySearchBarTheme];
 
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
         initWithTarget:self action:@selector(dismissKeyboard)];
     tap.cancelsTouchesInView = NO;
     [self.view addGestureRecognizer:tap];
+}
+
+- (void)applySearchBarTheme {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    UIView *headerView = self.tableView.tableHeaderView;
+    if (tm.isDarkGlass) {
+        headerView.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.10 alpha:1.0];
+        [self.searchBar setBackgroundImage:[ThemeManager modernSearchBarBgImage]];
+        [self.searchBar setSearchFieldBackgroundImage:[ThemeManager modernSearchFieldImage] forState:UIControlStateNormal];
+        self.searchBar.tintColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.30 alpha:1.0];
+    } else if (tm.isDarkMode) {
+        headerView.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
+        [self.searchBar setBackgroundImage:[[UIImage alloc] init]];
+        [self.searchBar setSearchFieldBackgroundImage:nil forState:UIControlStateNormal];
+        self.searchBar.barStyle = [tm barStyle];
+        self.searchBar.tintColor = nil;
+    } else {
+        headerView.backgroundColor = [UIColor colorWithWhite:0.93 alpha:1.0];
+        [self.searchBar setBackgroundImage:[[UIImage alloc] init]];
+        [self.searchBar setSearchFieldBackgroundImage:nil forState:UIControlStateNormal];
+        self.searchBar.barStyle = UIBarStyleDefault;
+        self.searchBar.tintColor = nil;
+    }
+
+    NSMutableArray *stack = [NSMutableArray arrayWithArray:self.searchBar.subviews];
+    while ([stack count] > 0) {
+        UIView *v = [stack lastObject];
+        [stack removeLastObject];
+        if ([v isKindOfClass:[UITextField class]]) {
+            UITextField *tf = (UITextField *)v;
+            tf.textColor = (tm.isDarkMode || tm.isDarkGlass) ? [UIColor whiteColor] : [UIColor blackColor];
+            break;
+        }
+        [stack addObjectsFromArray:v.subviews];
+    }
 }
 
 - (void)dismissKeyboard {
@@ -293,6 +321,28 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    ThemeManager *tm = [ThemeManager sharedManager];
+    if (self.spaceFilter == nil || tm.isDarkGlass) {
+        [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
+        [tm applyThemeToTabBar:self.tabBarController.tabBar];
+    } else {
+        UIColor *tint = colorForTheme(self.theme);
+        if (IS_IOS7_OR_LATER) {
+            self.navigationController.navigationBar.barTintColor = tint;
+            self.navigationController.navigationBar.tintColor = [UIColor whiteColor];
+        } else {
+            self.navigationController.navigationBar.tintColor = tint;
+        }
+    }
+    if (!IS_IOS7_OR_LATER && !tm.isDarkGlass) self.navigationController.navigationBar.barStyle = [tm barStyle];
+    if (tm.isDarkMode) {
+        self.tableView.backgroundColor = [tm backgroundColor];
+        self.view.backgroundColor = [tm backgroundColor];
+    } else if (self.spaceFilter == nil) {
+        self.tableView.backgroundColor = [UIColor whiteColor];
+        self.view.backgroundColor = [UIColor whiteColor];
+    }
+    [self applySearchBarTheme];
     // Data is always current: the model is fed by MatrixRoomBatchNotification
     // (persistent observer since loadView). Just re-render the current filters.
     [self applyFilters];
@@ -589,8 +639,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
 - (void)handleThemeChanged {
     ThemeManager *tm = [ThemeManager sharedManager];
-    if (self.spaceFilter == nil) {
+    if (self.spaceFilter == nil || tm.isDarkGlass) {
         [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
+        [tm applyThemeToTabBar:self.tabBarController.tabBar];
     } else if (tm.isDarkMode) {
         UIColor *tint = colorForTheme(self.theme);
         CGFloat r, g, b, a;
@@ -610,22 +661,14 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         }
     }
     if (tm.isDarkMode) {
-        if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
+        if (!IS_IOS7_OR_LATER && !tm.isDarkGlass) self.navigationController.navigationBar.barStyle = [tm barStyle];
         self.tableView.backgroundColor = [tm backgroundColor];
         self.view.backgroundColor = [tm backgroundColor];
     } else if (self.spaceFilter == nil) {
         self.tableView.backgroundColor = [UIColor whiteColor];
         self.view.backgroundColor = [UIColor whiteColor];
     }
-    if (tm.isDarkMode) {
-        self.searchBar.barStyle = [tm barStyle];
-        UIView *header = self.tableView.tableHeaderView;
-        header.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
-    } else if (self.spaceFilter == nil) {
-        self.searchBar.barStyle = [tm barStyle];
-        UIView *header = self.tableView.tableHeaderView;
-        header.backgroundColor = [UIColor colorWithWhite:0.93 alpha:1.0];
-    }
+    [self applySearchBarTheme];
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.tableView reloadData];
     });
@@ -735,24 +778,28 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     UILabel *lastMsgLabel = (UILabel *)[cell.contentView viewWithTag:92];
     UILabel *tsLabel = (UILabel *)[cell.contentView viewWithTag:93];
     UIView *unreadDot = [cell.contentView viewWithTag:96];
+    UILabel *badgeLabel = (UILabel *)[cell.contentView viewWithTag:95];
+    if (!badgeLabel) {
+        badgeLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        badgeLabel.tag = 95;
+        badgeLabel.font = [UIFont boldSystemFontOfSize:11];
+        badgeLabel.textColor = [UIColor whiteColor];
+        badgeLabel.textAlignment = NSTextAlignmentCenter;
+        badgeLabel.layer.cornerRadius = 9.0f;
+        badgeLabel.clipsToBounds = YES;
+        badgeLabel.hidden = YES;
+        [cell.contentView addSubview:badgeLabel];
+    }
+
+    ThemeManager *tm = [ThemeManager sharedManager];
 
     NSString *tsText = [self relativeDate:room.lastMessageDate];
     CGSize tsSize = [tsText sizeWithFont:[UIFont systemFontOfSize:12]];
     CGFloat tsW = MAX(tsSize.width + 6, 44);
     tsLabel.text = tsText;
-    tsLabel.textColor = (unread > 0) ? tint : [UIColor grayColor];
-    tsLabel.frame = CGRectMake(cellW - tsW - 22, 14, tsW, 18);
 
-    nameLabel.frame = CGRectMake(78, 12, cellW - 78 - tsW - 24, 22);
     NSString *rawName = [MatrixAPIClient localNameForRoomId:room.roomId] ?: room.name;
     nameLabel.text = [[DemoModeManager sharedManager] obfuscateName:rawName];
-
-    ThemeManager *tm = [ThemeManager sharedManager];
-    if (tm.isDarkMode || self.spaceFilter == nil) {
-        nameLabel.textColor = [tm primaryTextColor];
-        lastMsgLabel.textColor = (unread > 0) ? [tm primaryTextColor] : [tm secondaryTextColor];
-        cell.backgroundColor = [tm cellBackgroundColor];
-    }
 
     NSString *subtitleText = @"";
     if ([room.lastMessage length] > 0) {
@@ -762,16 +809,61 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                         (int)room.memberCount];
     }
     lastMsgLabel.text = [[DemoModeManager sharedManager] obfuscateMessage:subtitleText];
-    lastMsgLabel.frame = CGRectMake(78, 34, cellW - 78 - 20, 34);
 
-    if (unread > 0) {
-        unreadDot.hidden = NO;
-        unreadDot.backgroundColor = tint;
-        unreadDot.frame = CGRectMake(cellW - 18, 34, 10, 10);
-        nameLabel.font = [UIFont boldSystemFontOfSize:16];
-    } else {
+    if (tm.isDarkGlass) {
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.backgroundColor = [tm cellBackgroundColor];
+        UIView *selBg = [[UIView alloc] init];
+        selBg.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.22 alpha:1.0];
+        cell.selectedBackgroundView = selBg;
+
+        nameLabel.textColor = [tm primaryTextColor];
+        lastMsgLabel.textColor = (unread > 0) ? [UIColor whiteColor] : [tm secondaryTextColor];
+
+        tsLabel.textColor = (unread > 0) ? [UIColor colorWithRed:0.35 green:0.65 blue:1.0 alpha:1.0] : [UIColor colorWithWhite:0.45 alpha:1.0];
+        tsLabel.frame = CGRectMake(cellW - tsW - 14.0f, 14.0f, tsW, 18.0f);
+        nameLabel.frame = CGRectMake(78, 12, cellW - 78 - tsW - 20.0f, 22.0f);
+
         unreadDot.hidden = YES;
-        nameLabel.font = [UIFont boldSystemFontOfSize:16];
+        if (unread > 0) {
+            badgeLabel.hidden = NO;
+            badgeLabel.backgroundColor = [UIColor colorWithRed:0.20 green:0.52 blue:0.98 alpha:1.0];
+            NSString *badgeText = (unread > 99) ? @"99+" : [NSString stringWithFormat:@"%ld", (long)unread];
+            badgeLabel.text = badgeText;
+            CGSize bSize = [badgeText sizeWithFont:badgeLabel.font];
+            CGFloat badgeW = MAX(bSize.width + 12.0f, 20.0f);
+            badgeLabel.frame = CGRectMake(cellW - badgeW - 14.0f, 38.0f, badgeW, 18.0f);
+            lastMsgLabel.frame = CGRectMake(78, 34, cellW - 78 - badgeW - 22.0f, 34.0f);
+        } else {
+            badgeLabel.hidden = YES;
+            lastMsgLabel.frame = CGRectMake(78, 34, cellW - 78 - 14.0f, 34.0f);
+        }
+    } else {
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.selectedBackgroundView = nil;
+        cell.selectionStyle = UITableViewCellSelectionStyleBlue;
+
+        if (tm.isDarkMode || self.spaceFilter == nil) {
+            nameLabel.textColor = [tm primaryTextColor];
+            lastMsgLabel.textColor = (unread > 0) ? [tm primaryTextColor] : [tm secondaryTextColor];
+            cell.backgroundColor = [tm cellBackgroundColor];
+        } else {
+            cell.backgroundColor = [UIColor whiteColor];
+        }
+
+        tsLabel.textColor = (unread > 0) ? tint : [UIColor grayColor];
+        tsLabel.frame = CGRectMake(cellW - tsW - 22.0f, 14.0f, tsW, 18.0f);
+        nameLabel.frame = CGRectMake(78, 12, cellW - 78 - tsW - 24.0f, 22.0f);
+        lastMsgLabel.frame = CGRectMake(78, 34, cellW - 78 - 20.0f, 34.0f);
+
+        badgeLabel.hidden = YES;
+        if (unread > 0) {
+            unreadDot.hidden = NO;
+            unreadDot.backgroundColor = tint;
+            unreadDot.frame = CGRectMake(cellW - 18.0f, 34.0f, 10.0f, 10.0f);
+        } else {
+            unreadDot.hidden = YES;
+        }
     }
 
     UIImageView *avatarView = (UIImageView *)[cell.contentView viewWithTag:99];
@@ -809,11 +901,17 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         } else {
             avatarView.image = placeholder;
         }
-        avatarView.backgroundColor = [UIColor clearColor];
+        avatarView.backgroundColor = tm.isDarkGlass ? [UIColor colorWithRed:0.16 green:0.16 blue:0.20 alpha:1.0] : [UIColor colorWithWhite:0.85 alpha:1.0];
     }
 
     UIView *sep = (UIView *)[cell.contentView viewWithTag:98];
-    sep.frame = CGRectMake(78, 75, cellW - 78, 1.0);
+    if (tm.isDarkGlass) {
+        sep.frame = CGRectMake(78, 79.5f, cellW - 78, 0.5f);
+        sep.backgroundColor = [tm separatorColor];
+    } else {
+        sep.frame = CGRectMake(78, 79.0f, cellW - 78, 1.0f);
+        sep.backgroundColor = [tm separatorColor];
+    }
 
     UIImageView *badge = (UIImageView *)[cell.contentView viewWithTag:97];
     badge.hidden = YES;

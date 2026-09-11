@@ -70,6 +70,7 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
     self.tableView.backgroundColor = [tm backgroundColor];
     self.tableView.separatorColor = [tm separatorColor];
     [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
+    if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
 }
 
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)section {

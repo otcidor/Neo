@@ -23,7 +23,8 @@
     CGFloat h = self.view.bounds.size.height;
 
     UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 200)];
-    headerView.backgroundColor = [UIColor colorWithWhite:0.18 alpha:1.0];
+    headerView.tag = 1001;
+    headerView.backgroundColor = [tm backgroundColor];
 
     CGFloat avatarSize = 100;
     _avatarView = [[UIImageView alloc] initWithFrame:
@@ -46,7 +47,7 @@
     NSString *localName = [MatrixAPIClient localNameForRoomId:self.room.roomId];
     _nameLabel.text = [[DemoModeManager sharedManager] obfuscateName:localName ?: (self.room.name ?: self.room.roomId)];
     _nameLabel.font = [UIFont boldSystemFontOfSize:20];
-    _nameLabel.textColor = [UIColor whiteColor];
+    _nameLabel.textColor = [tm primaryTextColor];
     _nameLabel.textAlignment = NSTextAlignmentCenter;
     _nameLabel.backgroundColor = [UIColor clearColor];
     [headerView addSubview:_nameLabel];
@@ -63,18 +64,19 @@
         _subLabel.text = sub;
     }
     _subLabel.font = [UIFont systemFontOfSize:13];
-    _subLabel.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+    _subLabel.textColor = [tm secondaryTextColor];
     _subLabel.textAlignment = NSTextAlignmentCenter;
     _subLabel.backgroundColor = [UIColor clearColor];
     [headerView addSubview:_subLabel];
 
     _tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, 200, w, h - 200)
-                                              style:UITableViewStyleGrouped];
+                                              style:UITableViewStylePlain];
     _tableView.dataSource = self;
     _tableView.delegate = self;
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _tableView.backgroundColor = [tm backgroundColor];
     _tableView.backgroundView = nil;
+    _tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     [self.view addSubview:_tableView];
 
     [self.view addSubview:headerView];
@@ -172,8 +174,14 @@
     self.view.backgroundColor = [tm backgroundColor];
     _tableView.backgroundColor = [tm backgroundColor];
     _tableView.backgroundView = nil;
-    _tableView.separatorColor = [tm separatorColor];
+    UIView *header = [self.view viewWithTag:1001];
+    if (header) {
+        header.backgroundColor = [tm backgroundColor];
+    }
+    _nameLabel.textColor = [tm primaryTextColor];
+    _subLabel.textColor = [tm secondaryTextColor];
     [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
+    if (!IS_IOS7_OR_LATER && !tm.isDarkGlass) self.navigationController.navigationBar.barStyle = [tm barStyle];
 }
 
 - (void)dealloc {
@@ -198,6 +206,39 @@
     }
 }
 
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    return 32.0f;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    CGFloat w = tableView.bounds.size.width;
+    UIView *v = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 32.0f)];
+    v.backgroundColor = [tm backgroundColor];
+
+    NSString *title = [self tableView:tableView titleForHeaderInSection:section];
+    if ([title length] > 0) {
+        UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, w - 32, 16)];
+        lbl.font = [UIFont boldSystemFontOfSize:12];
+        lbl.textColor = [tm secondaryTextColor];
+        lbl.backgroundColor = [UIColor clearColor];
+        lbl.text = [title uppercaseString];
+        [v addSubview:lbl];
+    }
+    return v;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
+    return 10.0f;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    UIView *v = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 10.0f)];
+    v.backgroundColor = [tm backgroundColor];
+    return v;
+}
+
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
         case 0: return 2;
@@ -219,52 +260,86 @@
                                       reuseIdentifier:cellId];
     }
     ThemeManager *tm_cell = [ThemeManager sharedManager];
+    CGFloat cellW = tableView.bounds.size.width;
+
     cell.backgroundColor = [tm_cell cellBackgroundColor];
     cell.textLabel.textColor = [tm_cell primaryTextColor];
-    cell.imageView.image = nil;
-    cell.selectionStyle = UITableViewCellSelectionStyleBlue;
+    cell.textLabel.font = [UIFont systemFontOfSize:16];
+    cell.detailTextLabel.textColor = [tm_cell secondaryTextColor];
+    cell.detailTextLabel.font = [UIFont systemFontOfSize:15];
+    cell.detailTextLabel.text = nil;
+
+    if (tm_cell.isDarkGlass) {
+        UIView *selBg = [[UIView alloc] init];
+        selBg.backgroundColor = [UIColor colorWithRed:0.18 green:0.22 blue:0.28 alpha:1.0];
+        cell.selectedBackgroundView = selBg;
+    } else {
+        cell.selectedBackgroundView = nil;
+        cell.selectionStyle = UITableViewCellSelectionStyleBlue;
+    }
 
     if (indexPath.section == 0) {
         if (indexPath.row == 0) {
+            cell.imageView.image = [ThemeManager settingsIconNamed:@"user"];
             NSString *displayId = _otherUserId ?: self.room.roomId;
             if ([DemoModeManager sharedManager].demoModeEnabled) {
                 displayId = @"@demo:example.org";
             }
             cell.textLabel.text = displayId;
-            cell.textLabel.font = [UIFont systemFontOfSize:13];
+            cell.textLabel.font = [UIFont systemFontOfSize:14];
             cell.textLabel.textColor = [tm_cell secondaryTextColor];
+            cell.accessoryView = nil;
+            cell.accessoryType = UITableViewCellAccessoryNone;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else {
+            cell.imageView.image = [ThemeManager settingsIconNamed:@"rename"];
             cell.textLabel.text = NSLocalizedString(@"Rename", nil);
-            cell.textLabel.font = [UIFont systemFontOfSize:16];
-            cell.textLabel.textColor = [tm_cell primaryTextColor];
-            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            if (tm_cell.isDarkGlass) {
+                cell.accessoryView = [ThemeManager modernDisclosureIndicator];
+            } else {
+                cell.accessoryView = nil;
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            }
         }
     } else if (indexPath.section == 1) {
         if (indexPath.row == 0) {
+            cell.imageView.image = [ThemeManager settingsIconNamed:@"mute"];
             cell.textLabel.text = NSLocalizedString(@"Mute notifications", nil);
-            cell.textLabel.font = [UIFont systemFontOfSize:16];
-            UISwitch *toggle = [[UISwitch alloc] init];
-            toggle.on = NO;
-            cell.accessoryView = toggle;
+            UISwitch *toggle = [cell.accessoryView isKindOfClass:[UISwitch class]] ? (UISwitch *)cell.accessoryView : nil;
+            if (!toggle) {
+                toggle = [[UISwitch alloc] init];
+                toggle.on = NO;
+                cell.accessoryView = toggle;
+            }
+            if ([toggle respondsToSelector:@selector(setOnTintColor:)]) {
+                toggle.onTintColor = [UIColor colorWithRed:0.20 green:0.52 blue:0.98 alpha:1.0];
+            }
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else {
+            cell.imageView.image = [ThemeManager settingsIconNamed:@"delete"];
             cell.textLabel.text = NSLocalizedString(@"Delete chat", nil);
-            cell.textLabel.textColor = [UIColor redColor];
-            cell.textLabel.font = [UIFont systemFontOfSize:16];
-            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.textColor = [UIColor colorWithRed:1.0 green:0.23 blue:0.19 alpha:1.0];
+            if (tm_cell.isDarkGlass) {
+                cell.accessoryView = [ThemeManager modernDisclosureIndicator];
+            } else {
+                cell.accessoryView = nil;
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            }
         }
     }
-    return cell;
-}
 
-- (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section {
-    ThemeManager *tm = [ThemeManager sharedManager];
-    if ([view isKindOfClass:[UITableViewHeaderFooterView class]]) {
-        UITableViewHeaderFooterView *hv = (UITableViewHeaderFooterView *)view;
-        hv.textLabel.textColor = [tm secondaryTextColor];
-        hv.contentView.backgroundColor = [tm backgroundColor];
+    NSInteger totalRows = [self tableView:tableView numberOfRowsInSection:indexPath.section];
+    BOOL isLast = (indexPath.row == totalRows - 1);
+    UIView *sep = [cell.contentView viewWithTag:98];
+    if (!sep) {
+        sep = [[UIView alloc] initWithFrame:CGRectZero];
+        sep.tag = 98;
+        [cell.contentView addSubview:sep];
     }
+    sep.frame = isLast ? CGRectMake(0, 43.5f, cellW, 0.5f) : CGRectMake(58.0f, 43.5f, cellW - 58.0f, 0.5f);
+    sep.backgroundColor = [tm_cell separatorColor];
+
+    return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {

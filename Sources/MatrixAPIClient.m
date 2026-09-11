@@ -244,14 +244,29 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 - (void)sendMessage:(NSString *)body
              roomId:(NSString *)roomId
          completion:(MatrixCompletion)completion {
+    [self sendMessage:body roomId:roomId formattedBody:nil mentions:nil completion:completion];
+}
+
+- (void)sendMessage:(NSString *)body
+             roomId:(NSString *)roomId
+      formattedBody:(NSString *)formattedBody
+           mentions:(NSDictionary *)mentions
+         completion:(MatrixCompletion)completion {
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
                       NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
-    NSDictionary *msgBody = @{
+    NSMutableDictionary *msgBody = [NSMutableDictionary dictionaryWithDictionary:@{
         @"msgtype": @"m.text",
-        @"body": body
-    };
+        @"body": body ?: @""
+    }];
+    if (formattedBody && [formattedBody length] > 0) {
+        msgBody[@"format"] = @"org.matrix.custom.html";
+        msgBody[@"formatted_body"] = formattedBody;
+    }
+    if (mentions) {
+        msgBody[@"m.mentions"] = mentions;
+    }
     NSError *err = nil;
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msgBody options:0 error:&err];
     if (err) {
@@ -265,18 +280,34 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 - (void)sendReply:(NSString *)body
            roomId:(NSString *)roomId
     replyToEventId:(NSString *)replyToEventId
+       completion:(MatrixCompletion)completion {
+    [self sendReply:body roomId:roomId replyToEventId:replyToEventId formattedBody:nil mentions:nil completion:completion];
+}
+
+- (void)sendReply:(NSString *)body
+           roomId:(NSString *)roomId
+    replyToEventId:(NSString *)replyToEventId
+     formattedBody:(NSString *)formattedBody
+          mentions:(NSDictionary *)mentions
         completion:(MatrixCompletion)completion {
     NSString *txnId = [[NSUUID UUID] UUIDString];
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
                       NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
-    NSDictionary *msgBody = @{
+    NSMutableDictionary *msgBody = [NSMutableDictionary dictionaryWithDictionary:@{
         @"msgtype": @"m.text",
-        @"body": body,
+        @"body": body ?: @"",
         @"m.relates_to": @{
-            @"m.in_reply_to": @{@"event_id": replyToEventId}
+            @"m.in_reply_to": @{@"event_id": replyToEventId ?: @""}
         }
-    };
+    }];
+    if (formattedBody && [formattedBody length] > 0) {
+        msgBody[@"format"] = @"org.matrix.custom.html";
+        msgBody[@"formatted_body"] = formattedBody;
+    }
+    if (mentions) {
+        msgBody[@"m.mentions"] = mentions;
+    }
     NSError *err = nil;
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msgBody options:0 error:&err];
     if (err) {

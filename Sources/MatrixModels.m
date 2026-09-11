@@ -166,6 +166,33 @@
                 _fileMimeType = info[@"mimetype"] ?: @"application/octet-stream";
                 _fileSize = info[@"size"] ?: @0;
             }
+
+            if ([content[@"format"] isEqualToString:@"org.matrix.custom.html"] &&
+                [content[@"formatted_body"] isKindOfClass:[NSString class]]) {
+                _formattedBody = content[@"formatted_body"];
+            }
+
+            NSDictionary *mentions = content[@"m.mentions"];
+            if ([mentions isKindOfClass:[NSDictionary class]]) {
+                if ([mentions[@"user_ids"] isKindOfClass:[NSArray class]]) {
+                    _mentionedUserIds = mentions[@"user_ids"];
+                }
+                _isRoomMention = [mentions[@"room"] boolValue];
+            } else if (_formattedBody && [_formattedBody rangeOfString:@"matrix.to/#/@"].location != NSNotFound) {
+                NSMutableArray *extracted = [NSMutableArray array];
+                NSError *regexErr = nil;
+                NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"https?://matrix\\.to/#/(@[a-zA-Z0-9_\\.\\/=\\+\\-]+:[a-zA-Z0-9_\\.\\-]+)" options:0 error:&regexErr];
+                if (regex) {
+                    NSArray *matches = [regex matchesInString:_formattedBody options:0 range:NSMakeRange(0, [_formattedBody length])];
+                    for (NSTextCheckingResult *match in matches) {
+                        if (match.numberOfRanges > 1) {
+                            NSString *uid = [_formattedBody substringWithRange:[match rangeAtIndex:1]];
+                            if (![extracted containsObject:uid]) [extracted addObject:uid];
+                        }
+                    }
+                }
+                _mentionedUserIds = [extracted copy];
+            }
         } else {
             _body = @"";
             _msgType = @"m.text";
@@ -211,6 +238,8 @@
 
         self.reactions = [NSMutableDictionary dictionary];
         self.myReactions = [NSMutableDictionary dictionary];
+        self.reactionEventIds = [NSMutableDictionary dictionary];
+        self.myReactionEventIds = [NSMutableDictionary dictionary];
 
         double ts = [dict[@"origin_server_ts"] doubleValue] / 1000.0;
         if (ts > 0) {
@@ -244,6 +273,12 @@
         _replyToSender = m.sender;
         _replyToBody = m.body;
     }
+}
+
+- (BOOL)isMentioningUserId:(NSString *)userId {
+    if (self.isRoomMention) return YES;
+    if (!userId || [userId length] == 0) return NO;
+    return [self.mentionedUserIds containsObject:userId];
 }
 @end
 

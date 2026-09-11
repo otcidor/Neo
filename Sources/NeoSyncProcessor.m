@@ -102,6 +102,25 @@
                 target.isRedacted = YES;
                 target.body = NSLocalizedString(@"Deleted message", nil);
                 changed = YES;
+            } else {
+                for (MatrixMessage *m in messages) {
+                    NSString *emoji = m.reactionEventIds[redactedId];
+                    if (emoji) {
+                        [m.reactionEventIds removeObjectForKey:redactedId];
+                        NSInteger count = [m.reactions[emoji] integerValue];
+                        if (count <= 1) {
+                            [m.reactions removeObjectForKey:emoji];
+                        } else {
+                            m.reactions[emoji] = @(count - 1);
+                        }
+                        if ([m.myReactionEventIds[emoji] isEqualToString:redactedId]) {
+                            [m.myReactionEventIds removeObjectForKey:emoji];
+                            [m.myReactions removeObjectForKey:emoji];
+                        }
+                        changed = YES;
+                        break;
+                    }
+                }
             }
             continue;
         }
@@ -114,6 +133,14 @@
             if (![targetId isKindOfClass:[NSString class]] || ![emoji isKindOfClass:[NSString class]]) continue;
             MatrixMessage *target = [messagesByEventId objectForKey:targetId];
             if (!target) continue;
+
+            NSString *reactionEventId = evt[@"event_id"];
+            if ([reactionEventId isKindOfClass:[NSString class]]) {
+                if (!target.reactionEventIds) target.reactionEventIds = [NSMutableDictionary dictionary];
+                if (target.reactionEventIds[reactionEventId]) continue;
+                target.reactionEventIds[reactionEventId] = emoji;
+            }
+
             if (!target.reactions) target.reactions = [NSMutableDictionary dictionary];
             NSNumber *count = target.reactions[emoji] ?: @0;
             target.reactions[emoji] = @([count intValue] + 1);
@@ -121,6 +148,8 @@
             if (myUserId && [sender isKindOfClass:[NSString class]] && [sender isEqualToString:myUserId]) {
                 if (!target.myReactions) target.myReactions = [NSMutableDictionary dictionary];
                 target.myReactions[emoji] = @YES;
+                if (!target.myReactionEventIds) target.myReactionEventIds = [NSMutableDictionary dictionary];
+                if (reactionEventId) target.myReactionEventIds[emoji] = reactionEventId;
             }
             changed = YES;
             continue;

@@ -1,5 +1,6 @@
 #import "WallpaperGalleryViewController.h"
 #import "ThemeManager.h"
+#import "NeoCompatibility.h"
 #import <QuartzCore/QuartzCore.h>
 
 static NSString *kWpNames[] = {
@@ -59,6 +60,7 @@ static NSString *kCellId = @"WPCell";
     ThemeManager *tm = [ThemeManager sharedManager];
     self.collectionView.backgroundColor = [tm backgroundColor];
     [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
+    if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
 }
 
 - (NSInteger)collectionView:(UICollectionView *)cv numberOfItemsInSection:(NSInteger)section {

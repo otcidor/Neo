@@ -66,7 +66,12 @@ static bool isEmojiChar(NSString *singleChar) {
     return palette[hash % 7];
 }
 
-@synthesize type, text, timestamp, showTimestamp, userName, showUser, isRedacted, ack, hasMedia, mediaView,selectedToShowCopyMenu, replySenderName, replyBody;
+@synthesize type, text, timestamp, showTimestamp, userName, showUser, isRedacted, ack, hasMedia, mediaView,selectedToShowCopyMenu, replySenderName, replyBody, isMentioned;
+
+- (void)setIsMentioned:(BOOL)flag {
+    isMentioned = flag;
+    [self setNeedsDisplay];
+}
 
 - (void)setup {
     self.backgroundColor = [UIColor clearColor];
@@ -254,6 +259,19 @@ static bool isEmojiChar(NSString *singleChar) {
         [image drawInRect:bFrame blendMode:kCGBlendModeNormal alpha:0.6];
     } else {
         [image drawInRect:bFrame];
+    }
+
+    if (self.isMentioned && self.type == MatrixBubbleMessageTypeIncoming) {
+        CGContextRef ctx = UIGraphicsGetCurrentContext();
+        CGContextSaveGState(ctx);
+        CGFloat barWidth = 3.5f;
+        CGFloat barX = bFrame.origin.x + 4.0f;
+        CGFloat barY = bFrame.origin.y + 6.0f;
+        CGFloat barH = MAX(16.0f, bFrame.size.height - 12.0f);
+        UIBezierPath *barPath = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(barX, barY, barWidth, barH) cornerRadius:1.75f];
+        [[UIColor colorWithRed:1.0f green:0.60f blue:0.0f alpha:0.95f] setFill];
+        [barPath fill];
+        CGContextRestoreGState(ctx);
     }
 
     CGFloat textX = image.leftCapWidth - 3.0f + (self.type == MatrixBubbleMessageTypeOutgoing ? bFrame.origin.x : 0);
@@ -462,6 +480,28 @@ static bool isEmojiChar(NSString *singleChar) {
         }];
     }
 
+    // Detect mentions like @user:server or @DisplayName or @room
+    NSError *mentionErr = nil;
+    NSRegularExpression *mentionRegex = [NSRegularExpression regularExpressionWithPattern:@"(?<=^|\\s)@([a-zA-Z0-9_\\-\\.\\+=]+(:[a-zA-Z0-9_\\-\\.]+)?)" options:0 error:&mentionErr];
+    if (mentionRegex) {
+        NSArray *matches = [mentionRegex matchesInString:self.text options:0 range:NSMakeRange(0, [self.text length])];
+        for (NSTextCheckingResult *m in matches) {
+            BOOL dup = NO;
+            for (NSTextCheckingResult *existing in results) {
+                if (NSEqualRanges(existing.range, m.range)) { dup = YES; break; }
+            }
+            if (!dup) {
+                NSString *target = [self.text substringWithRange:m.range];
+                NSString *cleanTarget = [target stringByReplacingOccurrencesOfString:@"@" withString:@""];
+                NSURL *mentionURL = [NSURL URLWithString:[NSString stringWithFormat:@"matrix://%@", cleanTarget]];
+                if (mentionURL) {
+                    NSTextCheckingResult *link = [NSTextCheckingResult linkCheckingResultWithRange:m.range URL:mentionURL];
+                    [results addObject:link];
+                }
+            }
+        }
+    }
+
     _linkResults = results;
     _linkTap.enabled = ([_linkResults count] > 0);
 }
@@ -505,8 +545,13 @@ static bool isEmojiChar(NSString *singleChar) {
     [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor darkTextColor] range:fullRange];
 
     for (NSTextCheckingResult *result in _linkResults) {
-        [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor blueColor] range:result.range];
-        [attrStr addAttribute:NSUnderlineStyleAttributeName value:@(NSUnderlineStyleSingle) range:result.range];
+        if ([result.URL.scheme isEqualToString:@"matrix"]) {
+            [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithRed:0.0 green:0.48 blue:1.0 alpha:1.0] range:result.range];
+            [attrStr addAttribute:NSFontAttributeName value:[UIFont boldSystemFontOfSize:15] range:result.range];
+        } else {
+            [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor blueColor] range:result.range];
+            [attrStr addAttribute:NSUnderlineStyleAttributeName value:@(NSUnderlineStyleSingle) range:result.range];
+        }
     }
 
     CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString((__bridge CFAttributedStringRef)attrStr);
@@ -573,6 +618,10 @@ static bool isEmojiChar(NSString *singleChar) {
                         charIndex < (CFIndex)(result.range.location + result.range.length)) {
                         NSURL *url = result.URL;
                         if (url) {
+                            if ([url.scheme isEqualToString:@"matrix"]) {
+                                [[NSNotificationCenter defaultCenter] postNotificationName:@"NeoMentionTappedNotification" object:url.resourceSpecifier ?: @""];
+                                return;
+                            }
                             [[UIApplication sharedApplication] openURL:url];
                         }
                         return;

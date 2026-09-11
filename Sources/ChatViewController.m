@@ -1,6 +1,7 @@
 #import "NeoAlert.h"
 #import "NeoCompatibility.h"
 #import "ChatViewController.h"
+#import "ThemeManager.h"
 #import "MatrixAPIClient.h"
 #import "ProfileViewController.h"
 #import "MatrixBubbleMessageCell.h"
@@ -22,6 +23,8 @@
 #import "NeoReactionViewBuilder.h"
 #import "TGTableDeltaUpdater.h"
 #import "NeoProgressSpinnerView.h"
+#import "NeoMessageContextMenuView.h"
+#import "NeoMentionAutocompleteView.h"
 
 @interface NeoDisplayAdapter : NSObject <TGTableItem>
 @property (nonatomic, copy) NSString *ident;
@@ -38,20 +41,94 @@
     if (self) {
         self.backgroundColor = [UIColor clearColor];
         self.userInteractionEnabled = NO;
+        self.contentMode = UIViewContentModeRedraw;
     }
     return self;
 }
+
 - (void)drawRect:(CGRect)rect {
     CGContextRef ctx = UIGraphicsGetCurrentContext();
-    CGRect r = CGRectInset(self.bounds, 1.0f, 1.0f);
-    UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:8.0f];
-    CGContextSetShadowWithColor(ctx, CGSizeMake(0, 1), 1.0f, [UIColor colorWithWhite:0 alpha:0.15].CGColor);
-    [[UIColor whiteColor] setFill];
-    [path fill];
-    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
-    [[UIColor colorWithWhite:0.72 alpha:1.0] setStroke];
-    path.lineWidth = 1.0f;
-    [path stroke];
+    CGRect bounds = self.bounds;
+    ThemeManager *tm = [ThemeManager sharedManager];
+    BOOL isDarkGlass = tm.isDarkGlass;
+    BOOL isDark = tm.isDarkMode;
+
+    CGFloat cornerRadius = 14.0f;
+
+    if (isDarkGlass) {
+        CGRect r = CGRectInset(bounds, 0.5f, 0.5f);
+        UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:cornerRadius];
+        [[UIColor colorWithRed:0.16 green:0.16 blue:0.20 alpha:0.85] setFill];
+        [path fill];
+        [[UIColor colorWithWhite:1.0 alpha:0.18] setStroke];
+        path.lineWidth = 0.5f;
+        [path stroke];
+        return;
+    }
+
+    // iOS 6 Skeuomorphic Input Field
+    // 1. Bottom outer specular reflection (gives the inset/cutout 3D lip effect)
+    CGRect highlightRect = CGRectMake(1.0f, 2.0f, bounds.size.width - 2.0f, bounds.size.height - 2.0f);
+    UIBezierPath *highlightPath = [UIBezierPath bezierPathWithRoundedRect:highlightRect cornerRadius:cornerRadius];
+    UIColor *highlightColor = isDark ? [UIColor colorWithWhite:1.0 alpha:0.16] : [UIColor colorWithWhite:1.0 alpha:0.55];
+    [highlightColor setStroke];
+    highlightPath.lineWidth = 1.0f;
+    [highlightPath stroke];
+
+    // 2. Main field path
+    CGRect fieldRect = CGRectMake(1.0f, 1.0f, bounds.size.width - 2.0f, bounds.size.height - 2.0f);
+    UIBezierPath *fieldPath = [UIBezierPath bezierPathWithRoundedRect:fieldRect cornerRadius:cornerRadius];
+
+    // 3. Fill & Inner Top Shadow (sunken depth)
+    CGContextSaveGState(ctx);
+    [fieldPath addClip];
+
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+
+    if (isDark) {
+        [[UIColor colorWithRed:0.09 green:0.09 blue:0.11 alpha:0.96] setFill];
+        [fieldPath fill];
+
+        CGFloat shadowColors[] = {
+            0.0f, 0.0f, 0.0f, 0.55f,
+            0.0f, 0.0f, 0.0f, 0.18f,
+            0.0f, 0.0f, 0.0f, 0.0f
+        };
+        CGFloat shadowLocs[] = { 0.0f, 0.45f, 1.0f };
+        CGGradientRef shadowGrad = CGGradientCreateWithColorComponents(cs, shadowColors, shadowLocs, 3);
+        CGContextDrawLinearGradient(ctx, shadowGrad,
+                                    CGPointMake(CGRectGetMidX(fieldRect), CGRectGetMinY(fieldRect)),
+                                    CGPointMake(CGRectGetMidX(fieldRect), CGRectGetMinY(fieldRect) + 6.0f), 0);
+        CGGradientRelease(shadowGrad);
+
+    } else {
+        [[UIColor whiteColor] setFill];
+        [fieldPath fill];
+
+        CGFloat shadowColors[] = {
+            0.0f, 0.0f, 0.0f, 0.26f,
+            0.0f, 0.0f, 0.0f, 0.08f,
+            0.0f, 0.0f, 0.0f, 0.0f
+        };
+        CGFloat shadowLocs[] = { 0.0f, 0.45f, 1.0f };
+        CGGradientRef shadowGrad = CGGradientCreateWithColorComponents(cs, shadowColors, shadowLocs, 3);
+        CGContextDrawLinearGradient(ctx, shadowGrad,
+                                    CGPointMake(CGRectGetMidX(fieldRect), CGRectGetMinY(fieldRect)),
+                                    CGPointMake(CGRectGetMidX(fieldRect), CGRectGetMinY(fieldRect) + 5.0f), 0);
+        CGGradientRelease(shadowGrad);
+    }
+
+    CGColorSpaceRelease(cs);
+    CGContextRestoreGState(ctx);
+
+    // 4. Border stroke
+    if (isDark) {
+        [[UIColor colorWithWhite:0.0 alpha:0.70] setStroke];
+    } else {
+        [[UIColor colorWithWhite:0.55 alpha:0.80] setStroke];
+    }
+    fieldPath.lineWidth = 1.0f;
+    [fieldPath stroke];
 }
 @end
 
@@ -60,6 +137,9 @@
 
 @implementation ChatViewController {
     NSDictionary *_memberNames;
+    NeoMentionAutocompleteView *_mentionAutocompleteView;
+    NSMutableDictionary *_draftMentions;
+    NSRange _currentMentionTokenRange;
     NSTimeInterval _lastMessageLoad;
     BOOL _longPressAdded;
     NSInteger _selectedRow;
@@ -141,7 +221,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     _inputBarHeight = kNeoInputBarBaseH;
 
     UIImageView *inputBg = [[UIImageView alloc] initWithFrame:inputView.bounds];
-    inputBg.image = [[UIImage imageNamed:@"input-bar"] stretchableImageWithLeftCapWidth:10 topCapHeight:14];
+    inputBg.tag = 92;
     inputBg.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [inputView addSubview:inputBg];
 
@@ -157,19 +237,25 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     self.messageField.scrollEnabled = NO;
     self.messageField.bounces = NO;
     if (IS_IOS7_OR_LATER) {
-        self.messageField.textContainerInset = UIEdgeInsetsMake(5, 8, 5, 0);
+        self.messageField.textContainerInset = UIEdgeInsetsMake(7, 10, 7, 6);
     } else {
-        self.messageField.contentInset = UIEdgeInsetsMake(6, 8, 6, 0);
+        self.messageField.contentInset = UIEdgeInsetsMake(6, 10, 6, 6);
     }
     [inputView addSubview:self.messageField];
 
-    _placeholderLabel = [[UILabel alloc] initWithFrame:CGRectMake(46 + 10, 0, w - 96 - 30, kNeoInputFieldMinH)];
+    _placeholderLabel = [[UILabel alloc] initWithFrame:CGRectMake(46 + 12, 0, w - 96 - 30, kNeoInputFieldMinH)];
     _placeholderLabel.font = [UIFont systemFontOfSize:15];
-    _placeholderLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
     _placeholderLabel.backgroundColor = [UIColor clearColor];
     _placeholderLabel.userInteractionEnabled = NO;
     _placeholderLabel.text = @"Type a message...";
     [inputView addSubview:_placeholderLabel];
+
+    [self applyInputBarTheme];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(applyInputBarTheme)
+                                                 name:NeoThemeDidChangeNotification
+                                               object:nil];
 
     self.sendButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.sendButton.frame = CGRectMake(w - 40, 5, 34, 34);
@@ -212,10 +298,21 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     _syncBackoff = 1.0;
     _readEventIds = [NSMutableSet set];
     _typingUserIds = [NSMutableArray array];
+
+    _draftMentions = [NSMutableDictionary dictionary];
+    _mentionAutocompleteView = [[NeoMentionAutocompleteView alloc] initWithFrame:CGRectMake(0, 0, w, 180)];
+    __weak typeof(self) weakSelf = self;
+    _mentionAutocompleteView.onSelectMember = ^(NSString *displayName, NSString *userId, BOOL isRoom) {
+        [weakSelf handleMentionSelectedDisplayName:displayName userId:userId isRoom:isRoom];
+    };
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    ThemeManager *tm = [ThemeManager sharedManager];
+    [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
+    if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
+    [self applyInputBarTheme];
     [self setupNavBar];
     [self loadMemberNames];
     [self loadMessages];
@@ -232,6 +329,10 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(keyboardWillHide:)
                                                  name:UIKeyboardWillHideNotification
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleMentionTappedNotification:)
+                                                 name:@"NeoMentionTappedNotification"
                                                object:nil];
 
     [self addSyncObservers];
@@ -283,46 +384,60 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         return;
     }
 
-    BOOL isImage = [msg.msgType isEqualToString:@"m.image"] || [msg.body hasPrefix:@"mxc://"];
-    BOOL isFile = [msg.msgType isEqualToString:@"m.file"];
-    BOOL fileDownloaded = isFile && msg.cachedFileData != nil;
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:ip];
+    UIView *hostView = self.navigationController.view ?: self.view;
+    CGPoint bubbleCenter = cell ? [hostView convertPoint:cell.center fromView:self.tableView] : CGPointMake(hostView.bounds.size.width / 2.0f, point.y);
 
-    UIActionSheet *sheet = [[UIActionSheet alloc] init];
-    sheet.delegate = self;
-    _savePhotoButtonIndex = -1;
-    _downloadButtonIndex = -1;
-    _openInButtonIndex = -1;
-
-    if (isImage) {
-        sheet.tag = 300;
-        [sheet addButtonWithTitle:NSLocalizedString(@"Reply", nil)];
-        _savePhotoButtonIndex = [sheet addButtonWithTitle:NSLocalizedString(@"Save Photo", nil)];
-    } else if (isFile && fileDownloaded) {
-        sheet.tag = 301;
-        _openInButtonIndex = [sheet addButtonWithTitle:NSLocalizedString(@"Open in...", nil)];
-    } else if (isFile) {
-        sheet.tag = 302;
-        [sheet addButtonWithTitle:NSLocalizedString(@"Reply", nil)];
-        _downloadButtonIndex = [sheet addButtonWithTitle:NSLocalizedString(@"Download", nil)];
-    } else {
-        sheet.tag = _selectedIsSelf ? 200 : 500;
-        [sheet addButtonWithTitle:NSLocalizedString(@"Reply", nil)];
+    __weak typeof(self) weakSelf = self;
+    [NeoMessageContextMenuView showForMessage:msg
+                                       inView:hostView
+                                 bubbleCenter:bubbleCenter
+                                       isSelf:_selectedIsSelf
+                           onReactionSelected:^(NSString *emoji) {
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf sendReaction:emoji toMessage:msg];
     }
-    [sheet addButtonWithTitle:@"👍"];
-    [sheet addButtonWithTitle:@"❤️"];
-    [sheet addButtonWithTitle:@"😂"];
-    [sheet addButtonWithTitle:@"😮"];
-    [sheet addButtonWithTitle:NSLocalizedString(@"Custom", nil)];
-    [sheet addButtonWithTitle:NSLocalizedString(@"Copy", nil)];
-    [sheet addButtonWithTitle:NSLocalizedString(@"Forward", nil)];
-    if (_selectedIsSelf) {
-        [sheet addButtonWithTitle:NSLocalizedString(@"Edit", nil)];
-        [sheet addButtonWithTitle:NSLocalizedString(@"Delete", nil)];
+                             onCustomReaction:^{
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf promptCustomReactionForMessage:msg];
     }
-    [sheet addButtonWithTitle:NSLocalizedString(@"Cancel", nil)];
-    sheet.cancelButtonIndex = [sheet numberOfButtons] - 1;
-
-    [sheet showInView:self.view];
+                                      onReply:^{
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf startReplyToMessage:msg];
+    }
+                                       onCopy:^{
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf copyMessage:msg];
+    }
+                                    onForward:^{
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf forwardMessage:msg];
+    }
+                                  onSaveMedia:^{
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if ([msg.msgType isEqualToString:@"m.video"]) {
+            [strongSelf saveVideoToPhotosForMXC:msg.videoURL];
+        } else {
+            [strongSelf savePhoto:msg];
+        }
+    }
+                                     onOpenIn:^{
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf downloadAndOpenFile:msg];
+    }
+                                   onDownload:^{
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf downloadAndOpenFile:msg];
+    }
+                                       onEdit:^{
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf editMessage:msg row:msgRow];
+    }
+                                     onDelete:^{
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf deleteMessage:msg row:msgRow];
+    }];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -331,9 +446,11 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         [self cancelRecordingTapped];
     }
     [self dismissReply];
+    [_mentionAutocompleteView dismissAnimated:NO];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillHideNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NeoDemoModeDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:@"NeoMentionTappedNotification" object:nil];
     [self removeSyncObservers];
     _syncActive = NO;
 }
@@ -435,6 +552,17 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
             NSMutableDictionary *info = _activeDownloads[fileURL];
             [info[@"connection"] cancel];
             [_activeDownloads removeObjectForKey:fileURL];
+        }
+        [alertView dismissWithClickedButtonIndex:0 animated:YES];
+        return;
+    }
+
+    if (alertView.tag == 889) {
+        NSString *videoMXC = objc_getAssociatedObject(alertView, @"videoMXC");
+        if (videoMXC) {
+            NSMutableDictionary *info = _activeDownloads[videoMXC];
+            [info[@"connection"] cancel];
+            [_activeDownloads removeObjectForKey:videoMXC];
         }
         [alertView dismissWithClickedButtonIndex:0 animated:YES];
         return;
@@ -623,16 +751,84 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 }
 
 - (void)sendReaction:(NSString *)emoji toMessage:(MatrixMessage *)msg {
-    [[MatrixAPIClient sharedClient] sendReaction:emoji
-                                          roomId:self.room.roomId
-                                         eventId:msg.eventId
-                                      completion:^(NSDictionary *resp, NSError *err) {
-        if (!err) {
-            if (!msg.reactions) msg.reactions = [NSMutableDictionary dictionary];
-            NSNumber *count = msg.reactions[emoji] ?: @0;
-            msg.reactions[emoji] = @([count intValue] + 1);
-            if (!msg.myReactions) msg.myReactions = [NSMutableDictionary dictionary];
-            msg.myReactions[emoji] = @YES;
+    if (!emoji || [emoji length] == 0 || !msg || !msg.eventId) return;
+
+    MatrixAPIClient *client = [MatrixAPIClient sharedClient];
+
+    // 1. Tapping own existing reaction -> REMOVE / UN-REACT (Toggle off)
+    if ([msg.myReactions[emoji] boolValue]) {
+        NSString *eventIdToRedact = msg.myReactionEventIds[emoji];
+        if (eventIdToRedact) {
+            [client redactMessage:self.room.roomId eventId:eventIdToRedact completion:nil];
+            [msg.reactionEventIds removeObjectForKey:eventIdToRedact];
+        }
+        [msg.myReactions removeObjectForKey:emoji];
+        [msg.myReactionEventIds removeObjectForKey:emoji];
+        NSInteger cnt = [msg.reactions[emoji] integerValue];
+        if (cnt <= 1) {
+            [msg.reactions removeObjectForKey:emoji];
+        } else {
+            msg.reactions[emoji] = @(cnt - 1);
+        }
+        if (_rowHeightCache) [_rowHeightCache removeAllObjects];
+        [self reloadTableAnimatedWithAutoScroll:NO];
+        return;
+    }
+
+    // 2. User has a different reaction on this message -> REPLACE IT!
+    NSArray *allMyEmojis = [msg.myReactions allKeys];
+    for (NSString *oldEmoji in allMyEmojis) {
+        if ([msg.myReactions[oldEmoji] boolValue]) {
+            NSString *oldEventId = msg.myReactionEventIds[oldEmoji];
+            if (oldEventId) {
+                [client redactMessage:self.room.roomId eventId:oldEventId completion:nil];
+                [msg.reactionEventIds removeObjectForKey:oldEventId];
+            }
+            [msg.myReactions removeObjectForKey:oldEmoji];
+            [msg.myReactionEventIds removeObjectForKey:oldEmoji];
+            NSInteger oldCnt = [msg.reactions[oldEmoji] integerValue];
+            if (oldCnt <= 1) {
+                [msg.reactions removeObjectForKey:oldEmoji];
+            } else {
+                msg.reactions[oldEmoji] = @(oldCnt - 1);
+            }
+        }
+    }
+
+    // 3. Add the new reaction
+    if (!msg.reactions) msg.reactions = [NSMutableDictionary dictionary];
+    NSNumber *count = msg.reactions[emoji] ?: @0;
+    msg.reactions[emoji] = @([count intValue] + 1);
+    if (!msg.myReactions) msg.myReactions = [NSMutableDictionary dictionary];
+    msg.myReactions[emoji] = @YES;
+
+    if (_rowHeightCache) [_rowHeightCache removeAllObjects];
+    [self reloadTableAnimatedWithAutoScroll:NO];
+
+    // 4. Send reaction to server
+    [client sendReaction:emoji
+                  roomId:self.room.roomId
+                 eventId:msg.eventId
+              completion:^(NSDictionary *resp, NSError *err) {
+        if (!err && [resp isKindOfClass:[NSDictionary class]]) {
+            NSString *newEventId = resp[@"event_id"];
+            if (newEventId) {
+                if (!msg.reactionEventIds) msg.reactionEventIds = [NSMutableDictionary dictionary];
+                msg.reactionEventIds[newEventId] = emoji;
+                if (!msg.myReactionEventIds) msg.myReactionEventIds = [NSMutableDictionary dictionary];
+                msg.myReactionEventIds[emoji] = newEventId;
+            }
+        } else if (err) {
+            // Revert optimistic addition on failure
+            [msg.myReactions removeObjectForKey:emoji];
+            [msg.myReactionEventIds removeObjectForKey:emoji];
+            NSInteger curCnt = [msg.reactions[emoji] integerValue];
+            if (curCnt <= 1) {
+                [msg.reactions removeObjectForKey:emoji];
+            } else {
+                msg.reactions[emoji] = @(curCnt - 1);
+            }
+            if (_rowHeightCache) [_rowHeightCache removeAllObjects];
             [self reloadTableAnimatedWithAutoScroll:NO];
         }
     }];
@@ -853,6 +1049,24 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                     if (target) {
                         target.isRedacted = YES;
                         target.body = NSLocalizedString(@"Deleted message", nil);
+                    } else {
+                        for (MatrixMessage *m in newMessages) {
+                            NSString *emoji = m.reactionEventIds[redactedId];
+                            if (emoji) {
+                                [m.reactionEventIds removeObjectForKey:redactedId];
+                                NSInteger count = [m.reactions[emoji] integerValue];
+                                if (count <= 1) {
+                                    [m.reactions removeObjectForKey:emoji];
+                                } else {
+                                    m.reactions[emoji] = @(count - 1);
+                                }
+                                if ([m.myReactionEventIds[emoji] isEqualToString:redactedId]) {
+                                    [m.myReactionEventIds removeObjectForKey:emoji];
+                                    [m.myReactions removeObjectForKey:emoji];
+                                }
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -864,8 +1078,26 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                 if (!targetId || !emoji) continue;
                 MatrixMessage *target = [msgByEventId objectForKey:targetId];
                 if (!target) continue;
+
+                NSString *reactionEventId = evt[@"event_id"];
+                if ([reactionEventId isKindOfClass:[NSString class]]) {
+                    if (!target.reactionEventIds) target.reactionEventIds = [NSMutableDictionary dictionary];
+                    if (target.reactionEventIds[reactionEventId]) continue;
+                    target.reactionEventIds[reactionEventId] = emoji;
+                }
+
+                if (!target.reactions) target.reactions = [NSMutableDictionary dictionary];
                 NSNumber *count = target.reactions[emoji] ?: @0;
                 target.reactions[emoji] = @([count intValue] + 1);
+
+                NSString *sender = evt[@"sender"];
+                NSString *myUserId = client.userId;
+                if (myUserId && [sender isKindOfClass:[NSString class]] && [sender isEqualToString:myUserId]) {
+                    if (!target.myReactions) target.myReactions = [NSMutableDictionary dictionary];
+                    target.myReactions[emoji] = @YES;
+                    if (!target.myReactionEventIds) target.myReactionEventIds = [NSMutableDictionary dictionary];
+                    if (reactionEventId) target.myReactionEventIds[emoji] = reactionEventId;
+                }
             }
         }
 
@@ -1280,10 +1512,24 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
             if (err || ![eid isKindOfClass:[NSString class]]) { [self failLocalMessage:msg]; return; }
             [self finalizeLocalMessage:msg withEventId:eid];
         };
+        NSMutableDictionary *mentions = [NSMutableDictionary dictionary];
+        mentions[@"user_ids"] = msg.mentionedUserIds ?: @[];
+        if (msg.isRoomMention) {
+            mentions[@"room"] = @YES;
+        }
         if ([msg.replyToEventId length] > 0) {
-            [client sendReply:msg.body roomId:self.room.roomId replyToEventId:msg.replyToEventId completion:completion];
+            [client sendReply:msg.body
+                       roomId:self.room.roomId
+               replyToEventId:msg.replyToEventId
+                formattedBody:msg.formattedBody
+                     mentions:mentions
+                   completion:completion];
         } else {
-            [client sendMessage:msg.body roomId:self.room.roomId completion:completion];
+            [client sendMessage:msg.body
+                         roomId:self.room.roomId
+                  formattedBody:msg.formattedBody
+                       mentions:mentions
+                     completion:completion];
         }
         return;
     }
@@ -1489,6 +1735,12 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     NSString *text = self.messageField.text;
     if ([text length] == 0) return;
 
+    NSString *formattedBody = nil;
+    NSDictionary *mentionsDict = nil;
+    [self buildMentionsForText:text formattedBody:&formattedBody mentions:&mentionsDict];
+    [_draftMentions removeAllObjects];
+    [_mentionAutocompleteView dismissAnimated:YES];
+
     self.messageField.text = @"";
     [self updateSendButtonAppearance];
     [self updatePlaceholderVisibility];
@@ -1503,6 +1755,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
     localMsg.sender = [[MatrixAPIClient sharedClient] userId];
     localMsg.body = text;
+    localMsg.formattedBody = formattedBody;
+    localMsg.mentionedUserIds = mentionsDict[@"user_ids"];
+    localMsg.isRoomMention = [mentionsDict[@"room"] boolValue];
     localMsg.msgType = @"m.text";
     localMsg.roomId = self.room.roomId;
     localMsg.timestamp = [NSDate date];
@@ -1757,6 +2012,210 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     dispatch_async(dispatch_get_main_queue(), ^{
         [self updateInputBarSize];
     });
+    [self checkMentionAutocomplete];
+}
+
+#pragma mark - Mentions & Autocomplete
+
+- (void)checkMentionAutocomplete {
+    NSString *text = self.messageField.text;
+    NSRange sel = self.messageField.selectedRange;
+    if (sel.location == NSNotFound || sel.location == 0 || [text length] == 0) {
+        [_mentionAutocompleteView dismissAnimated:YES];
+        return;
+    }
+
+    NSInteger cursor = sel.location;
+    NSInteger atIndex = NSNotFound;
+    for (NSInteger i = cursor - 1; i >= 0; i--) {
+        unichar c = [text characterAtIndex:i];
+        if (c == '@') {
+            if (i == 0 || [[NSCharacterSet whitespaceAndNewlineCharacterSet] characterIsMember:[text characterAtIndex:i - 1]]) {
+                atIndex = i;
+                break;
+            } else {
+                break;
+            }
+        } else if (c == '\n' || c == '\r') {
+            break;
+        } else if (cursor - i > 30) {
+            break;
+        }
+    }
+
+    if (atIndex != NSNotFound) {
+        NSRange tokenRange = NSMakeRange(atIndex, cursor - atIndex);
+        NSString *token = [text substringWithRange:tokenRange];
+        NSString *query = [token substringFromIndex:1];
+        _currentMentionTokenRange = tokenRange;
+
+        if (!_memberNames || [_memberNames count] == 0) {
+            [self loadMemberNames];
+        }
+
+        NSString *myId = [MatrixAPIClient sharedClient].userId;
+        [_mentionAutocompleteView filterWithQuery:query
+                                          members:_memberNames
+                                         myUserId:myId];
+
+        if (_mentionAutocompleteView.itemCount > 0) {
+            [_mentionAutocompleteView updatePositionAboveView:self.inputContainer inContainer:self.view];
+        } else {
+            [_mentionAutocompleteView dismissAnimated:YES];
+        }
+    } else {
+        [_mentionAutocompleteView dismissAnimated:YES];
+    }
+}
+
+- (void)handleMentionSelectedDisplayName:(NSString *)displayName userId:(NSString *)userId isRoom:(BOOL)isRoom {
+    NSString *currentText = self.messageField.text ?: @"";
+    NSRange range = _currentMentionTokenRange;
+    if (range.location != NSNotFound && range.location + range.length <= [currentText length]) {
+        NSString *replacement;
+        if (isRoom) {
+            replacement = @"@room ";
+        } else {
+            replacement = [NSString stringWithFormat:@"@%@ ", displayName ?: userId];
+            if (userId && [userId length] > 0) {
+                if (displayName) {
+                    [_draftMentions setObject:userId forKey:displayName];
+                    [_draftMentions setObject:userId forKey:[NSString stringWithFormat:@"@%@", displayName]];
+                }
+                [_draftMentions setObject:userId forKey:userId];
+                [_draftMentions setObject:userId forKey:[NSString stringWithFormat:@"@%@", userId]];
+            }
+        }
+        NSString *newText = [currentText stringByReplacingCharactersInRange:range withString:replacement];
+        self.messageField.text = newText;
+        NSUInteger newCursor = range.location + [replacement length];
+        self.messageField.selectedRange = NSMakeRange(newCursor, 0);
+    }
+    [_mentionAutocompleteView dismissAnimated:YES];
+    [self textViewDidChange:self.messageField];
+}
+
+- (void)handleMentionTappedNotification:(NSNotification *)note {
+    NSString *specifier = [note object];
+    if (![specifier isKindOfClass:[NSString class]] || [specifier length] == 0) return;
+
+    NSString *clean = [specifier stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]];
+    if ([clean isEqualToString:@"room"]) return;
+
+    NSString *mentionName = clean;
+    if ([mentionName hasPrefix:@"@"]) {
+        for (NSString *uid in _memberNames) {
+            if ([uid isEqualToString:mentionName]) {
+                id val = _memberNames[uid];
+                NSString *dn = [val isKindOfClass:[NSDictionary class]] ? val[@"displayname"] : val;
+                if ([dn length] > 0) mentionName = dn;
+                break;
+            }
+        }
+    }
+
+    NSString *insertText = [NSString stringWithFormat:@"@%@ ", mentionName];
+    NSString *curText = self.messageField.text ?: @"";
+    self.messageField.text = [curText stringByAppendingString:insertText];
+    [self.messageField becomeFirstResponder];
+    [self textViewDidChange:self.messageField];
+}
+
+- (void)buildMentionsForText:(NSString *)text
+               formattedBody:(NSString **)outFormattedBody
+                    mentions:(NSDictionary **)outMentions {
+    if ([text length] == 0) {
+        if (outFormattedBody) *outFormattedBody = nil;
+        if (outMentions) *outMentions = @{@"user_ids": @[]};
+        return;
+    }
+
+    NSString *myUserId = [MatrixAPIClient sharedClient].userId;
+    NSMutableArray *userIds = [NSMutableArray array];
+    __block BOOL hasRoomMention = NO;
+
+    NSMutableString *html = [NSMutableString stringWithString:text];
+    [html replaceOccurrencesOfString:@"&" withString:@"&amp;" options:0 range:NSMakeRange(0, [html length])];
+    [html replaceOccurrencesOfString:@"<" withString:@"&lt;" options:0 range:NSMakeRange(0, [html length])];
+    [html replaceOccurrencesOfString:@">" withString:@"&gt;" options:0 range:NSMakeRange(0, [html length])];
+
+    BOOL hasAnyMention = NO;
+
+    // 1. Process known draft mentions (longest names first)
+    NSArray *draftKeys = [_draftMentions allKeys];
+    NSArray *sortedKeys = [draftKeys sortedArrayUsingComparator:^NSComparisonResult(NSString *s1, NSString *s2) {
+        return [@([s2 length]) compare:@([s1 length])];
+    }];
+
+    for (NSString *key in sortedKeys) {
+        NSString *searchStr = [key hasPrefix:@"@"] ? key : [NSString stringWithFormat:@"@%@", key];
+        NSString *uid = _draftMentions[key];
+        if (!uid || [uid length] == 0) continue;
+
+        NSRange r = [html rangeOfString:searchStr];
+        if (r.location != NSNotFound) {
+            hasAnyMention = YES;
+            if (![uid isEqualToString:myUserId] && ![userIds containsObject:uid]) {
+                [userIds addObject:uid];
+            }
+            NSString *cleanName = [searchStr hasPrefix:@"@"] ? [searchStr substringFromIndex:1] : searchStr;
+            NSString *link = [NSString stringWithFormat:@"<a href=\"https://matrix.to/#/%@\">%@</a>", uid, cleanName];
+            [html replaceOccurrencesOfString:searchStr withString:link options:0 range:NSMakeRange(0, [html length])];
+        }
+    }
+
+    // 2. Scan remaining @tokens in html
+    NSError *regexErr = nil;
+    NSRegularExpression *atRegex = [NSRegularExpression regularExpressionWithPattern:@"(?<=^|\\s)@([a-zA-Z0-9_\\-\\.\\+=:]+)" options:0 error:&regexErr];
+    if (atRegex) {
+        NSArray *matches = [atRegex matchesInString:html options:0 range:NSMakeRange(0, [html length])];
+        for (NSInteger i = [matches count] - 1; i >= 0; i--) {
+            NSTextCheckingResult *m = matches[i];
+            if (m.numberOfRanges > 1) {
+                NSRange nameRange = [m rangeAtIndex:1];
+                NSString *name = [html substringWithRange:nameRange];
+                if ([name isEqualToString:@"room"]) {
+                    hasRoomMention = YES;
+                    hasAnyMention = YES;
+                } else if ([name hasPrefix:@"@"] || [name rangeOfString:@":"].location != NSNotFound) {
+                    NSString *uid = [name hasPrefix:@"@"] ? name : [NSString stringWithFormat:@"@%@", name];
+                    hasAnyMention = YES;
+                    if (![uid isEqualToString:myUserId] && ![userIds containsObject:uid]) {
+                        [userIds addObject:uid];
+                    }
+                    NSString *link = [NSString stringWithFormat:@"<a href=\"https://matrix.to/#/%@\">%@</a>", uid, name];
+                    [html replaceCharactersInRange:m.range withString:link];
+                } else {
+                    for (NSString *uid in _memberNames) {
+                        id val = _memberNames[uid];
+                        NSString *dName = [val isKindOfClass:[NSDictionary class]] ? val[@"displayname"] : val;
+                        if ([dName isEqualToString:name] || [uid isEqualToString:name]) {
+                            hasAnyMention = YES;
+                            if (![uid isEqualToString:myUserId] && ![userIds containsObject:uid]) {
+                                [userIds addObject:uid];
+                            }
+                            NSString *link = [NSString stringWithFormat:@"<a href=\"https://matrix.to/#/%@\">%@</a>", uid, name];
+                            [html replaceCharactersInRange:m.range withString:link];
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    NSMutableDictionary *mentionsDict = [NSMutableDictionary dictionary];
+    mentionsDict[@"user_ids"] = [userIds copy];
+    if (hasRoomMention) {
+        mentionsDict[@"room"] = @YES;
+    }
+
+    if (outFormattedBody) {
+        *outFormattedBody = hasAnyMention ? [html copy] : nil;
+    }
+    if (outMentions) {
+        *outMentions = [mentionsDict copy];
+    }
 }
 
 - (void)setInputEditingHidden:(BOOL)hidden {
@@ -1999,6 +2458,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
     _shouldAutoScroll = NO;
+    [_mentionAutocompleteView dismissAnimated:YES];
 }
 
 - (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate {
@@ -2038,16 +2498,16 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         CGFloat slack = fieldH - contentFieldH;
         if (IS_IOS7_OR_LATER) {
             CGFloat side = (10.0f + slack) / 2.0f;
-            tv.textContainerInset = UIEdgeInsetsMake(side, 8, side, 0);
+            tv.textContainerInset = UIEdgeInsetsMake(side, 10, side, 8);
         } else {
             CGFloat side = (12.0f + slack) / 2.0f;
-            tv.contentInset = UIEdgeInsetsMake(side, 8, side, 0);
+            tv.contentInset = UIEdgeInsetsMake(side, 10, side, 8);
         }
     } else {
         if (IS_IOS7_OR_LATER) {
-            tv.textContainerInset = UIEdgeInsetsMake(5, 8, 5, 0);
+            tv.textContainerInset = UIEdgeInsetsMake(7, 10, 7, 8);
         } else {
-            tv.contentInset = UIEdgeInsetsMake(6, 8, 6, 0);
+            tv.contentInset = UIEdgeInsetsMake(6, 10, 6, 8);
         }
     }
     if (fabsf(fieldH - tv.frame.size.height) < 0.5f) return;
@@ -2073,27 +2533,60 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     void (^apply)(void) = ^{
         self.tableView.frame = CGRectMake(0, 0, w, tableH);
         self.inputContainer.frame = CGRectMake(0, tableH + replyH, w, barH);
+        UIImageView *inputBg = (UIImageView *)[self.inputContainer viewWithTag:92];
+        if (inputBg) {
+            inputBg.frame = CGRectMake(0, 0, w, barH);
+        }
         self.messageField.frame = CGRectMake(fieldX, fieldY, fieldW, fieldH);
         if (IS_IOS7_OR_LATER) {
             UIEdgeInsets ti = self.messageField.textContainerInset;
             self.messageField.textContainer.size = CGSizeMake(fieldW - ti.left - ti.right, fieldH - ti.top - ti.bottom);
         }
         _fieldBgView.frame = CGRectMake(fieldX, fieldY, fieldW, fieldH);
-        _placeholderLabel.frame = CGRectMake(fieldX + 10, fieldY, fieldW - 30, fieldH);
+        [_fieldBgView setNeedsDisplay];
+        _placeholderLabel.frame = CGRectMake(fieldX + 12, fieldY, fieldW - 30, fieldH);
         self.sendButton.frame = CGRectMake(w - 40, barH - 39, 34, 34);
         UIButton *cameraBtn = (UIButton *)[self.inputContainer viewWithTag:93];
         cameraBtn.frame = CGRectMake(8, barH - 39, 34, 34);
         if (replyH > 0 && self.replyPreviewView) {
             self.replyPreviewView.frame = CGRectMake(0, tableH, w, replyH);
         }
+        if (_mentionAutocompleteView && !_mentionAutocompleteView.hidden) {
+            [_mentionAutocompleteView updatePositionAboveView:self.inputContainer inContainer:self.view];
+        }
     };
 
     if (animated) {
-        [UIView animateWithDuration:0.2 animations:apply];
+        [UIView animateWithDuration:0.2 animations:apply completion:^(BOOL finished) {
+            [_fieldBgView setNeedsDisplay];
+        }];
     } else {
         apply();
+        [_fieldBgView setNeedsDisplay];
     }
     if (_shouldAutoScroll) [self scrollToBottom];
+}
+
+- (void)applyInputBarTheme {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    BOOL isDark = (tm.isDarkMode || tm.isDarkGlass);
+
+    UIImageView *inputBg = (UIImageView *)[self.inputContainer viewWithTag:92];
+    if (inputBg) {
+        inputBg.image = [tm inputBarBackgroundImage];
+    }
+
+    if (isDark) {
+        self.messageField.textColor = [UIColor whiteColor];
+        self.messageField.keyboardAppearance = UIKeyboardAppearanceAlert;
+        _placeholderLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    } else {
+        self.messageField.textColor = [UIColor blackColor];
+        self.messageField.keyboardAppearance = UIKeyboardAppearanceDefault;
+        _placeholderLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    }
+
+    [_fieldBgView setNeedsDisplay];
 }
 
 #pragma mark - Keyboard
@@ -2109,6 +2602,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)keyboardWillHide:(NSNotification *)note {
     _keyboardHeight = 0;
+    [_mentionAutocompleteView dismissAnimated:YES];
     [self layoutInputWithBarHeight:_inputBarHeight animated:YES];
 }
 
@@ -2446,6 +2940,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     [cell setIsRedacted:msg.isRedacted];
     [cell setUserWrited:[self displayNameForSender:msg.sender]];
     cell.bubbleView.senderId = msg.sender;
+    NSString *myUserId = [MatrixAPIClient sharedClient].userId;
+    cell.bubbleView.isMentioned = !isSelf && [msg isMentioningUserId:myUserId];
 
     // Reply quote
     if (msg.replyToEventId && msg.replyToBody && [msg.replyToBody length] > 0) {
@@ -2554,48 +3050,35 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         NSString *httpURL = [client mxcURLToHTTP:mxcURL];
         if (!httpURL) return;
 
+        if (_activeDownloads[mxcURL]) return;
+
+        NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:httpURL]];
+        if (client.accessToken) {
+            [req setValue:[NSString stringWithFormat:@"Bearer %@", client.accessToken] forHTTPHeaderField:@"Authorization"];
+        }
+
+        NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:req delegate:self startImmediately:NO];
+        [connection scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
+
         UIAlertView *loadingAlert = [[UIAlertView alloc] initWithTitle:NSLocalizedString(@"Loading video...", nil)
                                                                message:nil
-                                                              delegate:nil
-                                                     cancelButtonTitle:nil
+                                                              delegate:self
+                                                     cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
                                                      otherButtonTitles:nil];
+        loadingAlert.tag = 889;
+        objc_setAssociatedObject(loadingAlert, @"videoMXC", mxcURL, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        NSMutableDictionary *info = [NSMutableDictionary dictionary];
+        info[@"connection"] = connection;
+        info[@"data"] = [NSMutableData data];
+        info[@"cachePath"] = cachePath;
+        info[@"isVideo"] = @YES;
+        info[@"mxcURL"] = mxcURL;
+        info[@"alert"] = loadingAlert;
+        _activeDownloads[mxcURL] = info;
+
         [loadingAlert show];
-
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:httpURL]];
-            if (client.accessToken) {
-                [req setValue:[NSString stringWithFormat:@"Bearer %@", client.accessToken] forHTTPHeaderField:@"Authorization"];
-            }
-            NSURLResponse *response = nil;
-            NSError *error = nil;
-            NSData *data = [NSURLConnection sendSynchronousRequest:req returningResponse:&response error:&error];
-
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [loadingAlert dismissWithClickedButtonIndex:0 animated:YES];
-                if (error || !data) {
-                    [NeoAlert showAlertWithTitle:NSLocalizedString(@"Error", nil)
-                                         message:NSLocalizedString(@"Could not load video", nil)
-                                     cancelTitle:@"OK"
-                                      controller:self];
-                    return;
-                }
-                [data writeToFile:cachePath atomically:YES];
-                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                    UIImage *postThumb = [ChatViewController generateThumbnailForVideoURL:[NSURL fileURLWithPath:cachePath]];
-                    if (postThumb) {
-                        dispatch_async(dispatch_get_main_queue(), ^{
-                            for (MatrixMessage *m in self.messages) {
-                                if ([m.videoURL isEqualToString:mxcURL] && !m.cachedVideoThumbnail) {
-                                    m.cachedVideoThumbnail = postThumb;
-                                }
-                            }
-                            [self.tableView reloadData];
-                        });
-                    }
-                });
-                [self playVideoFromCache:cachePath mxcURL:mxcURL];
-            });
-        });
+        [connection start];
     } else {
         [self playVideoFromCache:cachePath mxcURL:mxcURL];
     }
@@ -2748,6 +3231,45 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     NSMutableDictionary *info = _activeDownloads[key];
     if (!info) return;
 
+    if ([info[@"isVideo"] boolValue]) {
+        NSString *cachePath = info[@"cachePath"];
+        NSString *mxcURL = info[@"mxcURL"];
+        NSData *data = (NSData *)info[@"data"];
+        UIAlertView *alert = info[@"alert"];
+        [_activeDownloads removeObjectForKey:key];
+
+        if (alert) {
+            [alert dismissWithClickedButtonIndex:alert.cancelButtonIndex animated:YES];
+        } else {
+            [self dismissVideoAlertForMXC:mxcURL];
+        }
+
+        if (error || !data || [data length] == 0) {
+            [NeoAlert showAlertWithTitle:NSLocalizedString(@"Error", nil)
+                                 message:NSLocalizedString(@"Could not load video", nil)
+                             cancelTitle:@"OK"
+                              controller:self];
+            return;
+        }
+
+        [data writeToFile:cachePath atomically:YES];
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            UIImage *postThumb = [ChatViewController generateThumbnailForVideoURL:[NSURL fileURLWithPath:cachePath]];
+            if (postThumb) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    for (MatrixMessage *m in self.messages) {
+                        if ([m.videoURL isEqualToString:mxcURL] && !m.cachedVideoThumbnail) {
+                            m.cachedVideoThumbnail = postThumb;
+                        }
+                    }
+                    [self.tableView reloadData];
+                });
+            }
+        });
+        [self playVideoFromCache:cachePath mxcURL:mxcURL];
+        return;
+    }
+
     NSString *cachePath = info[@"cachePath"];
     MatrixMessage *msg = info[@"message"];
     NSData *data = (NSData *)info[@"data"];
@@ -2767,6 +3289,21 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     msg.cachedFileData = data;
     [self.tableView reloadData];
     [self openFileAtPath:cachePath];
+}
+
+- (void)dismissVideoAlertForMXC:(NSString *)mxcURL {
+    for (UIView *v in [[[UIApplication sharedApplication] keyWindow] subviews]) {
+        if ([v isKindOfClass:[UIAlertView class]]) {
+            UIAlertView *av = (UIAlertView *)v;
+            if (av.tag == 889) {
+                NSString *alertURL = objc_getAssociatedObject(av, @"videoMXC");
+                if ([alertURL isEqualToString:mxcURL]) {
+                    [av dismissWithClickedButtonIndex:av.cancelButtonIndex animated:YES];
+                    return;
+                }
+            }
+        }
+    }
 }
 
 - (void)dismissDownloadAlertForKey:(NSString *)key {

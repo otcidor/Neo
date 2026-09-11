@@ -37,9 +37,22 @@ static inline NSString *NeoURLEncode(NSString *str) {
              roomId:(NSString *)roomId
          completion:(MatrixCompletion)completion;
 
+- (void)sendMessage:(NSString *)body
+             roomId:(NSString *)roomId
+      formattedBody:(NSString *)formattedBody
+           mentions:(NSDictionary *)mentions
+         completion:(MatrixCompletion)completion;
+
 - (void)sendReply:(NSString *)body
            roomId:(NSString *)roomId
     replyToEventId:(NSString *)replyToEventId
+        completion:(MatrixCompletion)completion;
+
+- (void)sendReply:(NSString *)body
+           roomId:(NSString *)roomId
+    replyToEventId:(NSString *)replyToEventId
+     formattedBody:(NSString *)formattedBody
+          mentions:(NSDictionary *)mentions
         completion:(MatrixCompletion)completion;
 
 - (void)editMessage:(NSString *)newBody

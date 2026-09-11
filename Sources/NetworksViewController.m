@@ -50,12 +50,22 @@
     [self applyTheme];
 }
 
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self applyTheme];
+    [self.tableView reloadData];
+}
+
 - (void)applyTheme {
     ThemeManager *tm = [ThemeManager sharedManager];
     self.view.backgroundColor = [tm backgroundColor];
     self.tableView.backgroundColor = [tm backgroundColor];
     if (self.navigationController) {
         [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
+        if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
+    }
+    if ([self.tableView respondsToSelector:@selector(setSeparatorColor:)]) {
+        self.tableView.separatorColor = [tm separatorColor];
     }
 }
 
@@ -85,6 +95,17 @@
     cell.backgroundColor = [tm cellBackgroundColor];
     cell.textLabel.backgroundColor = [UIColor clearColor];
 
+    if (tm.isDarkGlass) {
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        UIView *selBg = [[UIView alloc] init];
+        selBg.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.22 alpha:1.0];
+        cell.selectedBackgroundView = selBg;
+    } else {
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.selectedBackgroundView = nil;
+        cell.selectionStyle = UITableViewCellSelectionStyleGray;
+    }
+
     return cell;
 }
 
@@ -97,14 +118,19 @@
     vc.theme = [net[@"theme"] intValue];
     vc.spaceFilter = net[@"filter"];
 
-    UIColor *tint = net[@"color"];
+    ThemeManager *tm = [ThemeManager sharedManager];
     UINavigationController *nav = self.navigationController;
-    if (IS_IOS7_OR_LATER) {
-        nav.navigationBar.barTintColor = tint;
-        nav.navigationBar.tintColor = [UIColor whiteColor];
-        nav.navigationBar.titleTextAttributes = @{UITextAttributeTextColor: [UIColor whiteColor]};
+    if (tm.isDarkGlass) {
+        [tm applyThemeToNavigationBar:nav.navigationBar];
     } else {
-        nav.navigationBar.tintColor = tint;
+        UIColor *tint = net[@"color"];
+        if (IS_IOS7_OR_LATER) {
+            nav.navigationBar.barTintColor = tint;
+            nav.navigationBar.tintColor = [UIColor whiteColor];
+            nav.navigationBar.titleTextAttributes = @{UITextAttributeTextColor: [UIColor whiteColor]};
+        } else {
+            nav.navigationBar.tintColor = tint;
+        }
     }
 
     [nav pushViewController:vc animated:YES];

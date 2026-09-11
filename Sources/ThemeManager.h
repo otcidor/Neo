@@ -12,7 +12,8 @@ typedef NS_ENUM(NSInteger, NeoThemeId) {
     NeoThemeDarkGreen,
     NeoThemeDarkBlue,
     NeoThemeDarkPurple,
-    NeoThemeDarkRed
+    NeoThemeDarkRed,
+    NeoThemeDarkGlass
 };
 
 @interface ThemeManager : NSObject
@@ -21,6 +22,7 @@ typedef NS_ENUM(NSInteger, NeoThemeId) {
 
 @property (nonatomic, assign, readonly) NeoThemeId currentThemeId;
 @property (nonatomic, assign, readonly) BOOL isDarkMode;
+@property (nonatomic, assign, readonly) BOOL isDarkGlass;
 
 - (void)setThemeId:(NeoThemeId)themeId;
 
@@ -38,5 +40,14 @@ typedef NS_ENUM(NSInteger, NeoThemeId) {
 + (NSString *)nameForThemeId:(NeoThemeId)themeId;
 + (UIColor *)swatchColorForThemeId:(NeoThemeId)themeId;
 + (BOOL)isDarkThemeId:(NeoThemeId)themeId;
++ (UIImage *)modernNavBarImage;
++ (UIImage *)modernTabBarImage;
++ (UIImage *)modernSearchFieldImage;
++ (UIImage *)modernSearchBarBgImage;
++ (UIImage *)modernDisclosureIndicatorImage;
++ (UIView *)modernDisclosureIndicator;
++ (UIImage *)settingsIconNamed:(NSString *)name;
++ (UIImage *)inputBarImageForThemeId:(NeoThemeId)themeId;
+- (UIImage *)inputBarBackgroundImage;
 
 @end

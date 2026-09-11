@@ -41,6 +41,8 @@ typedef enum {
 @property (nonatomic, assign) BOOL isRedacted;
 @property (nonatomic, strong) NSMutableDictionary *reactions;
 @property (nonatomic, strong) NSMutableDictionary *myReactions;
+@property (nonatomic, strong) NSMutableDictionary *reactionEventIds;
+@property (nonatomic, strong) NSMutableDictionary *myReactionEventIds;
 @property (nonatomic, copy) NSString *relatedEventId;
 @property (nonatomic, assign) BOOL isEdit;
 @property (nonatomic, assign) BOOL uploading;
@@ -63,7 +65,11 @@ typedef enum {
 @property (nonatomic, strong) NSNumber *fileSize;
 @property (nonatomic, copy) NSString *fileMimeType;
 @property (nonatomic, strong) NSData *cachedFileData;
+@property (nonatomic, copy) NSString *formattedBody;
+@property (nonatomic, strong) NSArray *mentionedUserIds;
+@property (nonatomic, assign) BOOL isRoomMention;
 - (instancetype)initWithDictionary:(NSDictionary *)dict roomId:(NSString *)roomId;
+- (BOOL)isMentioningUserId:(NSString *)userId;
 - (void)resolveReplyFromMessages:(NSArray *)messages;
 - (void)resolveReplyFromDict:(NSDictionary *)messagesByEventId;
 @end
