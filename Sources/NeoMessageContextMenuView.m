@@ -37,6 +37,10 @@
 
     if (!parentView) return;
 
+    // Dismiss keyboard immediately so context menu is never covered or obstructed
+    [parentView endEditing:YES];
+    [[[UIApplication sharedApplication] keyWindow] endEditing:YES];
+
     // Dismiss any existing context menu
     for (UIView *sub in parentView.subviews) {
         if ([sub isKindOfClass:[NeoMessageContextMenuView class]]) {
@@ -153,8 +157,8 @@
     CGFloat totalH = pillH + gap + actionCardH + gap + cancelH;
 
     CGFloat containerX = floorf((self.bounds.size.width - cardW) / 2.0f);
-    CGFloat minY = 28.0f;
-    CGFloat maxY = self.bounds.size.height - totalH - 16.0f;
+    CGFloat minY = 36.0f;
+    CGFloat maxY = self.bounds.size.height - totalH - 12.0f;
     if (maxY < minY) maxY = minY;
 
     CGFloat targetY = bubbleCenter.y - (totalH * 0.45f);

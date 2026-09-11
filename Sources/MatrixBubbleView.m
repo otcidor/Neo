@@ -261,19 +261,6 @@ static bool isEmojiChar(NSString *singleChar) {
         [image drawInRect:bFrame];
     }
 
-    if (self.isMentioned && self.type == MatrixBubbleMessageTypeIncoming) {
-        CGContextRef ctx = UIGraphicsGetCurrentContext();
-        CGContextSaveGState(ctx);
-        CGFloat barWidth = 3.5f;
-        CGFloat barX = bFrame.origin.x + 4.0f;
-        CGFloat barY = bFrame.origin.y + 6.0f;
-        CGFloat barH = MAX(16.0f, bFrame.size.height - 12.0f);
-        UIBezierPath *barPath = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(barX, barY, barWidth, barH) cornerRadius:1.75f];
-        [[UIColor colorWithRed:1.0f green:0.60f blue:0.0f alpha:0.95f] setFill];
-        [barPath fill];
-        CGContextRestoreGState(ctx);
-    }
-
     CGFloat textX = image.leftCapWidth - 3.0f + (self.type == MatrixBubbleMessageTypeOutgoing ? bFrame.origin.x : 0);
     CGFloat userH = self.showUser ? kSenderHeight : 0;
     CGFloat mediaH = self.hasMedia ? self.mediaView.frame.size.height : 0;

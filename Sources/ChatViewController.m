@@ -359,6 +359,10 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;
+
+    // Dismiss keyboard immediately so context menu is fully visible and not blocked
+    [self.view endEditing:YES];
+
     CGPoint point = [gesture locationInView:self.tableView];
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:point];
     if (!ip) return;
@@ -900,12 +904,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     CGFloat rpH = [ReplyBubbleView viewHeight];
     self.replyCloseButton.frame = CGRectMake(w - 28, 0, 28, rpH);
 
-    UIView *inputToolbar = self.messageField.superview;
-    CGFloat tableH = inputToolbar.frame.origin.y - rpH;
-    self.tableView.frame = CGRectMake(0, 0, w, tableH);
-    self.replyPreviewView.frame = CGRectMake(0, tableH, w, rpH);
-    inputToolbar.frame = CGRectMake(0, tableH + rpH, w, _inputBarHeight);
-
+    [self layoutInputWithBarHeight:_inputBarHeight animated:NO];
     [self.messageField becomeFirstResponder];
 }
 
