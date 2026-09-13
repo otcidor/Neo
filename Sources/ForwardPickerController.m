@@ -63,8 +63,7 @@
         separator.backgroundColor = [UIColor colorWithWhite:0.3 alpha:1.0];
     }
 
-    NSString *cachePath = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0]
-                           stringByAppendingPathComponent:@"com.neo.roomCache.plist"];
+    NSString *cachePath = [[MatrixAPIClient sharedClient] roomCachePath];
     NSMutableArray *rooms = [[NSArray arrayWithContentsOfFile:cachePath] mutableCopy];
     if (![rooms isKindOfClass:[NSArray class]]) rooms = [NSMutableArray array];
 

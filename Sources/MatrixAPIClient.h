@@ -135,6 +135,10 @@ static inline NSString *NeoURLEncode(NSString *str) {
 - (void)saveCredentials;
 - (void)clearCredentials;
 - (void)clearAllCaches;
+- (NSString *)appSupportDir;
+- (NSString *)roomCachePath;
+
+extern NSString *const kDefaultsKeyNextBatch;
 
 @property (nonatomic, strong) NSCache *messageCache;
 @property (nonatomic, strong) NSCache *memberCache;

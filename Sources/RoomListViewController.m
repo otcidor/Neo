@@ -569,34 +569,45 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 }
 
 - (NSString *)roomCachePath {
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
-    return [paths[0] stringByAppendingPathComponent:@"com.neo.roomCache.plist"];
+    return [[MatrixAPIClient sharedClient] roomCachePath];
 }
 
 - (void)loadRoomsFromCache {
+    MatrixAPIClient *client = [MatrixAPIClient sharedClient];
     NSArray *cached = [NSArray arrayWithContentsOfFile:[self roomCachePath]];
-    if (![cached isKindOfClass:[NSArray class]]) return;
-    for (NSDictionary *d in cached) {
-        if (![d isKindOfClass:[NSDictionary class]]) continue;
-        MatrixRoom *room = [[MatrixRoom alloc] init];
-        room.roomId = d[@"roomId"] ?: @"";
-        room.name = d[@"name"] ?: @"";
-        room.memberCount = [d[@"memberCount"] integerValue];
-        room.lastMessage = d[@"lastMessage"] ?: @"";
-        room.lastMessageSender = d[@"lastMessageSender"] ?: @"";
-        double ts = [d[@"lastMessageTs"] doubleValue];
-        if (ts > 0) room.lastMessageDate = [NSDate dateWithTimeIntervalSince1970:ts];
-        room.avatarUrl = d[@"avatarUrl"] ?: @"";
-        room.hasExplicitName = [d[@"hasExplicitName"] boolValue];
-        room.hasExplicitAvatar = [d[@"hasExplicitAvatar"] boolValue];
-        [self.rooms addObject:room];
-        
-        if ([room.avatarUrl length] > 0) {
-            UIImage *av = [[MatrixAPIClient sharedClient] cachedImageForMXC:room.avatarUrl];
-            if (av) [_roomAvatars setObject:av forKey:room.roomId];
+    if ([cached isKindOfClass:[NSArray class]] && [cached count] > 0) {
+        for (NSDictionary *d in cached) {
+            if (![d isKindOfClass:[NSDictionary class]]) continue;
+            MatrixRoom *room = [[MatrixRoom alloc] init];
+            room.roomId = d[@"roomId"] ?: @"";
+            room.name = d[@"name"] ?: @"";
+            room.memberCount = [d[@"memberCount"] integerValue];
+            room.lastMessage = d[@"lastMessage"] ?: @"";
+            room.lastMessageSender = d[@"lastMessageSender"] ?: @"";
+            double ts = [d[@"lastMessageTs"] doubleValue];
+            if (ts > 0) room.lastMessageDate = [NSDate dateWithTimeIntervalSince1970:ts];
+            room.avatarUrl = d[@"avatarUrl"] ?: @"";
+            room.hasExplicitName = [d[@"hasExplicitName"] boolValue];
+            room.hasExplicitAvatar = [d[@"hasExplicitAvatar"] boolValue];
+            [self.rooms addObject:room];
+            
+            if ([room.avatarUrl length] > 0) {
+                UIImage *av = [client cachedImageForMXC:room.avatarUrl];
+                if (av) [_roomAvatars setObject:av forKey:room.roomId];
+            }
+        }
+        [self applyFilters];
+    } else {
+        // Self-healing: if user has an active session but the room cache is missing or empty
+        // (e.g. wiped by an external cache cleaner like iCleaner), reset nextBatchToken so that
+        // MatrixSyncManager performs a full initial sync and re-populates all rooms automatically.
+        if (client.accessToken && client.nextBatchToken) {
+            NSLog(@"[RoomList] Room cache missing or empty with active session. Resetting nextBatchToken for self-healing initial sync.");
+            client.nextBatchToken = nil;
+            [[NSUserDefaults standardUserDefaults] removeObjectForKey:kDefaultsKeyNextBatch];
+            [[NSUserDefaults standardUserDefaults] synchronize];
         }
     }
-    [self applyFilters];
 }
 
 - (void)saveRoomsToCache {

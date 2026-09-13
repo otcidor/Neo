@@ -29,7 +29,7 @@ static NSString *const kDefaultsKeyHomeserver = @"matrix_homeserver";
 static NSString *const kDefaultsKeyAccessToken = @"matrix_access_token";
 static NSString *const kDefaultsKeyDeviceId = @"matrix_device_id";
 static NSString *const kDefaultsKeyUserId = @"matrix_user_id";
-static NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
+NSString *const kDefaultsKeyNextBatch = @"matrix_next_batch";
 
 NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 
@@ -58,13 +58,62 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
         instance.avatarCache.countLimit = 200;
         instance.avatarCache.totalCostLimit = 48 * 1024 * 1024;
         instance->_lastImgActivity = [NSDate timeIntervalSinceReferenceDate];
+        [instance migrateLegacyCachesIfNeeded];
     });
     return instance;
 }
 
+- (NSString *)appSupportDir {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
+    NSString *baseDir = paths[0];
+    NSString *dir = [baseDir stringByAppendingPathComponent:@"Neo"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:dir]) {
+        [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+    return dir;
+}
+
+- (NSString *)roomCachePath {
+    return [[self appSupportDir] stringByAppendingPathComponent:@"com.neo.roomCache.plist"];
+}
+
+- (void)migrateLegacyCachesIfNeeded {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray *cachePaths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+    if (!cachePaths || [cachePaths count] == 0) return;
+    NSString *cachesRoot = cachePaths[0];
+    NSString *appSupport = [self appSupportDir];
+
+    // 1. Migrate com.neo.roomCache.plist
+    NSString *oldRoomCache = [cachesRoot stringByAppendingPathComponent:@"com.neo.roomCache.plist"];
+    NSString *newRoomCache = [self roomCachePath];
+    if ([fm fileExistsAtPath:oldRoomCache] && ![fm fileExistsAtPath:newRoomCache]) {
+        [fm moveItemAtPath:oldRoomCache toPath:newRoomCache error:nil];
+    }
+
+    // 2. Migrate com.neo.messageCache
+    NSString *oldMsgDir = [cachesRoot stringByAppendingPathComponent:@"com.neo.messageCache"];
+    NSString *newMsgDir = [appSupport stringByAppendingPathComponent:@"com.neo.messageCache"];
+    if ([fm fileExistsAtPath:oldMsgDir] && ![fm fileExistsAtPath:newMsgDir]) {
+        [fm moveItemAtPath:oldMsgDir toPath:newMsgDir error:nil];
+    }
+
+    // 3. Migrate com.neo.memberCache
+    NSString *oldMemberDir = [cachesRoot stringByAppendingPathComponent:@"com.neo.memberCache"];
+    NSString *newMemberDir = [appSupport stringByAppendingPathComponent:@"com.neo.memberCache"];
+    if ([fm fileExistsAtPath:oldMemberDir] && ![fm fileExistsAtPath:newMemberDir]) {
+        [fm moveItemAtPath:oldMemberDir toPath:newMemberDir error:nil];
+    }
+}
+
 - (void)setNextBatchToken:(NSString *)nextBatchToken {
     _nextBatchToken = [nextBatchToken copy];
-    [[NSUserDefaults standardUserDefaults] setObject:_nextBatchToken forKey:kDefaultsKeyNextBatch];
+    if (_nextBatchToken) {
+        [[NSUserDefaults standardUserDefaults] setObject:_nextBatchToken forKey:kDefaultsKeyNextBatch];
+    } else {
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:kDefaultsKeyNextBatch];
+    }
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
@@ -99,17 +148,23 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *cachesRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0];
+    NSString *appSupport = [self appSupportDir];
+
     NSArray *cacheDirs = @[
-        [cachesRoot stringByAppendingPathComponent:@"com.neo.messageCache"],
-        [cachesRoot stringByAppendingPathComponent:@"com.neo.memberCache"],
+        [appSupport stringByAppendingPathComponent:@"com.neo.messageCache"],
+        [appSupport stringByAppendingPathComponent:@"com.neo.memberCache"],
         [cachesRoot stringByAppendingPathComponent:@"com.neo.avatarCache"],
         [cachesRoot stringByAppendingPathComponent:@"com.neo.FileCache"],
         [cachesRoot stringByAppendingPathComponent:@"MediaCache"],
+        // Legacy cache locations if any remains
+        [cachesRoot stringByAppendingPathComponent:@"com.neo.messageCache"],
+        [cachesRoot stringByAppendingPathComponent:@"com.neo.memberCache"],
     ];
     for (NSString *dir in cacheDirs) {
         [fm removeItemAtPath:dir error:nil];
     }
     NSArray *cacheFiles = @[
+        [self roomCachePath],
         [cachesRoot stringByAppendingPathComponent:@"com.neo.roomCache.plist"],
     ];
     for (NSString *file in cacheFiles) {
@@ -827,8 +882,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 #pragma mark - Message Events Disk Cache
 
 - (NSString *)messageCacheDir {
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
-    NSString *dir = [paths[0] stringByAppendingPathComponent:@"com.neo.messageCache"];
+    NSString *dir = [[self appSupportDir] stringByAppendingPathComponent:@"com.neo.messageCache"];
     NSFileManager *fm = [NSFileManager defaultManager];
     if (![fm fileExistsAtPath:dir]) {
         [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
@@ -894,8 +948,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 #pragma mark - Persistent Member Cache
 
 - (NSString *)memberCacheDir {
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
-    NSString *cacheDir = [paths[0] stringByAppendingPathComponent:@"com.neo.memberCache"];
+    NSString *cacheDir = [[self appSupportDir] stringByAppendingPathComponent:@"com.neo.memberCache"];
     NSFileManager *fm = [NSFileManager defaultManager];
     if (![fm fileExistsAtPath:cacheDir]) {
         [fm createDirectoryAtPath:cacheDir withIntermediateDirectories:YES attributes:nil error:nil];
