@@ -33,6 +33,42 @@
 - (NSString *)uniqueIdentifier { return _ident ?: @""; }
 @end
 
+@interface NeoTextView : UITextView
+@end
+
+@implementation NeoTextView
+
+- (void)setContentOffset:(CGPoint)contentOffset {
+    if (!self.scrollEnabled) {
+        contentOffset = CGPointZero;
+    }
+    [super setContentOffset:contentOffset];
+}
+
+- (void)setContentOffset:(CGPoint)contentOffset animated:(BOOL)animated {
+    if (!self.scrollEnabled) {
+        contentOffset = CGPointZero;
+        animated = NO;
+    }
+    [super setContentOffset:contentOffset animated:animated];
+}
+
+- (void)scrollRectToVisible:(CGRect)rect animated:(BOOL)animated {
+    if (!self.scrollEnabled) {
+        return;
+    }
+    [super scrollRectToVisible:rect animated:animated];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (!self.scrollEnabled) {
+        [super setContentOffset:CGPointZero];
+    }
+}
+
+@end
+
 @interface NeoInputFieldView : UIView
 @end
 @implementation NeoInputFieldView
@@ -228,7 +264,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     _fieldBgView = [[NeoInputFieldView alloc] initWithFrame:CGRectMake(46, 5, w - 96, kNeoInputFieldMinH)];
     [inputView addSubview:_fieldBgView];
 
-    self.messageField = [[UITextView alloc] initWithFrame:_fieldBgView.frame];
+    self.messageField = [[NeoTextView alloc] initWithFrame:_fieldBgView.frame];
     self.messageField.delegate = self;
     self.messageField.font = [UIFont systemFontOfSize:15];
     self.messageField.returnKeyType = UIReturnKeyDefault;
@@ -237,13 +273,13 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     self.messageField.scrollEnabled = NO;
     self.messageField.bounces = NO;
     if (IS_IOS7_OR_LATER) {
-        self.messageField.textContainerInset = UIEdgeInsetsMake(7, 10, 7, 6);
+        self.messageField.textContainerInset = UIEdgeInsetsMake(7, 7, 7, 7);
     } else {
-        self.messageField.contentInset = UIEdgeInsetsMake(6, 10, 6, 6);
+        self.messageField.contentInset = UIEdgeInsetsMake(6, 4, 6, 4);
     }
     [inputView addSubview:self.messageField];
 
-    _placeholderLabel = [[UILabel alloc] initWithFrame:CGRectMake(46 + 12, 0, w - 96 - 30, kNeoInputFieldMinH)];
+    _placeholderLabel = [[UILabel alloc] initWithFrame:CGRectMake(46 + 12, 5, w - 96 - 30, kNeoInputFieldMinH)];
     _placeholderLabel.font = [UIFont systemFontOfSize:15];
     _placeholderLabel.backgroundColor = [UIColor clearColor];
     _placeholderLabel.userInteractionEnabled = NO;
@@ -1743,9 +1779,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     self.messageField.text = @"";
     [self updateSendButtonAppearance];
     [self updatePlaceholderVisibility];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self updateInputBarSize];
-    });
+    [self updateInputBarSize];
     [self.messageField resignFirstResponder];
 
     [[MatrixAPIClient sharedClient] sendTyping:NO roomId:self.room.roomId completion:nil];
@@ -2007,10 +2041,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         _lastTypingSent = now;
         [[MatrixAPIClient sharedClient] sendTyping:YES roomId:self.room.roomId completion:nil];
     }
-    self.messageField.scrollEnabled = YES;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self updateInputBarSize];
-    });
+    [self updateInputBarSize];
     [self checkMentionAutocomplete];
 }
 
@@ -2477,40 +2508,59 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 #pragma mark - Input bar
 
+- (CGFloat)measureMessageFieldHeight {
+    UITextView *tv = self.messageField;
+    if ([tv.text length] == 0) {
+        return kNeoInputFieldMinH;
+    }
+
+    CGFloat width = tv.bounds.size.width;
+    if (width <= 0) {
+        width = self.view.bounds.size.width - 96.0f;
+    }
+
+    if (IS_IOS7_OR_LATER) {
+        CGSize fitSize = [tv sizeThatFits:CGSizeMake(width, CGFLOAT_MAX)];
+        CGFloat h = fitSize.height;
+        if ([tv.text hasSuffix:@"\n"]) {
+            NSInteger trailingNewlines = 0;
+            for (NSInteger i = [tv.text length] - 1; i >= 0; i--) {
+                if ([tv.text characterAtIndex:i] == '\n') {
+                    trailingNewlines++;
+                } else {
+                    break;
+                }
+            }
+            h += trailingNewlines * tv.font.lineHeight;
+        }
+        return ceilf(h);
+    } else {
+        return ceilf(tv.contentSize.height);
+    }
+}
+
 - (void)updateInputBarSize {
     UITextView *tv = self.messageField;
-    CGFloat textH;
-    if (IS_IOS7_OR_LATER) {
-        CGFloat cw = tv.bounds.size.width - tv.textContainerInset.left - tv.textContainerInset.right;
-        tv.textContainer.size = CGSizeMake(cw, CGFLOAT_MAX);
-        textH = [tv.layoutManager usedRectForTextContainer:tv.textContainer].size.height;
-    } else {
-        tv.contentSize = CGSizeMake(tv.bounds.size.width, tv.contentSize.height);
-        CGFloat insetsV = tv.contentInset.top + tv.contentInset.bottom;
-        textH = MAX(tv.contentSize.height - insetsV, 0.0f);
+    CGFloat measuredH = [self measureMessageFieldHeight];
+    CGFloat fieldH = MIN(MAX(measuredH, kNeoInputFieldMinH), kNeoInputFieldMaxH);
+    BOOL needsScroll = (measuredH > kNeoInputFieldMaxH + 1.0f);
+
+    tv.scrollEnabled = needsScroll;
+    if (!needsScroll) {
+        tv.contentOffset = CGPointZero;
     }
-    CGFloat baseInsetsV = 10.0f;
-    CGFloat contentFieldH = textH + baseInsetsV;
-    CGFloat fieldH = MIN(MAX(contentFieldH, kNeoInputFieldMinH), kNeoInputFieldMaxH);
-    tv.scrollEnabled = (contentFieldH > kNeoInputFieldMaxH - 1.0f);
-    if (fieldH > contentFieldH + 0.5f) {
-        CGFloat slack = fieldH - contentFieldH;
-        if (IS_IOS7_OR_LATER) {
-            CGFloat side = (10.0f + slack) / 2.0f;
-            tv.textContainerInset = UIEdgeInsetsMake(side, 10, side, 8);
-        } else {
-            CGFloat side = (12.0f + slack) / 2.0f;
-            tv.contentInset = UIEdgeInsetsMake(side, 10, side, 8);
+
+    if (fabsf(fieldH - tv.frame.size.height) < 0.5f) {
+        if (needsScroll) {
+            [tv scrollRangeToVisible:tv.selectedRange];
         }
-    } else {
-        if (IS_IOS7_OR_LATER) {
-            tv.textContainerInset = UIEdgeInsetsMake(7, 10, 7, 8);
-        } else {
-            tv.contentInset = UIEdgeInsetsMake(6, 10, 6, 8);
-        }
+        return;
     }
-    if (fabsf(fieldH - tv.frame.size.height) < 0.5f) return;
+
     [self setInputBarHeight:kNeoInputBarBaseH + (fieldH - kNeoInputFieldMinH) animated:YES];
+    if (needsScroll) {
+        [tv scrollRangeToVisible:tv.selectedRange];
+    }
 }
 
 - (void)setInputBarHeight:(CGFloat)newH animated:(BOOL)animated {
@@ -2537,9 +2587,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
             inputBg.frame = CGRectMake(0, 0, w, barH);
         }
         self.messageField.frame = CGRectMake(fieldX, fieldY, fieldW, fieldH);
-        if (IS_IOS7_OR_LATER) {
-            UIEdgeInsets ti = self.messageField.textContainerInset;
-            self.messageField.textContainer.size = CGSizeMake(fieldW - ti.left - ti.right, fieldH - ti.top - ti.bottom);
+        if (!self.messageField.scrollEnabled) {
+            self.messageField.contentOffset = CGPointZero;
         }
         _fieldBgView.frame = CGRectMake(fieldX, fieldY, fieldW, fieldH);
         [_fieldBgView setNeedsDisplay];
