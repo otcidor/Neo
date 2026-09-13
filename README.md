@@ -1,5 +1,5 @@
 # Neo
-### A Matrix client for iOS 6+
+### A Matrix client for iOS 5+
 
 ---
 
