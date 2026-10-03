@@ -12,6 +12,8 @@
 #import "DemoModeManager.h"
 #import "UIImage+NeoBlur.h"
 #import "TGTableDeltaUpdater.h"
+#import "NeoSkeuoRenderer.h"
+#import <objc/message.h>
 
 static UIColor *colorForTheme(SpaceTheme theme) {
     switch (theme) {
@@ -65,26 +67,57 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                                                object:nil];
 }
 
-- (void)viewDidLoad {
-    [super viewDidLoad];
+- (void)applySpaceNavBarTheme {
     ThemeManager *tm = [ThemeManager sharedManager];
+    if (self.spaceFilter == nil || tm.isDarkGlass) {
+        [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
+        return;
+    }
     UIColor *tint = colorForTheme(self.theme);
-    if (self.spaceFilter != nil && tm.isDarkMode) {
+    if (tm.isDarkMode) {
         CGFloat r, g, b, a;
         [tint getRed:&r green:&g blue:&b alpha:&a];
         tint = [UIColor colorWithRed:r*0.3 green:g*0.3 blue:b*0.3 alpha:1.0];
     }
-
-    if (self.spaceFilter == nil || tm.isDarkGlass) {
-        [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
-    } else {
+    if (tm.isSkeuomorphicMode) {
+        UIImage *barImg = [NeoSkeuoRenderer navBarImageWithColor:tint height:44.0f];
+        [self.navigationController.navigationBar setBackgroundImage:barImg forBarMetrics:UIBarMetricsDefault];
         if (IS_IOS7_OR_LATER) {
-            self.navigationController.navigationBar.barTintColor = tint;
+            UIImage *barImg64 = [NeoSkeuoRenderer navBarImageWithColor:tint height:64.0f];
+            if ([self.navigationController.navigationBar respondsToSelector:@selector(setBackgroundImage:forBarPosition:barMetrics:)]) {
+                [(id)self.navigationController.navigationBar setBackgroundImage:barImg64 forBarPosition:UIBarPositionTopAttached barMetrics:UIBarMetricsDefault];
+            }
+            self.navigationController.navigationBar.barTintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:tint];
             self.navigationController.navigationBar.tintColor = [UIColor whiteColor];
-            self.navigationController.navigationBar.titleTextAttributes = @{UITextAttributeTextColor: [UIColor whiteColor]};
         } else {
             self.navigationController.navigationBar.tintColor = tint;
         }
+        self.navigationController.navigationBar.translucent = NO;
+        if ([self.navigationController.navigationBar respondsToSelector:@selector(setShadowImage:)]) {
+            self.navigationController.navigationBar.shadowImage = [NeoSkeuoRenderer clearPixelImage];
+        }
+        self.navigationController.navigationBar.titleTextAttributes = @{
+            UITextAttributeTextColor: [UIColor whiteColor],
+            UITextAttributeTextShadowColor: [UIColor colorWithWhite:0.0f alpha:0.6f],
+            UITextAttributeTextShadowOffset: [NSValue valueWithCGSize:CGSizeMake(0, -1.0f)],
+            UITextAttributeFont: [UIFont boldSystemFontOfSize:18.0f]
+        };
+    } else if (IS_IOS7_OR_LATER) {
+        self.navigationController.navigationBar.barTintColor = tint;
+        self.navigationController.navigationBar.tintColor = [UIColor whiteColor];
+        self.navigationController.navigationBar.titleTextAttributes = @{UITextAttributeTextColor: [UIColor whiteColor]};
+    } else {
+        self.navigationController.navigationBar.tintColor = tint;
+    }
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    ThemeManager *tm = [ThemeManager sharedManager];
+    [self applySpaceNavBarTheme];
+
+    if (self.spaceFilter != nil) {
+        self.navigationItem.leftBarButtonItem = [ThemeManager backBarButtonItemWithTarget:self action:@selector(neoBackAction)];
     }
 
     if (tm.isDarkMode) {
@@ -126,6 +159,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     [headerView addSubview:self.searchBar];
 
     self.tableView.tableHeaderView = headerView;
+    if ([self.tableView respondsToSelector:@selector(setPrefetchingEnabled:)]) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(self.tableView, @selector(setPrefetchingEnabled:), NO);
+    }
     [self applySearchBarTheme];
 
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
@@ -180,17 +216,22 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     NSString *subStr = (cnt == 1) ? NSLocalizedString(@"1 chat", nil) : [NSString stringWithFormat:NSLocalizedString(@"%d chats", nil), cnt];
     NSString *combined = [NSString stringWithFormat:@"%@\n%@", titleStr, subStr];
 
-    NSMutableAttributedString *attr = [[NSMutableAttributedString alloc] initWithString:combined];
-    [attr addAttribute:NSFontAttributeName value:[UIFont boldSystemFontOfSize:16] range:NSMakeRange(0, [titleStr length])];
-    [attr addAttribute:NSForegroundColorAttributeName value:[UIColor whiteColor] range:NSMakeRange(0, [titleStr length])];
-    [attr addAttribute:NSFontAttributeName value:[UIFont systemFontOfSize:11] range:NSMakeRange([titleStr length] + 1, [subStr length])];
-    [attr addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithWhite:0.85 alpha:1.0] range:NSMakeRange([titleStr length] + 1, [subStr length])];
-
     UILabel *titleLabel = [[UILabel alloc] init];
     titleLabel.numberOfLines = 2;
     titleLabel.textAlignment = NSTextAlignmentCenter;
     titleLabel.backgroundColor = [UIColor clearColor];
-    titleLabel.attributedText = attr;
+    if (IS_IOS6_OR_LATER && [titleLabel respondsToSelector:@selector(setAttributedText:)] && NSFontAttributeName && NSForegroundColorAttributeName) {
+        NSMutableAttributedString *attr = [[NSMutableAttributedString alloc] initWithString:combined];
+        [attr addAttribute:NSFontAttributeName value:[UIFont boldSystemFontOfSize:16] range:NSMakeRange(0, [titleStr length])];
+        [attr addAttribute:NSForegroundColorAttributeName value:[UIColor whiteColor] range:NSMakeRange(0, [titleStr length])];
+        [attr addAttribute:NSFontAttributeName value:[UIFont systemFontOfSize:11] range:NSMakeRange([titleStr length] + 1, [subStr length])];
+        [attr addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithWhite:0.85 alpha:1.0] range:NSMakeRange([titleStr length] + 1, [subStr length])];
+        titleLabel.attributedText = attr;
+    } else {
+        titleLabel.font = [UIFont boldSystemFontOfSize:15];
+        titleLabel.textColor = [UIColor whiteColor];
+        titleLabel.text = combined;
+    }
     [titleLabel sizeToFit];
 
     self.navigationItem.titleView = titleLabel;
@@ -322,17 +363,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     ThemeManager *tm = [ThemeManager sharedManager];
+    [self applySpaceNavBarTheme];
     if (self.spaceFilter == nil || tm.isDarkGlass) {
-        [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
         [tm applyThemeToTabBar:self.tabBarController.tabBar];
-    } else {
-        UIColor *tint = colorForTheme(self.theme);
-        if (IS_IOS7_OR_LATER) {
-            self.navigationController.navigationBar.barTintColor = tint;
-            self.navigationController.navigationBar.tintColor = [UIColor whiteColor];
-        } else {
-            self.navigationController.navigationBar.tintColor = tint;
-        }
     }
     if (!IS_IOS7_OR_LATER && !tm.isDarkGlass) self.navigationController.navigationBar.barStyle = [tm barStyle];
     if (tm.isDarkMode) {
@@ -648,28 +681,15 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     });
 }
 
+- (void)neoBackAction {
+    [self.navigationController popViewControllerAnimated:YES];
+}
+
 - (void)handleThemeChanged {
     ThemeManager *tm = [ThemeManager sharedManager];
+    [self applySpaceNavBarTheme];
     if (self.spaceFilter == nil || tm.isDarkGlass) {
-        [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
         [tm applyThemeToTabBar:self.tabBarController.tabBar];
-    } else if (tm.isDarkMode) {
-        UIColor *tint = colorForTheme(self.theme);
-        CGFloat r, g, b, a;
-        [tint getRed:&r green:&g blue:&b alpha:&a];
-        tint = [UIColor colorWithRed:r*0.3 green:g*0.3 blue:b*0.3 alpha:1.0];
-        if (IS_IOS7_OR_LATER) {
-            self.navigationController.navigationBar.barTintColor = tint;
-        } else {
-            self.navigationController.navigationBar.tintColor = tint;
-        }
-    } else {
-        UIColor *tint = colorForTheme(self.theme);
-        if (IS_IOS7_OR_LATER) {
-            self.navigationController.navigationBar.barTintColor = tint;
-        } else {
-            self.navigationController.navigationBar.tintColor = tint;
-        }
     }
     if (tm.isDarkMode) {
         if (!IS_IOS7_OR_LATER && !tm.isDarkGlass) self.navigationController.navigationBar.barStyle = [tm barStyle];

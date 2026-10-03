@@ -7,22 +7,8 @@
 
 static const NSInteger kMaxConcurrentImageDownloads = 4;
 
-static void IMGLog(NSString *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
-    va_end(args);
-    NSLog(@"[IMG] %@", msg);
-    NSString *path = @"/var/mobile/Library/MatrixClient/imglog.txt";
-    NSString *line = [NSString stringWithFormat:@"%@: %@\n", [NSDate date], msg];
-    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
-    if (!fh) {
-        [line writeToFile:path atomically:NO encoding:NSUTF8StringEncoding error:nil];
-    } else {
-        [fh seekToEndOfFile];
-        [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-        [fh closeFile];
-    }
+static inline void IMGLog(NSString *fmt, ...) {
+    // Logging muted in release for smooth scrolling
 }
 
 static NSString *const kDefaultsKeyHomeserver = @"matrix_homeserver";
@@ -65,7 +51,13 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 
 - (NSString *)appSupportDir {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
-    NSString *baseDir = paths[0];
+    NSString *baseDir = ([paths count] > 0) ? [paths objectAtIndex:0] : nil;
+    if (!baseDir) {
+        NSArray *docPaths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        if ([docPaths count] > 0) {
+            baseDir = [[[docPaths objectAtIndex:0] stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"Library/Application Support"];
+        }
+    }
     NSString *dir = [baseDir stringByAppendingPathComponent:@"Neo"];
     NSFileManager *fm = [NSFileManager defaultManager];
     if (![fm fileExistsAtPath:dir]) {
@@ -82,8 +74,9 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
     NSFileManager *fm = [NSFileManager defaultManager];
     NSArray *cachePaths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
     if (!cachePaths || [cachePaths count] == 0) return;
-    NSString *cachesRoot = cachePaths[0];
+    NSString *cachesRoot = [cachePaths objectAtIndex:0];
     NSString *appSupport = [self appSupportDir];
+    if (!cachesRoot || !appSupport) return;
 
     // 1. Migrate com.neo.roomCache.plist
     NSString *oldRoomCache = [cachesRoot stringByAppendingPathComponent:@"com.neo.roomCache.plist"];
@@ -228,8 +221,9 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
         }
     };
 
-    if (IS_IOS7_OR_LATER) {
-        NSURLSession *session = [NSURLSession sharedSession];
+    Class sessionClass = NSClassFromString(@"NSURLSession");
+    if (IS_IOS7_OR_LATER && sessionClass) {
+        id session = [sessionClass sharedSession];
         [[session dataTaskWithRequest:request
                     completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -307,7 +301,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
       formattedBody:(NSString *)formattedBody
            mentions:(NSDictionary *)mentions
          completion:(MatrixCompletion)completion {
-    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
                       NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
@@ -345,7 +339,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
      formattedBody:(NSString *)formattedBody
           mentions:(NSDictionary *)mentions
         completion:(MatrixCompletion)completion {
-    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
                       NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
@@ -377,7 +371,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
              roomId:(NSString *)roomId
             eventId:(NSString *)eventId
          completion:(MatrixCompletion)completion {
-    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:
         @"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
         NeoURLEncode(roomId), NeoURLEncode(txnId)];
@@ -407,7 +401,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
               roomId:(NSString *)roomId
              eventId:(NSString *)eventId
           completion:(MatrixCompletion)completion {
-    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:
         @"/_matrix/client/r0/rooms/%@/send/m.reaction/%@",
         NeoURLEncode(roomId), NeoURLEncode(txnId)];
@@ -431,7 +425,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 - (void)redactMessage:(NSString *)roomId
               eventId:(NSString *)eventId
            completion:(MatrixCompletion)completion {
-    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/redact/%@/%@",
                      NeoURLEncode(roomId), NeoURLEncode(eventId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
@@ -487,7 +481,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
                   height:(CGFloat)height
                     size:(NSInteger)size
               completion:(MatrixCompletion)completion {
-    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
                       NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
@@ -696,7 +690,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
                    height:(CGFloat)height
                      size:(NSInteger)size
                completion:(MatrixCompletion)completion {
-    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
                      NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
@@ -728,7 +722,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
                mimeType:(NSString *)mimeType
                    size:(NSInteger)size
              completion:(MatrixCompletion)completion {
-    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
                       NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];
@@ -757,7 +751,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
                 duration:(NSInteger)duration
                     size:(NSInteger)size
               completion:(MatrixCompletion)completion {
-    NSString *txnId = [[NSUUID UUID] UUIDString];
+    NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:@"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
                       NeoURLEncode(roomId), NeoURLEncode(txnId)];
     NSMutableURLRequest *req = [self requestWithPath:path method:@"PUT"];

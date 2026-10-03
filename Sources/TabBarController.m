@@ -112,6 +112,21 @@
             [vc.tabBarItem setTitleTextAttributes:unselAttrs forState:UIControlStateNormal];
             [vc.tabBarItem setTitleTextAttributes:selAttrs forState:UIControlStateSelected];
         }
+    } else if (tm.isSkeuomorphicMode) {
+        NSDictionary *selAttrs = @{
+            UITextAttributeTextColor: [UIColor whiteColor],
+            UITextAttributeTextShadowColor: [UIColor colorWithWhite:0.0 alpha:0.7],
+            UITextAttributeTextShadowOffset: [NSValue valueWithCGSize:CGSizeMake(0, -1.0)]
+        };
+        NSDictionary *unselAttrs = @{
+            UITextAttributeTextColor: [UIColor colorWithWhite:0.65 alpha:1.0],
+            UITextAttributeTextShadowColor: [UIColor colorWithWhite:0.0 alpha:0.7],
+            UITextAttributeTextShadowOffset: [NSValue valueWithCGSize:CGSizeMake(0, -1.0)]
+        };
+        for (UIViewController *vc in self.viewControllers) {
+            [vc.tabBarItem setTitleTextAttributes:unselAttrs forState:UIControlStateNormal];
+            [vc.tabBarItem setTitleTextAttributes:selAttrs forState:UIControlStateSelected];
+        }
     } else {
         for (UIViewController *vc in self.viewControllers) {
             [vc.tabBarItem setTitleTextAttributes:nil forState:UIControlStateNormal];

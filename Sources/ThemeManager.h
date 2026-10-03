@@ -23,8 +23,12 @@ typedef NS_ENUM(NSInteger, NeoThemeId) {
 @property (nonatomic, assign, readonly) NeoThemeId currentThemeId;
 @property (nonatomic, assign, readonly) BOOL isDarkMode;
 @property (nonatomic, assign, readonly) BOOL isDarkGlass;
+@property (nonatomic, assign) BOOL isSkeuomorphicMode;
 
 - (void)setThemeId:(NeoThemeId)themeId;
+- (void)setSkeuomorphicMode:(BOOL)skeuomorphicMode;
++ (UIBarButtonItem *)backBarButtonItemWithTarget:(id)target action:(SEL)action;
++ (UIView *)disclosureIndicator;
 
 - (UIColor *)navBarColor;
 - (UIColor *)tintColor;

@@ -363,9 +363,10 @@ static bool isEmojiChar(NSString *singleChar) {
     if (self.showTimestamp) {
         CGRect tsRect = CGRectMake(tsX, tsY, tsSize.width, tsSize.height);
         UIFont *tsFont = [UIFont italicSystemFontOfSize:12];
-        if (IS_IOS7_OR_LATER && tsFont) {
-            NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
-            if (ps) ps.lineBreakMode = NSLineBreakByClipping;
+        Class psClass = NSClassFromString(@"NSMutableParagraphStyle");
+        if (IS_IOS7_OR_LATER && tsFont && psClass) {
+            id ps = [[psClass alloc] init];
+            if (ps) [ps setLineBreakMode:NSLineBreakByClipping];
             NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
             [attrs setObject:tsFont forKey:NSFontAttributeName];
             [attrs setObject:[UIColor grayColor] forKey:NSForegroundColorAttributeName];
@@ -431,11 +432,20 @@ static bool isEmojiChar(NSString *singleChar) {
     }
     NSMutableArray *results = [NSMutableArray array];
 
-    NSError *err = nil;
-    NSDataDetector *detector = [NSDataDetector dataDetectorWithTypes:NSTextCheckingTypeLink error:&err];
-    if (detector) {
-        [detector enumerateMatchesInString:self.text options:0
-                                     range:NSMakeRange(0, [self.text length])
+    static NSDataDetector *sDetector = nil;
+    static NSRegularExpression *sManual = nil;
+    static NSRegularExpression *sMentionRegex = nil;
+    static dispatch_once_t sInitToken;
+    dispatch_once(&sInitToken, ^{
+        sDetector = [NSDataDetector dataDetectorWithTypes:NSTextCheckingTypeLink error:NULL];
+        NSString *pattern = @"(?:https?://|www\\.)[^\\s]+";
+        sManual = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:NULL];
+        sMentionRegex = [NSRegularExpression regularExpressionWithPattern:@"(?<=^|\\s)@([a-zA-Z0-9_\\-\\.\\+=]+(:[a-zA-Z0-9_\\-\\.]+)?)" options:0 error:NULL];
+    });
+
+    if (sDetector) {
+        [sDetector enumerateMatchesInString:self.text options:0
+                                      range:NSMakeRange(0, [self.text length])
                                  usingBlock:^(NSTextCheckingResult *result, NSMatchingFlags flags, BOOL *stop) {
             if (result.resultType == NSTextCheckingTypeLink) {
                 [results addObject:result];
@@ -444,12 +454,10 @@ static bool isEmojiChar(NSString *singleChar) {
     }
 
     // Supplement with manual regex for URLs that NSDataDetector misses (varies by iOS version)
-    NSString *pattern = @"(?:https?://|www\\.)[^\\s]+";
-    NSRegularExpression *manual = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:NULL];
-    if (manual) {
-        [manual enumerateMatchesInString:self.text options:0
-                                   range:NSMakeRange(0, [self.text length])
-                              usingBlock:^(NSTextCheckingResult *match, NSMatchingFlags flags, BOOL *stop) {
+    if (sManual) {
+        [sManual enumerateMatchesInString:self.text options:0
+                                    range:NSMakeRange(0, [self.text length])
+                               usingBlock:^(NSTextCheckingResult *match, NSMatchingFlags flags, BOOL *stop) {
             // Avoid duplicates with detector results
             BOOL dup = NO;
             for (NSTextCheckingResult *existing in results) {
@@ -468,10 +476,8 @@ static bool isEmojiChar(NSString *singleChar) {
     }
 
     // Detect mentions like @user:server or @DisplayName or @room
-    NSError *mentionErr = nil;
-    NSRegularExpression *mentionRegex = [NSRegularExpression regularExpressionWithPattern:@"(?<=^|\\s)@([a-zA-Z0-9_\\-\\.\\+=]+(:[a-zA-Z0-9_\\-\\.]+)?)" options:0 error:&mentionErr];
-    if (mentionRegex) {
-        NSArray *matches = [mentionRegex matchesInString:self.text options:0 range:NSMakeRange(0, [self.text length])];
+    if (sMentionRegex) {
+        NSArray *matches = [sMentionRegex matchesInString:self.text options:0 range:NSMakeRange(0, [self.text length])];
         for (NSTextCheckingResult *m in matches) {
             BOOL dup = NO;
             for (NSTextCheckingResult *existing in results) {
@@ -496,9 +502,10 @@ static bool isEmojiChar(NSString *singleChar) {
 - (void)drawTextWithLinks:(NSString *)displayText inRect:(CGRect)textFrame {
     if ([_linkResults count] == 0) {
         UIFont *msgFont = [MatrixBubbleView font];
-        if (IS_IOS7_OR_LATER && msgFont) {
-            NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
-            if (ps) ps.lineBreakMode = NSLineBreakByWordWrapping;
+        Class psClass = NSClassFromString(@"NSMutableParagraphStyle");
+        if (IS_IOS7_OR_LATER && msgFont && psClass) {
+            id ps = [[psClass alloc] init];
+            if (ps) [ps setLineBreakMode:NSLineBreakByWordWrapping];
             NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
             [attrs setObject:msgFont forKey:NSFontAttributeName];
             [attrs setObject:[UIColor darkTextColor] forKey:NSForegroundColorAttributeName];
@@ -528,16 +535,47 @@ static bool isEmojiChar(NSString *singleChar) {
                       alignment:NSTextAlignmentLeft];
         return;
     }
-    [attrStr addAttribute:NSFontAttributeName value:font range:fullRange];
-    [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor darkTextColor] range:fullRange];
+    if (IS_IOS6_OR_LATER && NSFontAttributeName && NSForegroundColorAttributeName) {
+        [attrStr addAttribute:NSFontAttributeName value:font range:fullRange];
+        [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor darkTextColor] range:fullRange];
 
-    for (NSTextCheckingResult *result in _linkResults) {
-        if ([result.URL.scheme isEqualToString:@"matrix"]) {
-            [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithRed:0.0 green:0.48 blue:1.0 alpha:1.0] range:result.range];
-            [attrStr addAttribute:NSFontAttributeName value:[UIFont boldSystemFontOfSize:15] range:result.range];
-        } else {
-            [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor blueColor] range:result.range];
-            [attrStr addAttribute:NSUnderlineStyleAttributeName value:@(NSUnderlineStyleSingle) range:result.range];
+        for (NSTextCheckingResult *result in _linkResults) {
+            if ([result.URL.scheme isEqualToString:@"matrix"]) {
+                [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithRed:0.0 green:0.48 blue:1.0 alpha:1.0] range:result.range];
+                [attrStr addAttribute:NSFontAttributeName value:[UIFont boldSystemFontOfSize:15] range:result.range];
+            } else {
+                [attrStr addAttribute:NSForegroundColorAttributeName value:[UIColor blueColor] range:result.range];
+                if (NSUnderlineStyleAttributeName) {
+                    [attrStr addAttribute:NSUnderlineStyleAttributeName value:@(NSUnderlineStyleSingle) range:result.range];
+                }
+            }
+        }
+    } else {
+        CTFontRef ctFont = CTFontCreateWithName((__bridge CFStringRef)font.fontName, font.pointSize, NULL);
+        if (ctFont) {
+            [attrStr addAttribute:(id)kCTFontAttributeName value:(__bridge id)ctFont range:fullRange];
+            CFRelease(ctFont);
+        }
+        [attrStr addAttribute:(id)kCTForegroundColorAttributeName value:(__bridge id)[[UIColor darkTextColor] CGColor] range:fullRange];
+
+        for (NSTextCheckingResult *result in _linkResults) {
+            if ([result.URL.scheme isEqualToString:@"matrix"]) {
+                CGColorRef c = [[UIColor colorWithRed:0.0 green:0.48 blue:1.0 alpha:1.0] CGColor];
+                [attrStr addAttribute:(id)kCTForegroundColorAttributeName value:(__bridge id)c range:result.range];
+                CTFontRef boldFont = CTFontCreateWithName((__bridge CFStringRef)[[UIFont boldSystemFontOfSize:15] fontName], 15.0, NULL);
+                if (boldFont) {
+                    [attrStr addAttribute:(id)kCTFontAttributeName value:(__bridge id)boldFont range:result.range];
+                    CFRelease(boldFont);
+                }
+            } else {
+                [attrStr addAttribute:(id)kCTForegroundColorAttributeName value:(__bridge id)[[UIColor blueColor] CGColor] range:result.range];
+                int32_t uStyle = kCTUnderlineStyleSingle;
+                CFNumberRef uNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &uStyle);
+                if (uNum) {
+                    [attrStr addAttribute:(id)kCTUnderlineStyleAttributeName value:(__bridge id)uNum range:result.range];
+                    CFRelease(uNum);
+                }
+            }
         }
     }
 
@@ -636,9 +674,10 @@ static bool isEmojiChar(NSString *singleChar) {
                  maxWidth:(CGFloat)maxWidth
             lineBreakMode:(NSLineBreakMode)mode {
     if ([str length] == 0) return CGSizeZero;
-    if (IS_IOS7_OR_LATER && font) {
-        NSMutableParagraphStyle *ps = [[NSMutableParagraphStyle alloc] init];
-        if (ps) ps.lineBreakMode = mode;
+    Class psClass = NSClassFromString(@"NSMutableParagraphStyle");
+    if (IS_IOS7_OR_LATER && font && psClass) {
+        id ps = [[psClass alloc] init];
+        if (ps) [ps setLineBreakMode:mode];
         NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
         [attrs setObject:font forKey:NSFontAttributeName];
         if (ps) [attrs setObject:ps forKey:NSParagraphStyleAttributeName];

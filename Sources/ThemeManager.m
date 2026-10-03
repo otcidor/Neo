@@ -1,8 +1,10 @@
 #import "ThemeManager.h"
 #import "NeoCompatibility.h"
+#import "NeoSkeuoRenderer.h"
 
 NSString *const NeoThemeDidChangeNotification = @"NeoThemeDidChangeNotification";
 static NSString *const kThemeDefaultsKey = @"neo_theme_id";
+static NSString *const kSkeuoStyleDefaultsKey = @"neo_ui_style_skeuomorphic";
 
 @implementation ThemeManager
 
@@ -26,8 +28,20 @@ static NSString *const kThemeDefaultsKey = @"neo_theme_id";
         _currentThemeId = (NeoThemeId)saved;
         _isDarkMode = [ThemeManager isDarkThemeId:_currentThemeId];
         _isDarkGlass = (_currentThemeId == NeoThemeDarkGlass);
+        if ([[NSUserDefaults standardUserDefaults] objectForKey:kSkeuoStyleDefaultsKey] == nil) {
+            _isSkeuomorphicMode = YES;
+        } else {
+            _isSkeuomorphicMode = [[NSUserDefaults standardUserDefaults] boolForKey:kSkeuoStyleDefaultsKey];
+        }
     }
     return self;
+}
+
+- (void)setSkeuomorphicMode:(BOOL)skeuomorphicMode {
+    _isSkeuomorphicMode = skeuomorphicMode;
+    [[NSUserDefaults standardUserDefaults] setBool:skeuomorphicMode forKey:kSkeuoStyleDefaultsKey];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    [[NSNotificationCenter defaultCenter] postNotificationName:NeoThemeDidChangeNotification object:nil];
 }
 
 - (void)setThemeId:(NeoThemeId)themeId {
@@ -185,7 +199,36 @@ static NSString *const kThemeDefaultsKey = @"neo_theme_id";
         };
         return;
     }
-    // Standard skeuomorphic themes:
+
+    if (self.isSkeuomorphicMode) {
+        UIColor *color = [self navBarColor];
+        UIImage *barImg = [NeoSkeuoRenderer navBarImageWithColor:color height:44.0f];
+        [navBar setBackgroundImage:barImg forBarMetrics:UIBarMetricsDefault];
+        if (IS_IOS7_OR_LATER) {
+            UIImage *barImg64 = [NeoSkeuoRenderer navBarImageWithColor:color height:64.0f];
+            if ([navBar respondsToSelector:@selector(setBackgroundImage:forBarPosition:barMetrics:)]) {
+                [(id)navBar setBackgroundImage:barImg64 forBarPosition:UIBarPositionTopAttached barMetrics:UIBarMetricsDefault];
+            }
+            navBar.barTintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:color];
+            navBar.tintColor = [UIColor whiteColor];
+        } else {
+            navBar.tintColor = color;
+            navBar.barStyle = [self barStyle];
+        }
+        navBar.translucent = NO;
+        if ([navBar respondsToSelector:@selector(setShadowImage:)]) {
+            navBar.shadowImage = [NeoSkeuoRenderer clearPixelImage];
+        }
+        navBar.titleTextAttributes = @{
+            UITextAttributeTextColor: [UIColor whiteColor],
+            UITextAttributeTextShadowColor: [UIColor colorWithWhite:0.0f alpha:0.6f],
+            UITextAttributeTextShadowOffset: [NSValue valueWithCGSize:CGSizeMake(0, -1.0f)],
+            UITextAttributeFont: [UIFont boldSystemFontOfSize:18.0f]
+        };
+        return;
+    }
+
+    // Standard flat fallback:
     [navBar setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
     if ([navBar respondsToSelector:@selector(setShadowImage:)]) {
         navBar.shadowImage = nil;
@@ -216,10 +259,42 @@ static NSString *const kThemeDefaultsKey = @"neo_theme_id";
         }
         return;
     }
-    // Standard skeuomorphic themes:
+
+    if (self.isSkeuomorphicMode) {
+        UIColor *themeColor = [self navBarColor];
+        UIImage *tabImg = [NeoSkeuoRenderer tabBarBackgroundImageWithThemeColor:themeColor];
+        [tabBar setBackgroundImage:tabImg];
+        if ([tabBar respondsToSelector:@selector(setShadowImage:)]) {
+            tabBar.shadowImage = [NeoSkeuoRenderer clearPixelImage];
+        }
+        CGFloat tabW = tabBar.bounds.size.width;
+        if (tabW <= 0) tabW = [UIScreen mainScreen].bounds.size.width;
+        NSInteger count = [tabBar.items count];
+        if (count <= 0) count = 3;
+        CGFloat itemW = tabW / (CGFloat)count;
+        UIImage *selImg = [NeoSkeuoRenderer tabBarSelectionIndicatorWithColor:themeColor width:itemW];
+        if ([tabBar respondsToSelector:@selector(setSelectionIndicatorImage:)]) {
+            [tabBar setSelectionIndicatorImage:selImg];
+        }
+        if ([tabBar respondsToSelector:@selector(setSelectedImageTintColor:)]) {
+            tabBar.selectedImageTintColor = [UIColor whiteColor];
+        }
+        if (IS_IOS7_OR_LATER) {
+            tabBar.tintColor = [UIColor whiteColor];
+            tabBar.barTintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:themeColor];
+        } else {
+            tabBar.tintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:themeColor];
+        }
+        return;
+    }
+
+    // Standard flat fallback:
     [tabBar setBackgroundImage:nil];
     if ([tabBar respondsToSelector:@selector(setShadowImage:)]) {
         tabBar.shadowImage = nil;
+    }
+    if ([tabBar respondsToSelector:@selector(setSelectionIndicatorImage:)]) {
+        [tabBar setSelectionIndicatorImage:nil];
     }
     UIColor *color = [self tintColor];
     if (IS_IOS7_OR_LATER) {
@@ -231,6 +306,21 @@ static NSString *const kThemeDefaultsKey = @"neo_theme_id";
             tabBar.selectedImageTintColor = nil;
         }
     }
+}
+
++ (UIBarButtonItem *)backBarButtonItemWithTarget:(id)target action:(SEL)action {
+    return [NeoSkeuoRenderer backBarButtonItemWithTarget:target action:action];
+}
+
++ (UIView *)disclosureIndicator {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    if (tm.isDarkGlass) {
+        return [self modernDisclosureIndicator];
+    }
+    if (tm.isSkeuomorphicMode) {
+        return [NeoSkeuoRenderer classicDisclosureIndicator];
+    }
+    return [self modernDisclosureIndicator];
 }
 
 + (UIImage *)modernNavBarImage {

@@ -28,6 +28,7 @@
                                    UIViewAutoresizingFlexibleHeight;
     _tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     [self.view addSubview:_tableView];
+    self.navigationItem.leftBarButtonItem = [ThemeManager backBarButtonItemWithTarget:self action:@selector(neoBackAction)];
 
     _avatarCache = [NSMutableDictionary dictionary];
     _archivedRooms = [NSMutableArray array];
@@ -38,8 +39,15 @@
                                                object:nil];
 }
 
+- (void)neoBackAction {
+    [self.navigationController popViewControllerAnimated:YES];
+}
+
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        self.navigationController.interactivePopGestureRecognizer.delegate = (id<UIGestureRecognizerDelegate>)self;
+    }
     [self applyTheme];
     [self loadArchivedRooms];
 }

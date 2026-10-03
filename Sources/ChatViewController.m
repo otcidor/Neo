@@ -9,6 +9,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import "AudioMessageView.h"
 #import "NeoReactionPillView.h"
@@ -248,10 +249,13 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     self.tableView.backgroundColor = [UIColor clearColor];
     self.tableView.backgroundView = nil;
     self.tableView.tableFooterView = [[UIView alloc] init];
+    if ([self.tableView respondsToSelector:@selector(setPrefetchingEnabled:)]) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(self.tableView, @selector(setPrefetchingEnabled:), NO);
+    }
     [self.view addSubview:self.tableView];
 
     UIView *inputView = [[UIView alloc] initWithFrame:CGRectMake(0, tableH, w, inputH)];
-    inputView.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleWidth;
+    inputView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [self.view addSubview:inputView];
     self.inputContainer = inputView;
     _inputBarHeight = kNeoInputBarBaseH;
@@ -345,6 +349,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        self.navigationController.interactivePopGestureRecognizer.delegate = (id<UIGestureRecognizerDelegate>)self;
+    }
     ThemeManager *tm = [ThemeManager sharedManager];
     [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
     if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
@@ -359,8 +366,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     [[MatrixSyncManager sharedManager] markRoomRead:self.room.roomId lastEventId:lastEventId];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(keyboardWillShow:)
-                                                 name:UIKeyboardWillShowNotification
+                                             selector:@selector(keyboardWillChangeFrame:)
+                                                 name:UIKeyboardWillChangeFrameNotification
                                                object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(keyboardWillHide:)
@@ -487,7 +494,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     }
     [self dismissReply];
     [_mentionAutocompleteView dismissAnimated:NO];
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillShowNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillChangeFrameNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillHideNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NeoDemoModeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:@"NeoMentionTappedNotification" object:nil];
@@ -556,10 +563,23 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     subLabel.textAlignment = NSTextAlignmentCenter;
     [titleView addSubview:subLabel];
 
+    BOOL skeuo = [ThemeManager sharedManager].isSkeuomorphicMode;
+    if (skeuo) {
+        nameLabel.shadowColor = [UIColor colorWithWhite:0.0f alpha:0.6f];
+        nameLabel.shadowOffset = CGSizeMake(0, -1.0f);
+        subLabel.shadowColor = [UIColor colorWithWhite:0.0f alpha:0.5f];
+        subLabel.shadowOffset = CGSizeMake(0, -1.0f);
+    } else {
+        nameLabel.shadowColor = nil;
+        subLabel.shadowColor = nil;
+    }
+
     UITapGestureRecognizer *titleTap = [[UITapGestureRecognizer alloc]
         initWithTarget:self action:@selector(profileTapped)];
     [titleView addGestureRecognizer:titleTap];
     self.navigationItem.titleView = titleView;
+
+    self.navigationItem.leftBarButtonItem = [ThemeManager backBarButtonItemWithTarget:self action:@selector(neoBackAction)];
 
     CGFloat avatarSize = 32;
     UIImageView *avatarImg = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, avatarSize, avatarSize)];
@@ -583,6 +603,10 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         initWithTarget:self action:@selector(profileTapped)];
     [avatarContainer addGestureRecognizer:avatarTap];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:avatarContainer];
+}
+
+- (void)neoBackAction {
+    [self.navigationController popViewControllerAnimated:YES];
 }
 
 - (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
@@ -1496,7 +1520,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (NSString *)savePendingData:(NSData *)data extension:(NSString *)ext {
     if (!data) return nil;
-    NSString *name = [NSString stringWithFormat:@"%@.%@", [[NSUUID UUID] UUIDString], ext];
+    NSString *name = [NSString stringWithFormat:@"%@.%@", NeoGenerateUUID(), ext];
     NSString *path = [[self pendingUploadsDir] stringByAppendingPathComponent:name];
     [data writeToFile:path atomically:NO];
     return path;
@@ -1785,7 +1809,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     [[MatrixAPIClient sharedClient] sendTyping:NO roomId:self.room.roomId completion:nil];
 
     MatrixMessage *localMsg = [[MatrixMessage alloc] init];
-    localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
+    localMsg.eventId = [NSString stringWithFormat:@"local_%@", NeoGenerateUUID()];
     localMsg.sender = [[MatrixAPIClient sharedClient] userId];
     localMsg.body = text;
     localMsg.formattedBody = formattedBody;
@@ -1991,7 +2015,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     if (!audioData) return;
 
     MatrixMessage *localMsg = [[MatrixMessage alloc] init];
-    localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
+    localMsg.eventId = [NSString stringWithFormat:@"local_%@", NeoGenerateUUID()];
     localMsg.sender = [[MatrixAPIClient sharedClient] userId];
     localMsg.body = @"🎤 Voice message";
     localMsg.msgType = @"m.audio";
@@ -2346,7 +2370,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     // Generate lightweight thumbnail
     __block UIImage *thumbnail = [ChatViewController generateThumbnailForVideoURL:videoURL];
 
-    NSString *pendingName = [NSString stringWithFormat:@"%@.mp4", [[NSUUID UUID] UUIDString]];
+    NSString *pendingName = [NSString stringWithFormat:@"%@.mp4", NeoGenerateUUID()];
     NSString *outputPath = [[self pendingUploadsDir] stringByAppendingPathComponent:pendingName];
     NSURL *outputURL = [NSURL fileURLWithPath:outputPath];
 
@@ -2428,7 +2452,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         if (!videoURL) return;
 
         MatrixMessage *localMsg = [[MatrixMessage alloc] init];
-        localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
+        localMsg.eventId = [NSString stringWithFormat:@"local_%@", NeoGenerateUUID()];
         localMsg.sender = [[MatrixAPIClient sharedClient] userId];
         localMsg.body = @"Video";
         localMsg.msgType = @"m.video";
@@ -2465,7 +2489,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         }
 
         MatrixMessage *localMsg = [[MatrixMessage alloc] init];
-        localMsg.eventId = [NSString stringWithFormat:@"local_%@", [[NSUUID UUID] UUIDString]];
+        localMsg.eventId = [NSString stringWithFormat:@"local_%@", NeoGenerateUUID()];
         localMsg.sender = [[MatrixAPIClient sharedClient] userId];
         localMsg.body = @"Photo";
         localMsg.msgType = @"m.image";
@@ -2563,12 +2587,21 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     }
 }
 
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self layoutInputWithBarHeight:_inputBarHeight animated:NO];
+}
+
 - (void)setInputBarHeight:(CGFloat)newH animated:(BOOL)animated {
     if (fabsf(newH - _inputBarHeight) < 0.5f) return;
     [self layoutInputWithBarHeight:newH animated:animated];
 }
 
 - (void)layoutInputWithBarHeight:(CGFloat)barH animated:(BOOL)animated {
+    [self layoutInputWithBarHeight:barH duration:animated ? 0.2 : 0.0 curve:0];
+}
+
+- (void)layoutInputWithBarHeight:(CGFloat)barH duration:(NSTimeInterval)duration curve:(NSInteger)curve {
     _inputBarHeight = barH;
 
     CGFloat replyH = (self.replyPreviewView && !self.replyPreviewView.hidden) ? [ReplyBubbleView viewHeight] : 0;
@@ -2604,8 +2637,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         }
     };
 
-    if (animated) {
-        [UIView animateWithDuration:0.2 animations:apply completion:^(BOOL finished) {
+    if (duration > 0.0) {
+        UIViewAnimationOptions options = (UIViewAnimationOptions)curve | UIViewAnimationOptionBeginFromCurrentState;
+        [UIView animateWithDuration:duration delay:0 options:options animations:apply completion:^(BOOL finished) {
             [_fieldBgView setNeedsDisplay];
         }];
     } else {
@@ -2639,19 +2673,30 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 #pragma mark - Keyboard
 
-- (void)keyboardWillShow:(NSNotification *)note {
+- (void)keyboardWillChangeFrame:(NSNotification *)note {
     NSDictionary *info = [note userInfo];
-    CGRect kbFrame = [info[UIKeyboardFrameEndUserInfoKey] CGRectValue];
-    CGFloat kbHeight = kbFrame.size.height;
+    CGRect screenFrame = [info[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect kbFrame = [self.view convertRect:screenFrame fromView:nil];
 
-    _keyboardHeight = kbHeight;
-    [self layoutInputWithBarHeight:_inputBarHeight animated:YES];
+    CGFloat visibleKbH = (kbFrame.size.height <= 0 || kbFrame.size.width <= 0)
+        ? 0.0f
+        : (self.view.bounds.size.height - kbFrame.origin.y);
+    _keyboardHeight = MAX(0.0f, visibleKbH);
+
+    NSTimeInterval duration = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    if (duration <= 0.0) duration = 0.25;
+    NSInteger curve = [info[UIKeyboardAnimationCurveUserInfoKey] integerValue] << 16;
+
+    [self layoutInputWithBarHeight:_inputBarHeight duration:duration curve:curve];
 }
 
 - (void)keyboardWillHide:(NSNotification *)note {
     _keyboardHeight = 0;
     [_mentionAutocompleteView dismissAnimated:YES];
-    [self layoutInputWithBarHeight:_inputBarHeight animated:YES];
+    NSTimeInterval duration = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    if (duration <= 0.0) duration = 0.25;
+    NSInteger curve = [note.userInfo[UIKeyboardAnimationCurveUserInfoKey] integerValue] << 16;
+    [self layoutInputWithBarHeight:_inputBarHeight duration:duration curve:curve];
 }
 
 - (NSString *)displayCaptionForMessage:(MatrixMessage *)msg {

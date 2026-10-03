@@ -14,6 +14,10 @@
 
     [ThemeManager sharedManager]; // carga theme guardado
 
+    if ([application respondsToSelector:@selector(setStatusBarStyle:)]) {
+        [application setStatusBarStyle:UIStatusBarStyleLightContent animated:NO];
+    }
+
     MatrixAPIClient *client = [MatrixAPIClient sharedClient];
 
     if (client.accessToken) {
@@ -29,9 +33,11 @@
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
         [MatrixAPIClient cleanupMediaCacheOlderThanDays:14];
-        NSString *pendingDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0]
-                                stringByAppendingPathComponent:@"PendingUploads"];
-        [[NSFileManager defaultManager] removeItemAtPath:pendingDir error:nil];
+        NSArray *caches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+        if ([caches count] > 0) {
+            NSString *pendingDir = [[caches objectAtIndex:0] stringByAppendingPathComponent:@"PendingUploads"];
+            [[NSFileManager defaultManager] removeItemAtPath:pendingDir error:nil];
+        }
     });
 
     if (launchOptions[UIApplicationLaunchOptionsLocalNotificationKey]) {

@@ -2,6 +2,7 @@
 #import "RoomListViewController.h"
 #import "ThemeManager.h"
 #import "NeoCompatibility.h"
+#import "NeoSkeuoRenderer.h"
 
 @interface NetworksViewController ()
 @property (nonatomic, strong) NSArray *networks;
@@ -97,10 +98,17 @@
 
     if (tm.isDarkGlass) {
         cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.accessoryView = [ThemeManager modernDisclosureIndicator];
         UIView *selBg = [[UIView alloc] init];
         selBg.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.22 alpha:1.0];
         cell.selectedBackgroundView = selBg;
+    } else if (tm.isSkeuomorphicMode) {
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.accessoryView = [NeoSkeuoRenderer classicDisclosureIndicator];
+        cell.selectedBackgroundView = nil;
+        cell.selectionStyle = UITableViewCellSelectionStyleGray;
     } else {
+        cell.accessoryView = nil;
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         cell.selectedBackgroundView = nil;
         cell.selectionStyle = UITableViewCellSelectionStyleGray;
@@ -122,6 +130,30 @@
     UINavigationController *nav = self.navigationController;
     if (tm.isDarkGlass) {
         [tm applyThemeToNavigationBar:nav.navigationBar];
+    } else if (tm.isSkeuomorphicMode) {
+        UIColor *tint = net[@"color"];
+        UIImage *barImg = [NeoSkeuoRenderer navBarImageWithColor:tint height:44.0f];
+        [nav.navigationBar setBackgroundImage:barImg forBarMetrics:UIBarMetricsDefault];
+        if (IS_IOS7_OR_LATER) {
+            UIImage *barImg64 = [NeoSkeuoRenderer navBarImageWithColor:tint height:64.0f];
+            if ([nav.navigationBar respondsToSelector:@selector(setBackgroundImage:forBarPosition:barMetrics:)]) {
+                [(id)nav.navigationBar setBackgroundImage:barImg64 forBarPosition:UIBarPositionTopAttached barMetrics:UIBarMetricsDefault];
+            }
+            nav.navigationBar.barTintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:tint];
+            nav.navigationBar.tintColor = [UIColor whiteColor];
+        } else {
+            nav.navigationBar.tintColor = tint;
+        }
+        nav.navigationBar.translucent = NO;
+        if ([nav.navigationBar respondsToSelector:@selector(setShadowImage:)]) {
+            nav.navigationBar.shadowImage = [NeoSkeuoRenderer clearPixelImage];
+        }
+        nav.navigationBar.titleTextAttributes = @{
+            UITextAttributeTextColor: [UIColor whiteColor],
+            UITextAttributeTextShadowColor: [UIColor colorWithWhite:0.0f alpha:0.6f],
+            UITextAttributeTextShadowOffset: [NSValue valueWithCGSize:CGSizeMake(0, -1.0f)],
+            UITextAttributeFont: [UIFont boldSystemFontOfSize:18.0f]
+        };
     } else {
         UIColor *tint = net[@"color"];
         if (IS_IOS7_OR_LATER) {

@@ -21,19 +21,15 @@ static NSString *kWpImages[] = {
 #define kWpCount 14
 static NSString *kCellId = @"WPCell";
 
+@interface WallpaperGalleryViewController () {
+    UIScrollView *_scrollView;
+}
+@end
+
 @implementation WallpaperGalleryViewController
 
 - (id)init {
-    UICollectionViewFlowLayout *layout = [[UICollectionViewFlowLayout alloc] init];
-    CGFloat screenW = [UIScreen mainScreen].bounds.size.width;
-    CGFloat spacing = 10;
-    CGFloat itemW = (screenW - spacing * 4) / 3;
-    if (itemW < 80) itemW = 80;
-    layout.itemSize = CGSizeMake(itemW, itemW * 1.4);
-    layout.minimumInteritemSpacing = spacing;
-    layout.minimumLineSpacing = spacing;
-    layout.sectionInset = UIEdgeInsetsMake(spacing, spacing, spacing, spacing);
-    self = [super initWithCollectionViewLayout:layout];
+    self = [super init];
     if (self) {
         self.title = NSLocalizedString(@"Chat Wallpaper", nil);
     }
@@ -42,8 +38,14 @@ static NSString *kCellId = @"WPCell";
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    [self.collectionView registerClass:[UICollectionViewCell class] forCellWithReuseIdentifier:kCellId];
+    self.navigationItem.leftBarButtonItem = [ThemeManager backBarButtonItemWithTarget:self action:@selector(neoBackAction)];
+    _scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
+    _scrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _scrollView.alwaysBounceVertical = YES;
+    [self.view addSubview:_scrollView];
+
     [self applyTheme];
+    [self layoutThumbnails];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(applyTheme)
@@ -51,83 +53,115 @@ static NSString *kCellId = @"WPCell";
                                                object:nil];
 }
 
+- (void)neoBackAction {
+    [self.navigationController popViewControllerAnimated:YES];
+}
+
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        self.navigationController.interactivePopGestureRecognizer.delegate = (id<UIGestureRecognizerDelegate>)self;
+    }
     [self applyTheme];
+    [self layoutThumbnails];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self layoutThumbnails];
 }
 
 - (void)applyTheme {
     ThemeManager *tm = [ThemeManager sharedManager];
-    self.collectionView.backgroundColor = [tm backgroundColor];
+    self.view.backgroundColor = [tm backgroundColor];
+    if (_scrollView) _scrollView.backgroundColor = [tm backgroundColor];
     [tm applyThemeToNavigationBar:self.navigationController.navigationBar];
     if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
 }
 
-- (NSInteger)collectionView:(UICollectionView *)cv numberOfItemsInSection:(NSInteger)section {
-    return kWpCount;
-}
-
-- (UICollectionViewCell *)collectionView:(UICollectionView *)cv cellForItemAtIndexPath:(NSIndexPath *)ip {
-    UICollectionViewCell *cell = [cv dequeueReusableCellWithReuseIdentifier:kCellId forIndexPath:ip];
-    cell.contentView.clipsToBounds = YES;
-
-    [[cell.contentView subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
-
-    NSString *base = kWpImages[ip.row];
-    NSString *thumbFile;
-    if ([base hasSuffix:@".jpg"]) {
-        thumbFile = [@"thumb_" stringByAppendingString:base];
-    } else {
-        thumbFile = [[NSString alloc] initWithFormat:@"thumb_%@.jpg", base];
+- (void)layoutThumbnails {
+    if (!_scrollView) return;
+    for (UIView *v in [_scrollView subviews]) {
+        [v removeFromSuperview];
     }
+    CGFloat screenW = _scrollView.bounds.size.width;
+    if (screenW <= 0) screenW = [UIScreen mainScreen].bounds.size.width;
+    CGFloat spacing = 10;
+    CGFloat itemW = (screenW - spacing * 4) / 3;
+    if (itemW < 80) itemW = 80;
+    CGFloat itemH = itemW * 1.4f;
 
-    UIImageView *iv = [[UIImageView alloc] initWithFrame:cell.contentView.bounds];
-    iv.image = [UIImage imageNamed:thumbFile];
-    iv.contentMode = UIViewContentModeScaleAspectFill;
-    iv.clipsToBounds = YES;
-    iv.layer.cornerRadius = 6;
-    iv.layer.borderWidth = 1;
     ThemeManager *tm = [ThemeManager sharedManager];
-    iv.layer.borderColor = [tm isDarkMode]
-        ? [[UIColor colorWithWhite:0.35 alpha:1.0] CGColor]
-        : [[UIColor colorWithWhite:0.85 alpha:1.0] CGColor];
-    iv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [cell.contentView addSubview:iv];
-
-    // Checkmark on current selection
     NSString *current = [[NSUserDefaults standardUserDefaults] stringForKey:@"neo_wallpaper"] ?: kWpImages[0];
-    if ([current isEqualToString:kWpImages[ip.row]]) {
-        UILabel *check = [[UILabel alloc] initWithFrame:CGRectMake(cell.bounds.size.width - 28, 4, 24, 24)];
-        check.text = @"✓";
-        check.textColor = [tm primaryTextColor];
-        check.font = [UIFont boldSystemFontOfSize:20];
-        check.textAlignment = NSTextAlignmentCenter;
-        check.backgroundColor = [tm isDarkMode]
-            ? [UIColor colorWithWhite:0.2 alpha:0.85]
-            : [UIColor colorWithWhite:1 alpha:0.8];
-        check.layer.cornerRadius = 12;
-        check.clipsToBounds = YES;
-        [cell.contentView addSubview:check];
+
+    CGFloat curY = spacing;
+    for (NSInteger i = 0; i < kWpCount; i++) {
+        NSInteger col = i % 3;
+        NSInteger row = i / 3;
+        CGFloat x = spacing + col * (itemW + spacing);
+        CGFloat y = spacing + row * (itemH + spacing);
+
+        UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+        btn.frame = CGRectMake(x, y, itemW, itemH);
+        btn.tag = 100 + i;
+        btn.clipsToBounds = YES;
+        btn.layer.cornerRadius = 6;
+        btn.layer.borderWidth = 1;
+        btn.layer.borderColor = [tm isDarkMode]
+            ? [[UIColor colorWithWhite:0.35 alpha:1.0] CGColor]
+            : [[UIColor colorWithWhite:0.85 alpha:1.0] CGColor];
+        [btn addTarget:self action:@selector(wallpaperTapped:) forControlEvents:UIControlEventTouchUpInside];
+
+        NSString *base = kWpImages[i];
+        NSString *thumbFile = [base hasSuffix:@".jpg"]
+            ? [@"thumb_" stringByAppendingString:base]
+            : [[NSString alloc] initWithFormat:@"thumb_%@.jpg", base];
+
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:btn.bounds];
+        iv.image = [UIImage imageNamed:thumbFile];
+        iv.contentMode = UIViewContentModeScaleAspectFill;
+        iv.clipsToBounds = YES;
+        iv.userInteractionEnabled = NO;
+        iv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [btn addSubview:iv];
+
+        if ([current isEqualToString:kWpImages[i]]) {
+            UILabel *check = [[UILabel alloc] initWithFrame:CGRectMake(itemW - 28, 4, 24, 24)];
+            check.text = @"✓";
+            check.textColor = [tm primaryTextColor];
+            check.font = [UIFont boldSystemFontOfSize:20];
+            check.textAlignment = NSTextAlignmentCenter;
+            check.backgroundColor = [tm isDarkMode]
+                ? [UIColor colorWithWhite:0.2 alpha:0.85]
+                : [UIColor colorWithWhite:1 alpha:0.8];
+            check.layer.cornerRadius = 12;
+            check.clipsToBounds = YES;
+            [btn addSubview:check];
+        }
+
+        UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, itemH - 26, itemW, 24)];
+        lbl.text = NSLocalizedString(kWpNames[i], nil);
+        lbl.font = [UIFont systemFontOfSize:11];
+        lbl.textAlignment = NSTextAlignmentCenter;
+        lbl.backgroundColor = [tm isDarkMode]
+            ? [UIColor colorWithWhite:0.15 alpha:0.8]
+            : [UIColor colorWithWhite:1 alpha:0.7];
+        lbl.textColor = [tm primaryTextColor];
+        [btn addSubview:lbl];
+
+        [_scrollView addSubview:btn];
+        curY = y + itemH + spacing;
     }
-
-    // Name label at bottom
-    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, cell.bounds.size.height - 26, cell.bounds.size.width, 24)];
-    lbl.text = NSLocalizedString(kWpNames[ip.row], nil);
-    lbl.font = [UIFont systemFontOfSize:11];
-    lbl.textAlignment = NSTextAlignmentCenter;
-    lbl.backgroundColor = [tm isDarkMode]
-        ? [UIColor colorWithWhite:0.15 alpha:0.8]
-        : [UIColor colorWithWhite:1 alpha:0.7];
-    lbl.textColor = [tm primaryTextColor];
-    [cell.contentView addSubview:lbl];
-
-    return cell;
+    _scrollView.contentSize = CGSizeMake(screenW, curY);
 }
 
-- (void)collectionView:(UICollectionView *)cv didSelectItemAtIndexPath:(NSIndexPath *)ip {
-    [[NSUserDefaults standardUserDefaults] setObject:kWpImages[ip.row] forKey:@"neo_wallpaper"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
-    [self.navigationController popViewControllerAnimated:YES];
+- (void)wallpaperTapped:(UIButton *)btn {
+    NSInteger idx = btn.tag - 100;
+    if (idx >= 0 && idx < kWpCount) {
+        [[NSUserDefaults standardUserDefaults] setObject:kWpImages[idx] forKey:@"neo_wallpaper"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+        [self.navigationController popViewControllerAnimated:YES];
+    }
 }
 
 - (void)dealloc {

@@ -100,11 +100,7 @@
                                                  name:NeoDemoModeDidChangeNotification
                                                object:nil];
 
-    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc]
-        initWithTitle:NSLocalizedString(@"Back", nil)
-                style:UIBarButtonItemStylePlain
-               target:self
-               action:@selector(backTapped)];
+    self.navigationItem.leftBarButtonItem = [ThemeManager backBarButtonItemWithTarget:self action:@selector(backTapped)];
 
     if (!self.roomAvatar && self.room.roomId) {
         UIImage *cached = [[MatrixAPIClient sharedClient].avatarCache

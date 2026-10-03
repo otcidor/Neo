@@ -273,6 +273,10 @@ static NSString *kWpImages[] = {
             UIView *selBg = [[UIView alloc] init];
             selBg.backgroundColor = [UIColor colorWithRed:0.18 green:0.22 blue:0.28 alpha:1.0];
             cell.selectedBackgroundView = selBg;
+        } else if (tm_cell.isSkeuomorphicMode) {
+            cell.accessoryView = [ThemeManager disclosureIndicator];
+            cell.selectedBackgroundView = nil;
+            cell.selectionStyle = UITableViewCellSelectionStyleBlue;
         } else {
             cell.accessoryView = nil;
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
@@ -382,7 +386,8 @@ static NSString *kWpImages[] = {
 
 - (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section {
     ThemeManager *tm = [ThemeManager sharedManager];
-    if ([view isKindOfClass:[UITableViewHeaderFooterView class]]) {
+    Class hfClass = NSClassFromString(@"UITableViewHeaderFooterView");
+    if (hfClass && [view isKindOfClass:hfClass]) {
         UITableViewHeaderFooterView *hv = (UITableViewHeaderFooterView *)view;
         hv.textLabel.textColor = [tm secondaryTextColor];
         hv.contentView.backgroundColor = [tm backgroundColor];

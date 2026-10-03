@@ -37,6 +37,7 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Bubble Style";
+    self.navigationItem.leftBarButtonItem = [ThemeManager backBarButtonItemWithTarget:self action:@selector(neoBackAction)];
     self.tableView.rowHeight = 60;
 
     self.styles = @[
@@ -60,8 +61,15 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
                                                object:nil];
 }
 
+- (void)neoBackAction {
+    [self.navigationController popViewControllerAnimated:YES];
+}
+
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        self.navigationController.interactivePopGestureRecognizer.delegate = (id<UIGestureRecognizerDelegate>)self;
+    }
     [self applyTheme];
 }
 

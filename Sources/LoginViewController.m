@@ -53,7 +53,9 @@
     self.homeserverField.textColor = [UIColor whiteColor];
     self.homeserverField.keyboardAppearance = UIKeyboardAppearanceAlert;
     UIColor *phColor = [UIColor colorWithWhite:0.5 alpha:1.0];
-    self.homeserverField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"https://matrix.example.com" attributes:@{NSForegroundColorAttributeName: phColor}];
+    if (IS_IOS6_OR_LATER && [self.homeserverField respondsToSelector:@selector(setAttributedPlaceholder:)] && NSForegroundColorAttributeName) {
+        self.homeserverField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"https://matrix.example.com" attributes:@{NSForegroundColorAttributeName: phColor}];
+    }
     NSString *savedHomeserver = [[NSUserDefaults standardUserDefaults]
         stringForKey:@"matrix_homeserver"];
     if ([savedHomeserver length] > 0) {
@@ -74,7 +76,9 @@
     self.usernameField.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
     self.usernameField.textColor = [UIColor whiteColor];
     self.usernameField.keyboardAppearance = UIKeyboardAppearanceAlert;
-    self.usernameField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:NSLocalizedString(@"Username", nil) attributes:@{NSForegroundColorAttributeName: phColor}];
+    if (IS_IOS6_OR_LATER && [self.usernameField respondsToSelector:@selector(setAttributedPlaceholder:)] && NSForegroundColorAttributeName) {
+        self.usernameField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:NSLocalizedString(@"Username", nil) attributes:@{NSForegroundColorAttributeName: phColor}];
+    }
     [self.view addSubview:self.usernameField];
 
     self.passwordField = [[UITextField alloc] initWithFrame:CGRectMake(20, midY + 108, w - 40, 44)];
@@ -89,7 +93,9 @@
     self.passwordField.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
     self.passwordField.textColor = [UIColor whiteColor];
     self.passwordField.keyboardAppearance = UIKeyboardAppearanceAlert;
-    self.passwordField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:NSLocalizedString(@"Password", nil) attributes:@{NSForegroundColorAttributeName: phColor}];
+    if (IS_IOS6_OR_LATER && [self.passwordField respondsToSelector:@selector(setAttributedPlaceholder:)] && NSForegroundColorAttributeName) {
+        self.passwordField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:NSLocalizedString(@"Password", nil) attributes:@{NSForegroundColorAttributeName: phColor}];
+    }
     [self.view addSubview:self.passwordField];
 
     self.loginButton = [UIButton buttonWithType:UIButtonTypeCustom];

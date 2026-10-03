@@ -35,11 +35,16 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    self.navigationItem.leftBarButtonItem = [ThemeManager backBarButtonItemWithTarget:self action:@selector(neoBackAction)];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(handleThemeChanged)
                                                  name:NeoThemeDidChangeNotification
                                                object:nil];
     [self applyThemeToUI];
+}
+
+- (void)neoBackAction {
+    [self.navigationController popViewControllerAnimated:YES];
 }
 
 - (void)dealloc {
@@ -68,12 +73,13 @@
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 3;
+    return 4;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if (section == 0) return NSLocalizedString(@"Light", nil);
-    if (section == 1) return NSLocalizedString(@"Dark", nil);
+    if (section == 0) return NSLocalizedString(@"Interface Style", nil);
+    if (section == 1) return NSLocalizedString(@"Light", nil);
+    if (section == 2) return NSLocalizedString(@"Dark", nil);
     return NSLocalizedString(@"Others", nil);
 }
 
@@ -100,7 +106,7 @@
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
-    return (section == 2) ? 24.0f : 12.0f;
+    return (section == 3) ? 24.0f : 12.0f;
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
@@ -112,8 +118,9 @@
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0) return [_lightThemes count];
-    if (section == 1) return [_darkThemes count];
+    if (section == 0) return 2;
+    if (section == 1) return [_lightThemes count];
+    if (section == 2) return [_darkThemes count];
     return [_darkGlassThemes count];
 }
 
@@ -130,12 +137,8 @@
                                       reuseIdentifier:cellId];
     }
 
-    NSArray *themes = (indexPath.section == 0) ? _lightThemes : ((indexPath.section == 1) ? _darkThemes : _darkGlassThemes);
-    NeoThemeId themeId = (NeoThemeId)[themes[indexPath.row] integerValue];
     ThemeManager *tm = [ThemeManager sharedManager];
-
     cell.backgroundColor = [tm cellBackgroundColor];
-    cell.textLabel.text = [ThemeManager nameForThemeId:themeId];
     cell.textLabel.textColor = [tm primaryTextColor];
     cell.textLabel.font = [UIFont systemFontOfSize:16];
     cell.textLabel.backgroundColor = [UIColor clearColor];
@@ -159,6 +162,40 @@
         swatch.layer.masksToBounds = YES;
         [cell.contentView addSubview:swatch];
     }
+
+    CGFloat cellW = tableView.bounds.size.width;
+
+    if (indexPath.section == 0) {
+        // Interface Style section: Skeuomorphic vs Flat
+        if (indexPath.row == 0) {
+            cell.textLabel.text = NSLocalizedString(@"iOS 6 Skeuomorphic", nil);
+            swatch.backgroundColor = [UIColor colorWithRed:0.20f green:0.52f blue:0.88f alpha:1.0f];
+            cell.accessoryType = tm.isSkeuomorphicMode ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
+        } else {
+            cell.textLabel.text = NSLocalizedString(@"Modern Flat", nil);
+            swatch.backgroundColor = [UIColor colorWithWhite:0.45f alpha:1.0f];
+            cell.accessoryType = !tm.isSkeuomorphicMode ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
+        }
+        swatch.layer.borderWidth = 0.5f;
+        swatch.layer.borderColor = [UIColor colorWithWhite:1.0f alpha:0.2f].CGColor;
+
+        UIView *sep = [cell.contentView viewWithTag:98];
+        if (!sep) {
+            sep = [[UIView alloc] initWithFrame:CGRectZero];
+            sep.tag = 98;
+            sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+            [cell.contentView addSubview:sep];
+        }
+        sep.frame = (indexPath.row == 1) ? CGRectMake(0, 43.5f, cellW, 0.5f) : CGRectMake(56.0f, 43.5f, cellW - 56.0f, 0.5f);
+        sep.backgroundColor = [tm separatorColor];
+        return cell;
+    }
+
+    // Color themes sections:
+    NSArray *themes = (indexPath.section == 1) ? _lightThemes : ((indexPath.section == 2) ? _darkThemes : _darkGlassThemes);
+    NeoThemeId themeId = (NeoThemeId)[themes[indexPath.row] integerValue];
+
+    cell.textLabel.text = [ThemeManager nameForThemeId:themeId];
     swatch.backgroundColor = [ThemeManager swatchColorForThemeId:themeId];
     if (tm.isDarkGlass) {
         swatch.layer.borderWidth = 0.5f;
@@ -173,7 +210,6 @@
         cell.accessoryType = UITableViewCellAccessoryNone;
     }
 
-    CGFloat cellW = tableView.bounds.size.width;
     BOOL isLastRow = (indexPath.row == [themes count] - 1);
     UIView *sep = [cell.contentView viewWithTag:98];
     if (!sep) {
@@ -190,9 +226,19 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    NSArray *themes = (indexPath.section == 0) ? _lightThemes : ((indexPath.section == 1) ? _darkThemes : _darkGlassThemes);
+    ThemeManager *tm = [ThemeManager sharedManager];
+
+    if (indexPath.section == 0) {
+        BOOL skeuo = (indexPath.row == 0);
+        [tm setSkeuomorphicMode:skeuo];
+        [self applyThemeToUI];
+        [tableView reloadData];
+        return;
+    }
+
+    NSArray *themes = (indexPath.section == 1) ? _lightThemes : ((indexPath.section == 2) ? _darkThemes : _darkGlassThemes);
     NeoThemeId themeId = (NeoThemeId)[themes[indexPath.row] integerValue];
-    [[ThemeManager sharedManager] setThemeId:themeId];
+    [tm setThemeId:themeId];
     [self applyThemeToUI];
     [tableView reloadData];
 }
