@@ -23,9 +23,11 @@
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    self.tableView.rowHeight = 60;
+    self.tableView.rowHeight = 70.0f;
     self.tableView.tableFooterView = [[UIView alloc] init];
-    if (IS_IOS7_OR_LATER) self.tableView.separatorInset = UIEdgeInsetsMake(0, 15, 0, 0);
+    if (IS_IOS7_OR_LATER) {
+        self.tableView.separatorInset = UIEdgeInsetsMake(0, 74, 0, 0);
+    }
     [view addSubview:self.tableView];
 }
 
@@ -34,14 +36,38 @@
     self.title = NSLocalizedString(@"Networks", nil);
 
     self.networks = @[
-        @{@"name": @"WhatsApp",  @"filter": @"whatsapp",  @"theme": @(SpaceThemeWhatsApp),
-          @"color": [UIColor colorWithRed:0.145 green:0.827 blue:0.400 alpha:1.0]},
-        @{@"name": @"Telegram",  @"filter": @"telegram",  @"theme": @(SpaceThemeTelegram),
-          @"color": [UIColor colorWithRed:0.0 green:0.533 blue:0.800 alpha:1.0]},
-        @{@"name": @"Discord",   @"filter": @"discord",   @"theme": @(SpaceThemeDiscord),
-          @"color": [UIColor colorWithRed:0.345 green:0.396 blue:0.949 alpha:1.0]},
-        @{@"name": @"Instagram", @"filter": @"instagram", @"theme": @(SpaceThemeInstagram),
-          @"color": [UIColor colorWithRed:0.882 green:0.188 blue:0.424 alpha:1.0]},
+        @{
+            @"name": @"WhatsApp",
+            @"subtitle": NSLocalizedString(@"WhatsApp bridge rooms & chats", nil),
+            @"filter": @"whatsapp",
+            @"icon": @"network_whatsapp",
+            @"theme": @(SpaceThemeWhatsApp),
+            @"color": [UIColor colorWithRed:0.145 green:0.827 blue:0.400 alpha:1.0]
+        },
+        @{
+            @"name": @"Telegram",
+            @"subtitle": NSLocalizedString(@"Telegram groups & channels", nil),
+            @"filter": @"telegram",
+            @"icon": @"network_telegram",
+            @"theme": @(SpaceThemeTelegram),
+            @"color": [UIColor colorWithRed:0.0 green:0.533 blue:0.800 alpha:1.0]
+        },
+        @{
+            @"name": @"Discord",
+            @"subtitle": NSLocalizedString(@"Discord guilds & direct messages", nil),
+            @"filter": @"discord",
+            @"icon": @"network_discord",
+            @"theme": @(SpaceThemeDiscord),
+            @"color": [UIColor colorWithRed:0.345 green:0.396 blue:0.949 alpha:1.0]
+        },
+        @{
+            @"name": @"Instagram",
+            @"subtitle": NSLocalizedString(@"Instagram direct messages", nil),
+            @"filter": @"instagram",
+            @"icon": @"network_instagram",
+            @"theme": @(SpaceThemeInstagram),
+            @"color": [UIColor colorWithRed:0.882 green:0.188 blue:0.424 alpha:1.0]
+        },
     ];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -74,28 +100,149 @@
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    return 1;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    return 34.0f;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    CGFloat w = tableView.bounds.size.width;
+    UIView *h = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 34.0f)];
+    h.backgroundColor = [tm backgroundColor];
+
+    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, w - 32, 16)];
+    lbl.font = [UIFont boldSystemFontOfSize:12.0f];
+    lbl.textColor = [tm secondaryTextColor];
+    lbl.backgroundColor = [UIColor clearColor];
+    lbl.text = [NSLocalizedString(@"Bridged Networks", nil) uppercaseString];
+    if (tm.isSkeuomorphicMode) {
+        lbl.shadowColor = tm.isDarkMode ? [UIColor colorWithWhite:0.0f alpha:0.6f] : [UIColor whiteColor];
+        lbl.shadowOffset = tm.isDarkMode ? CGSizeMake(0, -1.0f) : CGSizeMake(0, 1.0f);
+    }
+    [h addSubview:lbl];
+    return h;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
+    return 44.0f;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
+    ThemeManager *tm = [ThemeManager sharedManager];
+    CGFloat w = tableView.bounds.size.width;
+    UIView *f = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 44.0f)];
+    f.backgroundColor = [tm backgroundColor];
+
+    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(16, 8, w - 32, 28)];
+    lbl.font = [UIFont systemFontOfSize:12.0f];
+    lbl.textColor = [tm secondaryTextColor];
+    lbl.numberOfLines = 2;
+    lbl.backgroundColor = [UIColor clearColor];
+    lbl.text = NSLocalizedString(@"Conversations from external networks bridged to your Matrix account.", nil);
+    if (tm.isSkeuomorphicMode) {
+        lbl.shadowColor = tm.isDarkMode ? [UIColor colorWithWhite:0.0f alpha:0.6f] : [UIColor whiteColor];
+        lbl.shadowOffset = tm.isDarkMode ? CGSizeMake(0, -1.0f) : CGSizeMake(0, 1.0f);
+    }
+    [f addSubview:lbl];
+    return f;
+}
+
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)section {
     return [self.networks count];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
-    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"cell"];
+    static NSString *cellId = @"NetworkCell";
+    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cellId];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
-                                      reuseIdentifier:@"cell"];
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        cell.selectionStyle = UITableViewCellSelectionStyleGray;
+                                      reuseIdentifier:cellId];
+
+        // 1. Icon Container with elevation shadow
+        UIView *shadowBox = [[UIView alloc] initWithFrame:CGRectMake(14, 11, 48, 48)];
+        shadowBox.tag = 101;
+        shadowBox.backgroundColor = [UIColor clearColor];
+        shadowBox.layer.shadowColor = [UIColor blackColor].CGColor;
+        shadowBox.layer.shadowOpacity = 0.28f;
+        shadowBox.layer.shadowOffset = CGSizeMake(0, 1.5f);
+        shadowBox.layer.shadowRadius = 2.0f;
+        shadowBox.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, 48, 48) cornerRadius:10.0f].CGPath;
+
+        // 2. Icon ImageView inside shadowBox
+        UIImageView *iconView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 48, 48)];
+        iconView.tag = 102;
+        iconView.layer.cornerRadius = 10.0f;
+        iconView.layer.masksToBounds = YES;
+        iconView.layer.borderWidth = 0.5f;
+        iconView.layer.borderColor = [UIColor colorWithWhite:0.0f alpha:0.25f].CGColor;
+        iconView.contentMode = UIViewContentModeScaleAspectFill;
+        [shadowBox addSubview:iconView];
+        [cell.contentView addSubview:shadowBox];
+
+        // 3. Title Label
+        UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(74, 15, cell.contentView.bounds.size.width - 110, 22)];
+        titleLabel.tag = 103;
+        titleLabel.font = [UIFont boldSystemFontOfSize:17.0f];
+        titleLabel.backgroundColor = [UIColor clearColor];
+        titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [cell.contentView addSubview:titleLabel];
+
+        // 4. Subtitle Label
+        UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(74, 38, cell.contentView.bounds.size.width - 110, 18)];
+        subLabel.tag = 104;
+        subLabel.font = [UIFont systemFontOfSize:13.0f];
+        subLabel.backgroundColor = [UIColor clearColor];
+        subLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [cell.contentView addSubview:subLabel];
     }
 
     NSDictionary *net = self.networks[ip.row];
-    cell.textLabel.text = net[@"name"];
-    cell.textLabel.textColor = net[@"color"];
-    cell.imageView.image = nil;
-
     ThemeManager *tm = [ThemeManager sharedManager];
-    cell.backgroundColor = [tm cellBackgroundColor];
-    cell.textLabel.backgroundColor = [UIColor clearColor];
 
+    cell.backgroundColor = [tm cellBackgroundColor];
+
+    // Configure Icon
+    UIView *shadowBox = [cell.contentView viewWithTag:101];
+    UIImageView *iconView = (UIImageView *)[shadowBox viewWithTag:102];
+    NSString *iconName = net[@"icon"];
+    UIImage *iconImg = [UIImage imageNamed:iconName];
+    iconView.image = iconImg;
+
+    // Configure Title
+    UILabel *titleLabel = (UILabel *)[cell.contentView viewWithTag:103];
+    titleLabel.text = net[@"name"];
+    titleLabel.textColor = [tm primaryTextColor];
+
+    // Configure Subtitle
+    UILabel *subLabel = (UILabel *)[cell.contentView viewWithTag:104];
+    subLabel.text = net[@"subtitle"];
+    subLabel.textColor = [tm secondaryTextColor];
+
+    // Text shadows for skeuomorphic depth
+    if (tm.isSkeuomorphicMode) {
+        if (tm.isDarkMode) {
+            titleLabel.shadowColor = [UIColor colorWithWhite:0.0f alpha:0.8f];
+            titleLabel.shadowOffset = CGSizeMake(0, -1.0f);
+            subLabel.shadowColor = [UIColor colorWithWhite:0.0f alpha:0.6f];
+            subLabel.shadowOffset = CGSizeMake(0, -1.0f);
+        } else {
+            titleLabel.shadowColor = [UIColor whiteColor];
+            titleLabel.shadowOffset = CGSizeMake(0, 1.0f);
+            subLabel.shadowColor = [UIColor colorWithWhite:1.0f alpha:0.8f];
+            subLabel.shadowOffset = CGSizeMake(0, 1.0f);
+        }
+    } else {
+        titleLabel.shadowColor = nil;
+        titleLabel.shadowOffset = CGSizeZero;
+        subLabel.shadowColor = nil;
+        subLabel.shadowOffset = CGSizeZero;
+    }
+
+    // Accessory and Selection Style
     if (tm.isDarkGlass) {
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.accessoryView = [ThemeManager modernDisclosureIndicator];
@@ -105,8 +252,13 @@
     } else if (tm.isSkeuomorphicMode) {
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.accessoryView = [NeoSkeuoRenderer classicDisclosureIndicator];
-        cell.selectedBackgroundView = nil;
-        cell.selectionStyle = UITableViewCellSelectionStyleGray;
+        UIView *selBg = [[UIView alloc] init];
+        if (tm.isDarkMode) {
+            selBg.backgroundColor = [UIColor colorWithRed:0.18 green:0.20 blue:0.26 alpha:1.0];
+        } else {
+            selBg.backgroundColor = [UIColor colorWithRed:0.88 green:0.91 blue:0.96 alpha:1.0];
+        }
+        cell.selectedBackgroundView = selBg;
     } else {
         cell.accessoryView = nil;
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
