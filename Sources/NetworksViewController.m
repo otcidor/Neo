@@ -88,7 +88,40 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self applyTheme];
+    [self updateBottomInset];
     [self.tableView reloadData];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self updateBottomInset];
+}
+
+- (void)updateBottomInset {
+    CGFloat bottomInset = 0.0f;
+    if (self.tabBarController && !self.tabBarController.tabBar.hidden) {
+        UITabBar *tabBar = self.tabBarController.tabBar;
+        if (tabBar.window && self.tableView.window) {
+            CGRect tabInTable = [self.tableView convertRect:tabBar.bounds fromView:tabBar];
+            CGFloat overlap = CGRectGetMaxY(self.tableView.bounds) - tabInTable.origin.y;
+            if (overlap > 0.0f && overlap < 200.0f) {
+                bottomInset = overlap;
+            }
+        }
+        if (bottomInset <= 0.0f) {
+            bottomInset = tabBar.bounds.size.height;
+            if (bottomInset <= 0.0f) bottomInset = 49.0f;
+        }
+    }
+    CGFloat target = (bottomInset > 0.0f) ? (bottomInset + 10.0f) : 0.0f;
+    UIEdgeInsets current = self.tableView.contentInset;
+    if (fabs(current.bottom - target) > 0.5f) {
+        current.bottom = target;
+        self.tableView.contentInset = current;
+        UIEdgeInsets scroll = self.tableView.scrollIndicatorInsets;
+        scroll.bottom = target;
+        self.tableView.scrollIndicatorInsets = scroll;
+    }
 }
 
 - (void)applyTheme {

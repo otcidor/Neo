@@ -95,7 +95,40 @@ static NSString *kWpImages[] = {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self applyThemeToUI];
+    [self updateBottomInset];
     [_tableView reloadData];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self updateBottomInset];
+}
+
+- (void)updateBottomInset {
+    CGFloat bottomInset = 0.0f;
+    if (self.tabBarController && !self.tabBarController.tabBar.hidden) {
+        UITabBar *tabBar = self.tabBarController.tabBar;
+        if (tabBar.window && _tableView.window) {
+            CGRect tabInTable = [_tableView convertRect:tabBar.bounds fromView:tabBar];
+            CGFloat overlap = CGRectGetMaxY(_tableView.bounds) - tabInTable.origin.y;
+            if (overlap > 0.0f && overlap < 200.0f) {
+                bottomInset = overlap;
+            }
+        }
+        if (bottomInset <= 0.0f) {
+            bottomInset = tabBar.bounds.size.height;
+            if (bottomInset <= 0.0f) bottomInset = 49.0f;
+        }
+    }
+    CGFloat target = (bottomInset > 0.0f) ? (bottomInset + 10.0f) : 0.0f;
+    UIEdgeInsets current = _tableView.contentInset;
+    if (fabs(current.bottom - target) > 0.5f) {
+        current.bottom = target;
+        _tableView.contentInset = current;
+        UIEdgeInsets scroll = _tableView.scrollIndicatorInsets;
+        scroll.bottom = target;
+        _tableView.scrollIndicatorInsets = scroll;
+    }
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {

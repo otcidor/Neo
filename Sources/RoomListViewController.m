@@ -155,9 +155,14 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
     if (!self.filteredRooms) self.filteredRooms = [NSMutableArray array];
     CGFloat w = self.view.bounds.size.width;
+    if ([NeoSplitViewController isPad] && (w <= 0 || w > 400.0f)) {
+        w = 320.0f;
+    }
 
     UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 44)];
+    headerView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, w, 44)];
+    self.searchBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     self.searchBar.placeholder = NSLocalizedString(@"Search", nil);
     self.searchBar.delegate = self;
     self.searchBar.showsCancelButton = NO;
@@ -407,9 +412,59 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         self.view.backgroundColor = [UIColor whiteColor];
     }
     [self applySearchBarTheme];
+    [self updateLayoutFrames];
     // Data is always current: the model is fed by MatrixRoomBatchNotification
     // (persistent observer since loadView). Just re-render the current filters.
     [self applyFilters];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self updateLayoutFrames];
+}
+
+- (void)updateLayoutFrames {
+    CGFloat tableW = self.tableView.bounds.size.width;
+    if (tableW > 0) {
+        UIView *header = self.tableView.tableHeaderView;
+        if (header) {
+            CGRect hFrame = header.frame;
+            if (fabs(hFrame.size.width - tableW) > 0.5f || fabs(self.searchBar.frame.size.width - tableW) > 0.5f) {
+                hFrame.size.width = tableW;
+                header.frame = hFrame;
+                self.searchBar.frame = CGRectMake(0, 0, tableW, 44);
+                self.tableView.tableHeaderView = header;
+            }
+        }
+    }
+
+    // Fix: Tab bar covering the last room cell on iPad / in container view controllers
+    CGFloat bottomInset = 0.0f;
+    if (self.tabBarController && !self.tabBarController.tabBar.hidden) {
+        UITabBar *tabBar = self.tabBarController.tabBar;
+        if (tabBar.window && self.tableView.window) {
+            CGRect tabInTable = [self.tableView convertRect:tabBar.bounds fromView:tabBar];
+            CGFloat overlap = CGRectGetMaxY(self.tableView.bounds) - tabInTable.origin.y;
+            if (overlap > 0.0f && overlap < 200.0f) {
+                bottomInset = overlap;
+            }
+        }
+        if (bottomInset <= 0.0f) {
+            bottomInset = tabBar.bounds.size.height;
+            if (bottomInset <= 0.0f) bottomInset = 49.0f;
+        }
+    }
+
+    // Add 10pt padding for clean breathing room above tab bar
+    CGFloat targetBottomInset = (bottomInset > 0.0f) ? (bottomInset + 10.0f) : 0.0f;
+    UIEdgeInsets currentInsets = self.tableView.contentInset;
+    if (fabs(currentInsets.bottom - targetBottomInset) > 0.5f) {
+        currentInsets.bottom = targetBottomInset;
+        self.tableView.contentInset = currentInsets;
+        UIEdgeInsets scrollInsets = self.tableView.scrollIndicatorInsets;
+        scrollInsets.bottom = targetBottomInset;
+        self.tableView.scrollIndicatorInsets = scrollInsets;
+    }
 }
 
 - (void)handleSessionExpired {
