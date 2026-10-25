@@ -41,6 +41,15 @@ static void NeoApplyTLS(CurlHandle h) {
     }
 }
 
+static void NeoApplyProxy(CurlHandle h) {
+    NSString *proxy = [[NSUserDefaults standardUserDefaults] stringForKey:@"neo_network_proxy"];
+    if (proxy && [proxy length] > 0) {
+        curl_bridge_set_proxy(h, [proxy UTF8String]);
+    } else {
+        curl_bridge_set_proxy(h, NULL);
+    }
+}
+
 static void *NeoBuildHeaders(NSDictionary *headers) {
     void *list = NULL;
     for (NSString *key in headers) {
@@ -112,6 +121,7 @@ static int NeoUploadProgressCallback(void *clientp,
 
         curl_bridge_set_url(h, [urlString UTF8String]);
         NeoApplyTLS(h);
+        NeoApplyProxy(h);
         curl_bridge_set_timeout(h, 0); // no hard timeout for media uploads
         curl_bridge_set_low_speed_abort(h, 1, 30); // abort only if stalled below 1 byte/s for 30s
         curl_bridge_set_write_fn(h, NeoWriteCallback, (__bridge void *)respBuf);
@@ -178,6 +188,7 @@ static int NeoUploadProgressCallback(void *clientp,
 
         curl_bridge_set_url(h, [urlString UTF8String]);
         NeoApplyTLS(h);
+        NeoApplyProxy(h);
         curl_bridge_set_timeout(h, 120);
         curl_bridge_set_low_speed_abort(h, 1, 30);
         curl_bridge_set_write_fn(h, NeoWriteCallback, (__bridge void *)respBuf);
@@ -224,6 +235,7 @@ static int NeoUploadProgressCallback(void *clientp,
 
         curl_bridge_set_url(h, [urlString UTF8String]);
         NeoApplyTLS(h);
+        NeoApplyProxy(h);
         curl_bridge_set_follow_redirects(h);
         curl_bridge_set_timeout(h, timeout > 0 ? timeout : 30);
         curl_bridge_set_write_fn(h, NeoWriteCallback, (__bridge void *)respBuf);

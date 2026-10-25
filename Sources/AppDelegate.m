@@ -6,6 +6,7 @@
 #import "RoomListViewController.h"
 #import "ThemeManager.h"
 #import "NeoBackgroundKeeper.h"
+#import "NeoSplitViewController.h"
 
 @implementation AppDelegate
 
@@ -23,7 +24,13 @@
 
     if (client.accessToken) {
         self.tabBarController = [[TabBarController alloc] init];
-        self.window.rootViewController = self.tabBarController;
+        if ([NeoSplitViewController isPad]) {
+            NeoSplitViewController *splitVC = [NeoSplitViewController sharedSplitViewController];
+            splitVC.masterViewController = self.tabBarController;
+            self.window.rootViewController = splitVC;
+        } else {
+            self.window.rootViewController = self.tabBarController;
+        }
     } else {
         self.loginViewController = [[LoginViewController alloc] init];
         self.navigationController = [[UINavigationController alloc] initWithRootViewController:self.loginViewController];

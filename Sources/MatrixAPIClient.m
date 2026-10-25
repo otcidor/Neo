@@ -7,6 +7,7 @@
 #import "NeoDatabase.h"
 #import <Security/Security.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <CFNetwork/CFNetwork.h>
 
 static const NSInteger kMaxConcurrentImageDownloads = 4;
 
@@ -131,6 +132,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
     self.accessToken = nil;
     self.deviceId = nil;
     self.userId = nil;
+    [MatrixAPIClient clearRoomNamesCache];
 }
 
 - (void)clearAllCaches {
@@ -143,6 +145,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
     [self.avatarCache removeAllObjects];
     [[NeoImageMemoryCache sharedCache] clearMemory];
     [[NeoDatabase sharedDatabase] clearAll];
+    [MatrixAPIClient clearRoomNamesCache];
 
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *cachesRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0];
@@ -188,6 +191,72 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
     return req;
 }
 
+static NSDictionary *NeoProxyDictionaryForString(NSString *proxyStr) {
+    if (!proxyStr || [proxyStr length] == 0) return nil;
+    NSURL *url = [NSURL URLWithString:proxyStr];
+    NSString *scheme = [[url scheme] lowercaseString];
+    NSString *host = [url host];
+    NSNumber *port = [url port];
+
+    if (!host) {
+        NSArray *parts = [proxyStr componentsSeparatedByString:@":"];
+        if ([parts count] >= 1) {
+            host = parts[0];
+            if ([parts count] >= 2) {
+                port = @([parts[1] integerValue]);
+            }
+        }
+    }
+    if (!host || [host length] == 0) return nil;
+    if (!port || [port integerValue] <= 0) {
+        port = @(1080);
+    }
+
+    NSMutableDictionary *proxyDict = [NSMutableDictionary dictionary];
+    if ([scheme hasPrefix:@"socks"]) {
+        proxyDict[(NSString *)kCFStreamPropertySOCKSProxyHost] = host;
+        proxyDict[(NSString *)kCFStreamPropertySOCKSProxyPort] = port;
+        proxyDict[(NSString *)kCFStreamPropertySOCKSVersion] = (NSString *)kCFStreamSocketSOCKSVersion5;
+    } else {
+        proxyDict[(NSString *)kCFNetworkProxiesHTTPEnable] = @YES;
+        proxyDict[(NSString *)kCFNetworkProxiesHTTPProxy] = host;
+        proxyDict[(NSString *)kCFNetworkProxiesHTTPPort] = port;
+        proxyDict[@"HTTPSEnable"] = @YES;
+        proxyDict[@"HTTPSProxy"] = host;
+        proxyDict[@"HTTPSPort"] = port;
+    }
+    return proxyDict;
+}
+
+static id sNeoConfiguredSession = nil;
+static NSString *sNeoConfiguredProxy = nil;
+
+static id NeoGetSession(void) {
+    Class sessionClass = NSClassFromString(@"NSURLSession");
+    if (!sessionClass) return nil;
+
+    NSString *proxyStr = [[NSUserDefaults standardUserDefaults] stringForKey:@"neo_network_proxy"];
+    if (!proxyStr || [proxyStr length] == 0) {
+        sNeoConfiguredSession = nil;
+        sNeoConfiguredProxy = nil;
+        return [sessionClass sharedSession];
+    }
+
+    if (sNeoConfiguredSession && [sNeoConfiguredProxy isEqualToString:proxyStr]) {
+        return sNeoConfiguredSession;
+    }
+
+    Class configClass = NSClassFromString(@"NSURLSessionConfiguration");
+    id config = [configClass defaultSessionConfiguration];
+    NSDictionary *proxyDict = NeoProxyDictionaryForString(proxyStr);
+    if (proxyDict && [config respondsToSelector:@selector(setConnectionProxyDictionary:)]) {
+        [config setConnectionProxyDictionary:proxyDict];
+    }
+    sNeoConfiguredProxy = [proxyStr copy];
+    sNeoConfiguredSession = [sessionClass sessionWithConfiguration:config];
+    return sNeoConfiguredSession;
+}
+
 - (void)sendRequest:(NSURLRequest *)request completion:(MatrixCompletion)completion {
     void (^safeCompletion)(NSDictionary *, NSError *) = ^(NSDictionary *resp, NSError *err) {
         if (completion) completion(resp, err);
@@ -229,7 +298,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 
     Class sessionClass = NSClassFromString(@"NSURLSession");
     if (IS_IOS7_OR_LATER && sessionClass) {
-        id session = [sessionClass sharedSession];
+        id session = NeoGetSession();
         [[session dataTaskWithRequest:request
                     completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -1325,6 +1394,62 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 }
 
 #pragma mark - Local room names
+
+static NSMutableDictionary *sRoomNamesCache = nil;
+
++ (void)clearRoomNamesCache {
+    @synchronized([MatrixAPIClient class]) {
+        [sRoomNamesCache removeAllObjects];
+    }
+}
+
++ (void)loadRoomNamesFromDiskCache {
+    NSString *cachePath = [[self sharedClient] roomCachePath];
+    if (!cachePath) return;
+    NSArray *cached = [NSArray arrayWithContentsOfFile:cachePath];
+    if ([cached isKindOfClass:[NSArray class]]) {
+        for (NSDictionary *d in cached) {
+            if ([d isKindOfClass:[NSDictionary class]]) {
+                NSString *rId = d[@"roomId"];
+                NSString *rName = d[@"name"];
+                if ([rId isKindOfClass:[NSString class]] && [rId length] > 0 &&
+                    [rName isKindOfClass:[NSString class]] && [rName length] > 0) {
+                    sRoomNamesCache[rId] = rName;
+                }
+            }
+        }
+    }
+}
+
++ (NSString *)nameForRoomId:(NSString *)roomId {
+    if (!roomId || [roomId length] == 0) return nil;
+    NSString *local = [self localNameForRoomId:roomId];
+    if (local && [local length] > 0) return local;
+
+    @synchronized([MatrixAPIClient class]) {
+        if (!sRoomNamesCache) {
+            sRoomNamesCache = [[NSMutableDictionary alloc] init];
+            [self loadRoomNamesFromDiskCache];
+        }
+        NSString *name = sRoomNamesCache[roomId];
+        if (name && [name length] > 0) return name;
+
+        // Try reloading disk cache in case it was updated
+        [self loadRoomNamesFromDiskCache];
+        return sRoomNamesCache[roomId];
+    }
+}
+
++ (void)cacheRoomName:(NSString *)name forRoomId:(NSString *)roomId {
+    if (!roomId || [roomId length] == 0 || !name || [name length] == 0) return;
+    @synchronized([MatrixAPIClient class]) {
+        if (!sRoomNamesCache) {
+            sRoomNamesCache = [[NSMutableDictionary alloc] init];
+            [self loadRoomNamesFromDiskCache];
+        }
+        sRoomNamesCache[roomId] = [name copy];
+    }
+}
 
 + (NSString *)localNameForRoomId:(NSString *)roomId {
     if (!roomId) return nil;

@@ -12,6 +12,7 @@
 #import <objc/message.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import "AudioMessageView.h"
+#import "NeoAudioWaveformView.h"
 #import "NeoReactionPillView.h"
 #import "VideoMessageView.h"
 #import <MediaPlayer/MediaPlayer.h>
@@ -22,6 +23,7 @@
 #import "ForwardPickerController.h"
 #import "NeoSyncProcessor.h"
 #import "NeoReactionViewBuilder.h"
+#import "NeoSplitViewController.h"
 #import "TGTableDeltaUpdater.h"
 #import "UIImage+WebP.h"
 #import "NeoProgressSpinnerView.h"
@@ -213,6 +215,16 @@
     UIButton *_scrollDownButton;
     UIImageView *_scrollDownBadgeBg;
     UILabel *_scrollDownBadgeLabel;
+    NSMutableArray *_recordingWaveformSamples;
+    UIView *_recordingOverlayView;
+    UIImageView *_recordingPulsingDot;
+    UILabel *_recordingOverlayTimerLabel;
+    UILabel *_recordingOverlaySlideLabel;
+    UIView *_recordingLockView;
+    BOOL _recordingIsLocked;
+    BOOL _recordingIsCancelled;
+    UIPanGestureRecognizer *_micPanRecognizer;
+    NSString *_autoPlayTargetAudioURL;
     NSInteger _scrollDownUnreadCount;
 }
 
@@ -230,7 +242,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         self.edgesForExtendedLayout = UIRectEdgeNone;
     }
 
-    self.title = [MatrixAPIClient localNameForRoomId:self.room.roomId] ?: (self.room.name ?: self.room.roomId);
+    self.title = [MatrixAPIClient nameForRoomId:self.room.roomId] ?: (self.room.name ?: self.room.roomId);
 
     CGFloat w = self.view.bounds.size.width;
     CGFloat h = self.view.bounds.size.height;
@@ -437,7 +449,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
     CGPoint point = [gesture locationInView:self.tableView];
     NSIndexPath *ip = [self.tableView indexPathForRowAtPoint:point];
-    if (!ip) return;
+    if (!ip || ip.row >= [_displayItems count]) return;
 
     id item = [_displayItems objectAtIndex:ip.row];
     if (![item isKindOfClass:[MatrixMessage class]]) return;
@@ -456,7 +468,12 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         [failSheet addButtonWithTitle:NSLocalizedString(@"Delete", nil)];
         [failSheet addButtonWithTitle:NSLocalizedString(@"Cancel", nil)];
         failSheet.cancelButtonIndex = 2;
-        [failSheet showInView:self.view];
+        if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+            CGRect cellRect = [self.tableView rectForRowAtIndexPath:ip];
+            [failSheet showFromRect:cellRect inView:self.tableView animated:YES];
+        } else {
+            [failSheet showInView:self.view];
+        }
         return;
     }
 
@@ -585,7 +602,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     titleView.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
 
     UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 4, titleW, 20)];
-    NSString *rawTitle = [MatrixAPIClient localNameForRoomId:self.room.roomId] ?: (self.room.name ?: self.room.roomId);
+    NSString *rawTitle = [MatrixAPIClient nameForRoomId:self.room.roomId] ?: (self.room.name ?: self.room.roomId);
     NSString *obfuscated = [[DemoModeManager sharedManager] obfuscateName:rawTitle];
     nameLabel.text = [obfuscated length] > 20 ? [[obfuscated substringToIndex:20] stringByAppendingString:@"…"] : obfuscated;
     nameLabel.font = [UIFont boldSystemFontOfSize:16];
@@ -624,7 +641,11 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     [titleView addGestureRecognizer:titleTap];
     self.navigationItem.titleView = titleView;
 
-    self.navigationItem.leftBarButtonItem = [ThemeManager backBarButtonItemWithTarget:self action:@selector(neoBackAction)];
+    if (![NeoSplitViewController isPad]) {
+        self.navigationItem.leftBarButtonItem = [ThemeManager backBarButtonItemWithTarget:self action:@selector(neoBackAction)];
+    } else {
+        self.navigationItem.leftBarButtonItem = nil;
+    }
 
     CGFloat avatarSize = 32;
     UIImageView *avatarImg = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, avatarSize, avatarSize)];
@@ -651,7 +672,11 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 }
 
 - (void)neoBackAction {
-    [self.navigationController popViewControllerAnimated:YES];
+    if ([NeoSplitViewController isPad]) {
+        [[NeoSplitViewController sharedSplitViewController] clearDetail];
+    } else {
+        [self.navigationController popViewControllerAnimated:YES];
+    }
 }
 
 - (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
@@ -974,7 +999,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         if (err) {
             [NeoAlert showAlertWithTitle:@"Error" message:[err localizedDescription] cancelTitle:@"OK" controller:self];
         } else {
-            [self.messages removeObjectAtIndex:row];
+            [self.messages removeObject:msg];
             [self buildDisplayItems];
             [self.tableView reloadData];
         }
@@ -1931,9 +1956,116 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 #pragma mark - Audio Recording
 
-- (void)startRecording {
+#pragma mark - Audio Recording (Push-to-Talk)
+
+- (void)showRecordingOverlay {
+    if (!_recordingOverlayView) {
+        CGFloat w = self.inputContainer.bounds.size.width;
+        CGFloat h = self.inputContainer.bounds.size.height;
+        _recordingOverlayView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w - 44, h)];
+        _recordingOverlayView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        _recordingOverlayView.userInteractionEnabled = NO;
+
+        _recordingPulsingDot = [[UIImageView alloc] initWithFrame:CGRectMake(12, 17, 10, 10)];
+        _recordingPulsingDot.layer.cornerRadius = 5.0f;
+        _recordingPulsingDot.layer.masksToBounds = YES;
+        _recordingPulsingDot.backgroundColor = [UIColor redColor];
+        [_recordingOverlayView addSubview:_recordingPulsingDot];
+
+        _recordingOverlayTimerLabel = [[UILabel alloc] initWithFrame:CGRectMake(28, 12, 45, 20)];
+        _recordingOverlayTimerLabel.font = [UIFont boldSystemFontOfSize:14];
+        _recordingOverlayTimerLabel.textColor = [UIColor redColor];
+        _recordingOverlayTimerLabel.backgroundColor = [UIColor clearColor];
+        _recordingOverlayTimerLabel.text = @"0:00";
+        [_recordingOverlayView addSubview:_recordingOverlayTimerLabel];
+
+        _recordingOverlaySlideLabel = [[UILabel alloc] initWithFrame:CGRectMake(76, 12, w - 44 - 80, 20)];
+        _recordingOverlaySlideLabel.font = [UIFont systemFontOfSize:13];
+        _recordingOverlaySlideLabel.textColor = [UIColor grayColor];
+        _recordingOverlaySlideLabel.backgroundColor = [UIColor clearColor];
+        _recordingOverlaySlideLabel.text = [NSString stringWithFormat:@"< %@", NSLocalizedString(@"Slide to cancel", nil)];
+        [_recordingOverlayView addSubview:_recordingOverlaySlideLabel];
+    }
+
+    _recordingOverlaySlideLabel.text = [NSString stringWithFormat:@"< %@", NSLocalizedString(@"Slide to cancel", nil)];
+    _recordingOverlaySlideLabel.transform = CGAffineTransformIdentity;
+    _recordingOverlayTimerLabel.text = @"0:00";
+    _recordingOverlayView.hidden = NO;
+    _recordingOverlayView.alpha = 1.0f;
+    [self.inputContainer addSubview:_recordingOverlayView];
+
+    _fieldBgView.hidden = YES;
+    self.messageField.hidden = YES;
+    _placeholderLabel.hidden = YES;
+    UIButton *cameraBtn = (UIButton *)[self.inputContainer viewWithTag:93];
+    cameraBtn.hidden = YES;
+
+    [self showLockIndicator];
+
+    [UIView animateWithDuration:0.5 delay:0 options:UIViewAnimationOptionRepeat | UIViewAnimationOptionAutoreverse animations:^{
+        _recordingPulsingDot.alpha = 0.2f;
+    } completion:nil];
+}
+
+- (void)showLockIndicator {
+    if (!_recordingLockView) {
+        CGFloat w = self.inputContainer.bounds.size.width;
+        _recordingLockView = [[UIView alloc] initWithFrame:CGRectMake(w - 42, -56, 36, 50)];
+        _recordingLockView.backgroundColor = [UIColor colorWithWhite:0.15 alpha:0.85];
+        _recordingLockView.layer.cornerRadius = 18;
+        _recordingLockView.layer.masksToBounds = YES;
+
+        UILabel *arrow = [[UILabel alloc] initWithFrame:CGRectMake(0, 4, 36, 16)];
+        arrow.text = @"▲";
+        arrow.textColor = [UIColor whiteColor];
+        arrow.font = [UIFont systemFontOfSize:11];
+        arrow.textAlignment = NSTextAlignmentCenter;
+        arrow.backgroundColor = [UIColor clearColor];
+        [_recordingLockView addSubview:arrow];
+
+        UILabel *lockLbl = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, 36, 24)];
+        lockLbl.text = @"🔒";
+        lockLbl.font = [UIFont systemFontOfSize:14];
+        lockLbl.textAlignment = NSTextAlignmentCenter;
+        lockLbl.backgroundColor = [UIColor clearColor];
+        [_recordingLockView addSubview:lockLbl];
+    }
+    _recordingLockView.frame = CGRectMake(self.inputContainer.bounds.size.width - 42, -56, 36, 50);
+    _recordingLockView.alpha = 1.0f;
+    _recordingLockView.hidden = NO;
+    [self.inputContainer addSubview:_recordingLockView];
+}
+
+- (void)hideRecordingOverlay {
+    [_recordingPulsingDot.layer removeAllAnimations];
+    _recordingPulsingDot.alpha = 1.0f;
+    _recordingOverlayView.hidden = YES;
+    [_recordingLockView removeFromSuperview];
+    _recordingLockView.hidden = YES;
+
+    _fieldBgView.hidden = NO;
+    self.messageField.hidden = NO;
+    _placeholderLabel.hidden = NO;
+
+    UIButton *cameraBtn = (UIButton *)[self.inputContainer viewWithTag:93];
+    cameraBtn.hidden = NO;
+    [cameraBtn setImage:[UIImage imageNamed:@"PhotoButton"] forState:UIControlStateNormal];
+    [cameraBtn setImage:[UIImage imageNamed:@"PhotoButtonPressed"] forState:UIControlStateHighlighted];
+    [cameraBtn setTitle:nil forState:UIControlStateNormal];
+    [cameraBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+    [cameraBtn addTarget:self action:@selector(cameraTapped) forControlEvents:UIControlEventTouchUpInside];
+
+    _sendButtonIsMicMode = NO;
+    [self updateSendButtonAppearance];
+    [self updatePlaceholderVisibility];
+}
+
+- (void)startRecordingPushToTalk {
+    if (_recordingState != 0) return;
+
     AVAudioSession *session = [AVAudioSession sharedInstance];
     [session setCategory:AVAudioSessionCategoryPlayAndRecord error:nil];
+    [session setActive:YES error:nil];
 
     NSDictionary *settings = @{
         AVFormatIDKey: @(kAudioFormatMPEG4AAC),
@@ -1952,152 +2084,169 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         NSLog(@"Recorder error: %@", error);
         return;
     }
+    _audioRecorder.meteringEnabled = YES;
     [_audioRecorder prepareToRecord];
     [_audioRecorder record];
 
-    _originalTitleView = self.navigationItem.titleView;
-
-    CGFloat navW = self.navigationController.navigationBar.frame.size.width;
-    if (navW < 1) navW = 320;
-    UIView *recordingNavView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 120, 40)];
-    recordingNavView.backgroundColor = [UIColor clearColor];
-
-    UIImageView *icon = [[UIImageView alloc] initWithFrame:CGRectMake(0, 12, 13, 13)];
-    icon.image = [UIImage imageNamed:@"record"];
-    [recordingNavView addSubview:icon];
-
-    UILabel *timerLabel = [[UILabel alloc] initWithFrame:CGRectMake(18, 6, 100, 28)];
-    timerLabel.tag = 999;
-    timerLabel.font = [UIFont boldSystemFontOfSize:14];
-    timerLabel.textColor = [UIColor redColor];
-    timerLabel.backgroundColor = [UIColor clearColor];
-    timerLabel.text = @"0:00";
-    [recordingNavView addSubview:timerLabel];
-
-    self.navigationItem.titleView = recordingNavView;
-
-    _recordingLabel.hidden = YES;
-    [self setInputEditingHidden:YES];
-
     _recordingState = 1;
-    [self updateRecordingButtons];
+    _recordingWaveformSamples = [NSMutableArray array];
 
-    _recordingTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(updateRecordingTimer) userInfo:nil repeats:YES];
+    [self showRecordingOverlay];
+
+    _recordingTimer = [NSTimer scheduledTimerWithTimeInterval:0.1
+                                                       target:self
+                                                     selector:@selector(updateRecordingPushToTalkTimer)
+                                                     userInfo:nil
+                                                      repeats:YES];
 }
 
-- (void)updateRecordingButtons {
-    UIButton *leftBtn = (UIButton *)[self.inputContainer viewWithTag:93];
-    UIButton *rightBtn = self.sendButton;
+- (void)updateRecordingPushToTalkTimer {
+    if (_audioRecorder && _audioRecorder.recording) {
+        NSTimeInterval t = _audioRecorder.currentTime;
+        NSString *txt = [NSString stringWithFormat:@"%d:%02d", (int)t / 60, (int)t % 60];
+        _recordingOverlayTimerLabel.text = txt;
 
-    if (_recordingState == 1) {
-        // Recording: left = cancel (x), right = stop (record icon)
-        [leftBtn setImage:nil forState:UIControlStateNormal];
-        [leftBtn setTitle:@"✕" forState:UIControlStateNormal];
-        [leftBtn setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
-        leftBtn.titleLabel.font = [UIFont boldSystemFontOfSize:22];
-        [leftBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
-        [leftBtn addTarget:self action:@selector(cancelRecordingTapped) forControlEvents:UIControlEventTouchUpInside];
-
-        [rightBtn setImage:[UIImage imageNamed:@"record"] forState:UIControlStateNormal];
-        [rightBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
-        [rightBtn addTarget:self action:@selector(stopRecordingTapped) forControlEvents:UIControlEventTouchUpInside];
-    } else if (_recordingState == 2) {
-        // Stopped: left = cancel, right = send
-        [rightBtn setImage:[UIImage imageNamed:@"send"] forState:UIControlStateNormal];
-        [rightBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
-        [rightBtn addTarget:self action:@selector(sendRecordingTapped) forControlEvents:UIControlEventTouchUpInside];
+        [_audioRecorder updateMeters];
+        float power = [_audioRecorder peakPowerForChannel:0];
+        float linear = powf(10.0f, 0.05f * power);
+        if (linear < 0.15f) linear = 0.15f;
+        if (linear > 1.0f) linear = 1.0f;
+        [_recordingWaveformSamples addObject:@(linear)];
     }
 }
 
-- (void)resetRecordingButtons {
-    UIButton *leftBtn = (UIButton *)[self.inputContainer viewWithTag:93];
-    [leftBtn setImage:[UIImage imageNamed:@"PhotoButton"] forState:UIControlStateNormal];
-    [leftBtn setImage:[UIImage imageNamed:@"PhotoButtonPressed"] forState:UIControlStateHighlighted];
-    [leftBtn setTitle:nil forState:UIControlStateNormal];
-    [leftBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
-    [leftBtn addTarget:self action:@selector(cameraTapped) forControlEvents:UIControlEventTouchUpInside];
+- (void)lockRecordingPushToTalk {
+    _recordingIsLocked = YES;
+    [UIView animateWithDuration:0.2 animations:^{
+        _recordingLockView.alpha = 0.0f;
+    } completion:^(BOOL finished) {
+        _recordingLockView.hidden = YES;
+    }];
 
-    _sendButtonIsMicMode = NO;
-    [self updateSendButtonAppearance];
+    _recordingOverlaySlideLabel.text = @"";
+
+    UIButton *cameraBtn = (UIButton *)[self.inputContainer viewWithTag:93];
+    cameraBtn.hidden = NO;
+    [cameraBtn setImage:nil forState:UIControlStateNormal];
+    [cameraBtn setTitle:@"✕" forState:UIControlStateNormal];
+    [cameraBtn setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
+    cameraBtn.titleLabel.font = [UIFont boldSystemFontOfSize:22];
+    [cameraBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+    [cameraBtn addTarget:self action:@selector(cancelRecordingPushToTalk) forControlEvents:UIControlEventTouchUpInside];
+
+    [self.sendButton setImage:[UIImage imageNamed:@"send"] forState:UIControlStateNormal];
+}
+
+- (void)cancelRecordingPushToTalk {
     _recordingState = 0;
+    _recordingIsLocked = NO;
+    _recordingIsCancelled = YES;
+
+    if (_audioRecorder) {
+        [_audioRecorder stop];
+        _audioRecorder = nil;
+    }
+    [_recordingTimer invalidate];
+    _recordingTimer = nil;
+
+    if (_audioRecorder) {
+        [_audioRecorder stop];
+        [[NSFileManager defaultManager] removeItemAtURL:_audioRecorder.url error:nil];
+        _audioRecorder = nil;
+    }
+
+    _recordingWaveformSamples = nil;
+    [self hideRecordingOverlay];
 }
 
 - (void)cancelRecordingTapped {
-    [_recordingTimer invalidate];
-    _recordingTimer = nil;
-    if (_originalTitleView) {
-        self.navigationItem.titleView = _originalTitleView;
-        _originalTitleView = nil;
-    }
-    _audioRecorder = nil;
-    _recordingLabel.hidden = YES;
-    [self setInputEditingHidden:NO];
-    [self resetRecordingButtons];
-}
-
-- (void)stopRecordingTapped {
-    [_audioRecorder stop];
-    _recordingState = 2;
-    [self updateRecordingButtons];
-}
-
-- (void)sendRecordingTapped {
-    [_recordingTimer invalidate];
-    _recordingTimer = nil;
-    if (_originalTitleView) {
-        self.navigationItem.titleView = _originalTitleView;
-        _originalTitleView = nil;
-    }
-    _recordingLabel.hidden = YES;
-    [self setInputEditingHidden:NO];
-
-    NSTimeInterval duration = _audioRecorder.currentTime;
-    NSURL *url = _audioRecorder.url;
-    NSData *audioData = [NSData dataWithContentsOfURL:url];
-    _audioRecorder = nil;
-
-    [self resetRecordingButtons];
-
-    if (audioData) {
-        [self uploadAndSendAudio:audioData duration:duration];
-    }
+    [self cancelRecordingPushToTalk];
 }
 
 - (void)stopRecordingAndSend:(BOOL)shouldSend {
     if (!_audioRecorder) return;
 
+    NSTimeInterval duration = _audioRecorder.currentTime;
+    NSURL *url = _audioRecorder.url;
     [_audioRecorder stop];
+    _audioRecorder = nil;
 
-    if (!shouldSend) return;
-
+    if (_audioRecorder) {
+        [_audioRecorder stop];
+        _audioRecorder = nil;
+    }
     [_recordingTimer invalidate];
     _recordingTimer = nil;
 
-    if (_originalTitleView) {
-        self.navigationItem.titleView = _originalTitleView;
-        _originalTitleView = nil;
+    NSArray *waveform = [_recordingWaveformSamples copy];
+    _recordingWaveformSamples = nil;
+    _recordingState = 0;
+    _recordingIsLocked = NO;
+
+    [self hideRecordingOverlay];
+
+    if (!shouldSend) {
+        [[NSFileManager defaultManager] removeItemAtURL:url error:nil];
+        return;
     }
 
-    _recordingLabel.hidden = YES;
-    [self setInputEditingHidden:NO];
-
-    NSTimeInterval duration = _audioRecorder.currentTime;
-    NSURL *url = _audioRecorder.url;
     NSData *audioData = [NSData dataWithContentsOfURL:url];
-    _audioRecorder = nil;
-
-    if (!audioData) return;
-    [self uploadAndSendAudio:audioData duration:duration];
+    if (audioData) {
+        [self uploadAndSendAudio:audioData duration:duration waveform:waveform];
+    }
 }
 
-- (void)updateRecordingTimer {
-    if (_audioRecorder && _audioRecorder.recording) {
-        NSTimeInterval t = _audioRecorder.currentTime;
-        NSString *txt = [NSString stringWithFormat:@"%d:%02d", (int)t / 60, (int)t % 60];
-        UILabel *navLabel = (UILabel *)[self.navigationItem.titleView viewWithTag:999];
-        if (navLabel) navLabel.text = txt;
-        _recordingLabel.text = txt;
+- (void)handleMicPan:(UIPanGestureRecognizer *)pan {
+    if (_recordingState != 1 || _recordingIsLocked) return;
+
+    CGPoint translation = [pan translationInView:self.view];
+
+    // Slide left to cancel
+    if (translation.x < -65.0f && !_recordingIsCancelled) {
+        _recordingIsCancelled = YES;
+        [self cancelRecordingPushToTalk];
+        return;
     }
+
+    // Slide up to lock
+    if (translation.y < -45.0f && !_recordingIsLocked) {
+        [self lockRecordingPushToTalk];
+        return;
+    }
+
+    // Move the slide-to-cancel label along with the finger
+    if (translation.x < 0) {
+        _recordingOverlaySlideLabel.transform = CGAffineTransformMakeTranslation(translation.x * 0.6f, 0);
+    }
+}
+
+- (void)micTouchDown {
+    _recordingIsLocked = NO;
+    _recordingIsCancelled = NO;
+    [self startRecordingPushToTalk];
+}
+
+- (void)micTouchUpInside {
+    if (_recordingIsLocked) {
+        [self stopRecordingAndSend:YES];
+        return;
+    }
+    if (_recordingIsCancelled) return;
+
+    if (_audioRecorder && _audioRecorder.currentTime >= 0.5) {
+        [self stopRecordingAndSend:YES];
+    } else {
+        [self cancelRecordingPushToTalk];
+    }
+}
+
+- (void)micTouchUpOutside {
+    if (_recordingIsLocked) return;
+    [self cancelRecordingPushToTalk];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES;
 }
 
 - (void)dealloc {
@@ -2108,12 +2257,69 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     }
     [_rowHeightCache removeAllObjects];
     _rowHeightCache = nil;
+    if (_audioRecorder) {
+        [_audioRecorder stop];
+        _audioRecorder = nil;
+    }
     [_recordingTimer invalidate];
     _recordingTimer = nil;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
-- (void)uploadAndSendAudio:(NSData *)audioData duration:(NSTimeInterval)duration {
+- (void)playNextAudioMessageAfter:(MatrixMessage *)currentMsg {
+    if (!currentMsg) return;
+    NSInteger foundIndex = NSNotFound;
+    for (NSInteger i = 0; i < [_displayItems count]; i++) {
+        id item = _displayItems[i];
+        if (![item isKindOfClass:[MatrixMessage class]]) continue;
+        MatrixMessage *m = (MatrixMessage *)item;
+        if (m == currentMsg || (m.eventId && [m.eventId isEqualToString:currentMsg.eventId]) || (m.audioURL && [m.audioURL isEqualToString:currentMsg.audioURL])) {
+            foundIndex = i;
+            break;
+        }
+    }
+    if (foundIndex == NSNotFound) return;
+
+    MatrixMessage *nextAudio = nil;
+    NSIndexPath *nextIndexPath = nil;
+    for (NSInteger i = foundIndex + 1; i < [_displayItems count]; i++) {
+        id item = _displayItems[i];
+        if (![item isKindOfClass:[MatrixMessage class]]) continue;
+        MatrixMessage *m = (MatrixMessage *)item;
+        if ([m.msgType isEqualToString:@"m.audio"] || [m.msgType isEqualToString:@"m.voice"] || m.audioURL) {
+            nextAudio = m;
+            nextIndexPath = [NSIndexPath indexPathForRow:i inSection:0];
+            break;
+        }
+    }
+
+    if (!nextAudio || !nextIndexPath) return;
+
+    _autoPlayTargetAudioURL = [nextAudio.audioURL copy];
+
+    [self.tableView scrollToRowAtIndexPath:nextIndexPath
+                          atScrollPosition:UITableViewScrollPositionMiddle
+                                  animated:YES];
+
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        ChatViewController *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        UITableViewCell *cell = [strongSelf.tableView cellForRowAtIndexPath:nextIndexPath];
+        if ([cell isKindOfClass:[MatrixBubbleMessageCell class]]) {
+            MatrixBubbleMessageCell *bCell = (MatrixBubbleMessageCell *)cell;
+            if ([bCell.bubbleView.mediaView isKindOfClass:[AudioMessageView class]]) {
+                AudioMessageView *nextView = (AudioMessageView *)bCell.bubbleView.mediaView;
+                if (!nextView.isPlaying) {
+                    strongSelf->_autoPlayTargetAudioURL = nil;
+                    [nextView playTapped];
+                }
+            }
+        }
+    });
+}
+
+- (void)uploadAndSendAudio:(NSData *)audioData duration:(NSTimeInterval)duration waveform:(NSArray *)waveform {
     if (!audioData) return;
 
     MatrixMessage *localMsg = [[MatrixMessage alloc] init];
@@ -2124,6 +2330,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     localMsg.roomId = self.room.roomId;
     localMsg.timestamp = [NSDate date];
     localMsg.audioDuration = @((NSInteger)(duration * 1000));
+    localMsg.cachedAudioData = audioData;
+    localMsg.waveformSamples = waveform ?: [NeoAudioWaveformView extractSamplesFromAudioData:audioData count:40];
     localMsg.uploading = YES;
     localMsg.pendingLocalPath = [self savePendingData:audioData extension:@"m4a"];
     [self.messages addObject:localMsg];
@@ -2131,6 +2339,10 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     [self reloadTableAnimatedWithAutoScroll:YES];
 
     [self dispatchSendForMessage:localMsg];
+}
+
+- (void)uploadAndSendAudio:(NSData *)audioData duration:(NSTimeInterval)duration {
+    [self uploadAndSendAudio:audioData duration:duration waveform:nil];
 }
 
 - (void)updateSendButtonAppearance {
@@ -2151,7 +2363,19 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         [self.sendButton addTarget:self action:@selector(micTouchDown) forControlEvents:UIControlEventTouchDown];
         [self.sendButton addTarget:self action:@selector(micTouchUpInside) forControlEvents:UIControlEventTouchUpInside];
         [self.sendButton addTarget:self action:@selector(micTouchUpOutside) forControlEvents:UIControlEventTouchUpOutside | UIControlEventTouchDragExit];
+
+        if (!_micPanRecognizer) {
+            _micPanRecognizer = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMicPan:)];
+            _micPanRecognizer.cancelsTouchesInView = NO;
+            _micPanRecognizer.delegate = (id<UIGestureRecognizerDelegate>)self;
+        }
+        if (![self.sendButton.gestureRecognizers containsObject:_micPanRecognizer]) {
+            [self.sendButton addGestureRecognizer:_micPanRecognizer];
+        }
     } else {
+        if (_micPanRecognizer && [self.sendButton.gestureRecognizers containsObject:_micPanRecognizer]) {
+            [self.sendButton removeGestureRecognizer:_micPanRecognizer];
+        }
         [self.sendButton setImage:[UIImage imageNamed:@"send"] forState:UIControlStateNormal];
         [self.sendButton setImage:[UIImage imageNamed:@"send-highlighted"] forState:UIControlStateHighlighted];
         [self.sendButton addTarget:self action:@selector(sendTapped) forControlEvents:UIControlEventTouchUpInside];
@@ -2386,18 +2610,6 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)updatePlaceholderVisibility {
     _placeholderLabel.hidden = ([self.messageField.text length] > 0);
-}
-
-- (void)micTouchDown {
-    // recording starts on touch up via micTouchUpInside
-}
-
-- (void)micTouchUpInside {
-    [self startRecording];
-}
-
-- (void)micTouchUpOutside {
-    // cancelled
 }
 
 - (UIImage *)resizeImageForUpload:(UIImage *)image {
@@ -2952,6 +3164,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.row >= [_displayItems count]) {
+        return [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    }
     id item = [_displayItems objectAtIndex:indexPath.row];
 
     // Date separator cell
@@ -3073,6 +3288,27 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         audioView.isOutgoing = isSelf;
         audioView.mxcURL = msg.audioURL;
         audioView.duration = msg.audioDuration;
+        if (msg.cachedAudioData) {
+            audioView.audioData = msg.cachedAudioData;
+        }
+        if (msg.waveformSamples) {
+            audioView.samples = msg.waveformSamples;
+        }
+        audioView.onAudioDataDecoded = ^(NSData *decData, NSArray *samples) {
+            msg.cachedAudioData = decData;
+            msg.waveformSamples = samples;
+        };
+        __weak typeof(self) weakSelf = self;
+        audioView.playbackFinishedBlock = ^{
+            [weakSelf playNextAudioMessageAfter:msg];
+        };
+
+        if (_autoPlayTargetAudioURL && [msg.audioURL isEqualToString:_autoPlayTargetAudioURL]) {
+            _autoPlayTargetAudioURL = nil;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [audioView playTapped];
+            });
+        }
         mediaView = audioView;
     } else if (hasMedia) {
         CGSize imgSize = [self mediaSizeForImageMessage:msg];
@@ -3316,6 +3552,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.row >= [_displayItems count]) return;
     id item = [_displayItems objectAtIndex:indexPath.row];
     if (![item isKindOfClass:[MatrixMessage class]]) return;
     MatrixMessage *msg = (MatrixMessage *)item;
@@ -3562,6 +3799,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.row >= [_displayItems count]) {
+        return 44.0f;
+    }
     id item = [_displayItems objectAtIndex:indexPath.row];
 
     if ([item isKindOfClass:[NSString class]]) {
@@ -3654,21 +3894,34 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (BOOL)isFirstInGroupAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.row == 0) return YES;
+    if (indexPath.row >= [_displayItems count]) return YES;
 
     id currentItem = [_displayItems objectAtIndex:indexPath.row];
     if (![currentItem isKindOfClass:[MatrixMessage class]]) return YES;
     MatrixMessage *currentMsg = (MatrixMessage *)currentItem;
 
     id prevItem = [_displayItems objectAtIndex:indexPath.row - 1];
-
-    if ([prevItem isKindOfClass:[NSString class]]) return YES;
+    if (![prevItem isKindOfClass:[MatrixMessage class]]) return YES;
 
     MatrixMessage *prevMsg = (MatrixMessage *)prevItem;
     return ![prevMsg.sender isEqualToString:currentMsg.sender];
 }
 
 - (BOOL)shouldAutorotate { return YES; }
-- (NeoOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskPortrait; }
+
+- (NeoOrientationMask)supportedInterfaceOrientations {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return UIInterfaceOrientationMaskAll;
+    }
+    return UIInterfaceOrientationMaskPortrait;
+}
+
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return YES;
+    }
+    return (orientation == UIInterfaceOrientationPortrait);
+}
 
 #pragma mark - Disable system copy menu
 

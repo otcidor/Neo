@@ -1,4 +1,5 @@
 #import "MatrixModels.h"
+#import "MatrixAPIClient.h"
 
 @implementation MatrixRoom
 - (instancetype)initWithDictionary:(NSDictionary *)dict {
@@ -77,53 +78,153 @@
 }
 
 + (NSString *)displayNameForRoomId:(NSString *)roomId fromSyncData:(NSDictionary *)roomData {
+    if (!roomId || [roomId length] == 0) return @"";
+
+    // 1. Check user local custom rename override
+    NSString *local = [MatrixAPIClient localNameForRoomId:roomId];
+    if (local && [local length] > 0) return local;
+
+    // 2. Check explicit m.room.name in state or timeline
     NSArray *stateEvents = roomData[@"state"][@"events"];
-    for (NSDictionary *evt in stateEvents) {
-        NSString *type = evt[@"type"];
-        NSDictionary *content = evt[@"content"];
-        if (![content isKindOfClass:[NSDictionary class]]) continue;
-        if ([type isEqualToString:@"m.room.name"]) {
-            NSString *name = content[@"name"];
-            if ([name length] > 0) return name;
+    if ([stateEvents isKindOfClass:[NSArray class]]) {
+        for (NSDictionary *evt in stateEvents) {
+            if (![evt isKindOfClass:[NSDictionary class]]) continue;
+            NSString *type = evt[@"type"];
+            NSDictionary *content = evt[@"content"];
+            if (![content isKindOfClass:[NSDictionary class]]) continue;
+            if ([type isEqualToString:@"m.room.name"]) {
+                NSString *name = content[@"name"];
+                if ([name isKindOfClass:[NSString class]] && [name length] > 0) {
+                    [MatrixAPIClient cacheRoomName:name forRoomId:roomId];
+                    return name;
+                }
+            }
+        }
+        for (NSDictionary *evt in stateEvents) {
+            if (![evt isKindOfClass:[NSDictionary class]]) continue;
+            NSString *type = evt[@"type"];
+            NSDictionary *content = evt[@"content"];
+            if (![content isKindOfClass:[NSDictionary class]]) continue;
+            if ([type isEqualToString:@"m.room.canonical_alias"]) {
+                NSString *alias = content[@"alias"];
+                if ([alias isKindOfClass:[NSString class]] && [alias length] > 0) {
+                    [MatrixAPIClient cacheRoomName:alias forRoomId:roomId];
+                    return alias;
+                }
+            }
         }
     }
-    for (NSDictionary *evt in stateEvents) {
-        NSString *type = evt[@"type"];
-        NSDictionary *content = evt[@"content"];
-        if (![content isKindOfClass:[NSDictionary class]]) continue;
-        if ([type isEqualToString:@"m.room.canonical_alias"]) {
-            NSString *alias = content[@"alias"];
-            if ([alias length] > 0) return alias;
-        }
-    }
+
     NSArray *timelineEvents = roomData[@"timeline"][@"events"];
-    for (NSDictionary *evt in timelineEvents) {
-        NSString *type = evt[@"type"];
-        if ([type isEqualToString:@"m.room.name"]) {
+    if ([timelineEvents isKindOfClass:[NSArray class]]) {
+        for (NSDictionary *evt in timelineEvents) {
+            if (![evt isKindOfClass:[NSDictionary class]]) continue;
+            NSString *type = evt[@"type"];
             NSDictionary *content = evt[@"content"];
-            NSString *name = content[@"name"];
-            if ([name length] > 0) return name;
-        }
-        if ([type isEqualToString:@"m.room.canonical_alias"]) {
-            NSDictionary *content = evt[@"content"];
-            NSString *alias = content[@"alias"];
-            if ([alias length] > 0) return alias;
+            if (![content isKindOfClass:[NSDictionary class]]) continue;
+            if ([type isEqualToString:@"m.room.name"]) {
+                NSString *name = content[@"name"];
+                if ([name isKindOfClass:[NSString class]] && [name length] > 0) {
+                    [MatrixAPIClient cacheRoomName:name forRoomId:roomId];
+                    return name;
+                }
+            }
+            if ([type isEqualToString:@"m.room.canonical_alias"]) {
+                NSString *alias = content[@"alias"];
+                if ([alias isKindOfClass:[NSString class]] && [alias length] > 0) {
+                    [MatrixAPIClient cacheRoomName:alias forRoomId:roomId];
+                    return alias;
+                }
+            }
         }
     }
+
+    // 3. Check memory & disk room name cache
+    NSString *cached = [MatrixAPIClient nameForRoomId:roomId];
+    if (cached && [cached length] > 0) {
+        return cached;
+    }
+
+    // 4. Check heroes in summary
     NSDictionary *summary = roomData[@"summary"];
-    NSArray *heroes = summary[@"m.heroes"];
-    if ([heroes count] > 0) {
-        NSInteger count = [summary[@"m.joined_member_count"] integerValue] ?: [summary[@"joined_member_count"] integerValue];
-        if (count <= 4) {
-            return [heroes componentsJoinedByString:@", "];
+    if ([summary isKindOfClass:[NSDictionary class]]) {
+        NSArray *heroes = summary[@"m.heroes"];
+        if ([heroes isKindOfClass:[NSArray class]] && [heroes count] > 0) {
+            NSInteger count = [summary[@"m.joined_member_count"] integerValue] ?: [summary[@"joined_member_count"] integerValue];
+            if (count <= 4) {
+                NSMutableArray *cleanHeroes = [NSMutableArray array];
+                NSDictionary *roomMembers = [[MatrixAPIClient sharedClient] cachedMembersForRoom:roomId];
+                for (NSString *h in heroes) {
+                    if (![h isKindOfClass:[NSString class]] || [h length] == 0) continue;
+                    id mEntry = roomMembers[h];
+                    NSString *dn = nil;
+                    if ([mEntry isKindOfClass:[NSDictionary class]]) {
+                        dn = mEntry[@"displayname"];
+                    } else if ([mEntry isKindOfClass:[NSString class]]) {
+                        dn = mEntry;
+                    }
+                    if ([dn length] > 0) {
+                        [cleanHeroes addObject:dn];
+                    } else if ([h hasPrefix:@"@"]) {
+                        NSRange colon = [h rangeOfString:@":"];
+                        if (colon.location != NSNotFound) {
+                            [cleanHeroes addObject:[h substringWithRange:NSMakeRange(1, colon.location - 1)]];
+                        } else {
+                            [cleanHeroes addObject:[h substringFromIndex:1]];
+                        }
+                    } else {
+                        [cleanHeroes addObject:h];
+                    }
+                }
+                if ([cleanHeroes count] > 0) {
+                    NSString *heroTitle = [cleanHeroes componentsJoinedByString:@", "];
+                    [MatrixAPIClient cacheRoomName:heroTitle forRoomId:roomId];
+                    return heroTitle;
+                }
+            }
         }
     }
-    NSString *roomIdSuffix = roomId;
-    NSRange colonRange = [roomId rangeOfString:@":"];
-    if (colonRange.location != NSNotFound) {
-        roomIdSuffix = [roomId substringFromIndex:colonRange.location + 1];
+
+    // 5. Check state events for member display names (1:1 DMs)
+    NSString *myId = [[MatrixAPIClient sharedClient] userId];
+    if ([stateEvents isKindOfClass:[NSArray class]]) {
+        for (NSDictionary *evt in stateEvents) {
+            if (![evt isKindOfClass:[NSDictionary class]]) continue;
+            if ([evt[@"type"] isEqualToString:@"m.room.member"]) {
+                NSString *stateKey = evt[@"state_key"];
+                if (stateKey && ![stateKey isEqualToString:myId]) {
+                    NSDictionary *content = evt[@"content"];
+                    NSString *dn = content[@"displayname"];
+                    if ([dn isKindOfClass:[NSString class]] && [dn length] > 0) {
+                        [MatrixAPIClient cacheRoomName:dn forRoomId:roomId];
+                        return dn;
+                    }
+                    if ([stateKey hasPrefix:@"@"]) {
+                        NSRange colon = [stateKey rangeOfString:@":"];
+                        if (colon.location != NSNotFound) {
+                            NSString *cleaned = [stateKey substringWithRange:NSMakeRange(1, colon.location - 1)];
+                            [MatrixAPIClient cacheRoomName:cleaned forRoomId:roomId];
+                            return cleaned;
+                        }
+                    }
+                    [MatrixAPIClient cacheRoomName:stateKey forRoomId:roomId];
+                    return stateKey;
+                }
+            }
+        }
     }
-    return roomIdSuffix;
+
+    // 6. If roomId is an alias like #general:domain, return #general
+    if ([roomId hasPrefix:@"#"]) {
+        NSRange colonRange = [roomId rangeOfString:@":"];
+        if (colonRange.location != NSNotFound) {
+            return [roomId substringToIndex:colonRange.location];
+        }
+        return roomId;
+    }
+
+    // 7. Last resort fallback - NEVER return the domain!
+    return NSLocalizedString(@"Chat", nil);
 }
 @end
 

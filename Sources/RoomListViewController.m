@@ -13,6 +13,7 @@
 #import "UIImage+NeoBlur.h"
 #import "TGTableDeltaUpdater.h"
 #import "NeoSkeuoRenderer.h"
+#import "NeoSplitViewController.h"
 #import <objc/message.h>
 
 static UIColor *colorForTheme(SpaceTheme theme) {
@@ -159,7 +160,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, w, 44)];
     self.searchBar.placeholder = NSLocalizedString(@"Search", nil);
     self.searchBar.delegate = self;
-    self.searchBar.showsCancelButton = YES;
+    self.searchBar.showsCancelButton = NO;
     [headerView addSubview:self.searchBar];
 
     self.tableView.tableHeaderView = headerView;
@@ -177,11 +178,12 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 - (void)applySearchBarTheme {
     ThemeManager *tm = [ThemeManager sharedManager];
     UIView *headerView = self.tableView.tableHeaderView;
+    UIColor *accentColor = [tm tintColor] ?: [UIColor colorWithRed:0.20 green:0.42 blue:0.78 alpha:1.0];
     if (tm.isDarkGlass) {
         headerView.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.10 alpha:1.0];
         [self.searchBar setBackgroundImage:[ThemeManager modernSearchBarBgImage]];
         [self.searchBar setSearchFieldBackgroundImage:[ThemeManager modernSearchFieldImage] forState:UIControlStateNormal];
-        self.searchBar.tintColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.30 alpha:1.0];
+        self.searchBar.tintColor = [UIColor colorWithRed:0.35 green:0.65 blue:1.0 alpha:1.0];
     } else if (tm.isSkeuomorphicMode) {
         headerView.backgroundColor = tm.isDarkMode ? [UIColor colorWithRed:0.11 green:0.12 blue:0.14 alpha:1.0] : [UIColor colorWithRed:0.75 green:0.77 blue:0.80 alpha:1.0];
         UIImage *bgImg = [NeoSkeuoRenderer searchBarBgImageForDarkMode:tm.isDarkMode];
@@ -195,15 +197,16 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         [self.searchBar setBackgroundImage:[[UIImage alloc] init]];
         [self.searchBar setSearchFieldBackgroundImage:nil forState:UIControlStateNormal];
         self.searchBar.barStyle = [tm barStyle];
-        self.searchBar.tintColor = nil;
+        self.searchBar.tintColor = accentColor;
     } else {
         headerView.backgroundColor = [UIColor colorWithWhite:0.93 alpha:1.0];
         [self.searchBar setBackgroundImage:[[UIImage alloc] init]];
         [self.searchBar setSearchFieldBackgroundImage:nil forState:UIControlStateNormal];
         self.searchBar.barStyle = UIBarStyleDefault;
-        self.searchBar.tintColor = nil;
+        self.searchBar.tintColor = accentColor;
     }
 
+    UIColor *btnColor = self.searchBar.tintColor ?: accentColor;
     NSMutableArray *stack = [NSMutableArray arrayWithArray:self.searchBar.subviews];
     while ([stack count] > 0) {
         UIView *v = [stack lastObject];
@@ -211,7 +214,13 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         if ([v isKindOfClass:[UITextField class]]) {
             UITextField *tf = (UITextField *)v;
             tf.textColor = (tm.isDarkMode || tm.isDarkGlass) ? [UIColor whiteColor] : [UIColor blackColor];
-            break;
+        } else if ([v isKindOfClass:[UIButton class]]) {
+            UIButton *btn = (UIButton *)v;
+            [btn setTitleColor:btnColor forState:UIControlStateNormal];
+            [btn setTitleColor:[btnColor colorWithAlphaComponent:0.6f] forState:UIControlStateHighlighted];
+            if ([btn respondsToSelector:@selector(setTintColor:)]) {
+                btn.tintColor = btnColor;
+            }
         }
         [stack addObjectsFromArray:v.subviews];
     }
@@ -349,6 +358,15 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     [self updateSubtitle];
 }
 
+- (void)searchBarTextDidBeginEditing:(UISearchBar *)searchBar {
+    [searchBar setShowsCancelButton:YES animated:YES];
+    [self applySearchBarTheme];
+}
+
+- (void)searchBarTextDidEndEditing:(UISearchBar *)searchBar {
+    [searchBar setShowsCancelButton:NO animated:YES];
+}
+
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)text {
     [self applyFilters];
 }
@@ -357,6 +375,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 }
 - (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar {
     searchBar.text = @"";
+    [searchBar setShowsCancelButton:NO animated:YES];
     [searchBar resignFirstResponder];
     [self applyFilters];
 }
@@ -600,6 +619,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         room.avatarUrl = fallbackAvatar;
         changed = YES;
     }
+    if (changed && [room.roomId length] > 0 && [room.name length] > 0) {
+        [MatrixAPIClient cacheRoomName:room.name forRoomId:room.roomId];
+    }
     return changed;
 }
 
@@ -634,6 +656,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
             room.avatarUrl = d[@"avatarUrl"] ?: @"";
             room.hasExplicitName = [d[@"hasExplicitName"] boolValue];
             room.hasExplicitAvatar = [d[@"hasExplicitAvatar"] boolValue];
+            if ([room.roomId length] > 0 && [room.name length] > 0) {
+                [MatrixAPIClient cacheRoomName:room.name forRoomId:room.roomId];
+            }
             [self.rooms addObject:room];
             
             if ([room.avatarUrl length] > 0) {
@@ -659,6 +684,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     if (self.spaceFilter != nil) return;
     NSMutableArray *cached = [NSMutableArray array];
     for (MatrixRoom *r in self.rooms) {
+        if ([r.roomId length] > 0 && [r.name length] > 0) {
+            [MatrixAPIClient cacheRoomName:r.name forRoomId:r.roomId];
+        }
         [cached addObject:@{
             @"roomId": r.roomId ?: @"",
             @"name": r.name ?: @"",
@@ -842,7 +870,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     CGFloat tsW = MAX(tsSize.width + 6, 44);
     tsLabel.text = tsText;
 
-    NSString *rawName = [MatrixAPIClient localNameForRoomId:room.roomId] ?: room.name;
+    NSString *rawName = [MatrixAPIClient nameForRoomId:room.roomId] ?: room.name;
     nameLabel.text = [[DemoModeManager sharedManager] obfuscateName:rawName];
 
     NSString *subtitleText = @"";
@@ -971,8 +999,15 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 - (void)tableView:(UITableView *)tableView
     commitEditingStyle:(UITableViewCellEditingStyle)editingStyle
      forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.row >= [self.filteredRooms count]) return;
     if (editingStyle == UITableViewCellEditingStyleDelete) {
         MatrixRoom *room = [self.filteredRooms objectAtIndex:indexPath.row];
+        if ([NeoSplitViewController isPad]) {
+            ChatViewController *cur = [[NeoSplitViewController sharedSplitViewController] currentChatViewController];
+            if ([cur.room.roomId isEqualToString:room.roomId]) {
+                [[NeoSplitViewController sharedSplitViewController] clearDetail];
+            }
+        }
         [[ArchiveManager sharedManager] archiveRoomId:room.roomId];
         [self.filteredRooms removeObjectAtIndex:indexPath.row];
         [self.rooms removeObject:room];
@@ -983,27 +1018,40 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.row >= [self.filteredRooms count]) return;
     MatrixRoom *room = [self.filteredRooms objectAtIndex:indexPath.row];
     ChatViewController *chat = [[ChatViewController alloc] init];
     chat.room = room;
-    chat.hidesBottomBarWhenPushed = YES;
     if ([_roomAvatars objectForKey:room.roomId]) {
         chat.roomAvatar = [_roomAvatars objectForKey:room.roomId];
     }
-    [self.navigationController pushViewController:chat animated:YES];
+
+    if ([NeoSplitViewController isPad]) {
+        [[NeoSplitViewController sharedSplitViewController] showChatViewController:chat];
+    } else {
+        [tableView deselectRowAtIndexPath:indexPath animated:YES];
+        chat.hidesBottomBarWhenPushed = YES;
+        [self.navigationController pushViewController:chat animated:YES];
+    }
 }
 
 - (void)navigateToRoom:(NSString *)roomId {
-    for (MatrixRoom *r in self.filteredRooms) {
+    for (NSUInteger i = 0; i < [self.filteredRooms count]; i++) {
+        MatrixRoom *r = self.filteredRooms[i];
         if ([r.roomId isEqualToString:roomId]) {
             ChatViewController *chat = [[ChatViewController alloc] init];
             chat.room = r;
-            chat.hidesBottomBarWhenPushed = YES;
             if ([_roomAvatars objectForKey:r.roomId]) {
                 chat.roomAvatar = [_roomAvatars objectForKey:r.roomId];
             }
-            [self.navigationController pushViewController:chat animated:NO];
+            if ([NeoSplitViewController isPad]) {
+                NSIndexPath *ip = [NSIndexPath indexPathForRow:i inSection:0];
+                [self.tableView selectRowAtIndexPath:ip animated:YES scrollPosition:UITableViewScrollPositionMiddle];
+                [[NeoSplitViewController sharedSplitViewController] showChatViewController:chat];
+            } else {
+                chat.hidesBottomBarWhenPushed = YES;
+                [self.navigationController pushViewController:chat animated:NO];
+            }
             return;
         }
     }
@@ -1011,13 +1059,25 @@ static UIColor *colorForTheme(SpaceTheme theme) {
     for (MatrixRoom *r in self.rooms) {
         if ([r.roomId isEqualToString:roomId]) {
             [self applyFilters];
-            ChatViewController *chat = [[ChatViewController alloc] init];
-            chat.room = r;
-            chat.hidesBottomBarWhenPushed = YES;
-            if ([_roomAvatars objectForKey:r.roomId]) {
-                chat.roomAvatar = [_roomAvatars objectForKey:r.roomId];
+            for (NSUInteger i = 0; i < [self.filteredRooms count]; i++) {
+                MatrixRoom *fr = self.filteredRooms[i];
+                if ([fr.roomId isEqualToString:roomId]) {
+                    ChatViewController *chat = [[ChatViewController alloc] init];
+                    chat.room = fr;
+                    if ([_roomAvatars objectForKey:fr.roomId]) {
+                        chat.roomAvatar = [_roomAvatars objectForKey:fr.roomId];
+                    }
+                    if ([NeoSplitViewController isPad]) {
+                        NSIndexPath *ip = [NSIndexPath indexPathForRow:i inSection:0];
+                        [self.tableView selectRowAtIndexPath:ip animated:YES scrollPosition:UITableViewScrollPositionMiddle];
+                        [[NeoSplitViewController sharedSplitViewController] showChatViewController:chat];
+                    } else {
+                        chat.hidesBottomBarWhenPushed = YES;
+                        [self.navigationController pushViewController:chat animated:NO];
+                    }
+                    return;
+                }
             }
-            [self.navigationController pushViewController:chat animated:NO];
             return;
         }
     }
@@ -1028,7 +1088,17 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 }
 
 - (NeoOrientationMask)supportedInterfaceOrientations {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return UIInterfaceOrientationMaskAll;
+    }
     return UIInterfaceOrientationMaskPortrait;
+}
+
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return YES;
+    }
+    return (orientation == UIInterfaceOrientationPortrait);
 }
 
 @end

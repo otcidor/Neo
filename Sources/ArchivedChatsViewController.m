@@ -5,6 +5,7 @@
 #import "MatrixModels.h"
 #import "ChatViewController.h"
 #import "ThemeManager.h"
+#import "NeoSplitViewController.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface ArchivedChatsViewController () <UIGestureRecognizerDelegate>
@@ -106,8 +107,10 @@
         for (MatrixRoom *r in _archivedRooms) {
             NSDictionary *roomData = join[r.roomId];
             if (!roomData) continue;
-            NSString *name = [MatrixRoom displayNameForRoomId:r.roomId
-                                                 fromSyncData:roomData];
+            NSString *name = [MatrixAPIClient nameForRoomId:r.roomId];
+            if (!name || [name length] == 0) {
+                name = [MatrixRoom displayNameForRoomId:r.roomId fromSyncData:roomData];
+            }
             if ([name length] > 0) r.name = name;
 
             NSArray *stateEvents = roomData[@"state"][@"events"];
@@ -177,6 +180,7 @@
 
     cell.backgroundColor = [tm cellBackgroundColor];
 
+    if (indexPath.row >= [_archivedRooms count]) return cell;
     MatrixRoom *room = [_archivedRooms objectAtIndex:indexPath.row];
     CGFloat cellW = cell.contentView.bounds.size.width;
 
@@ -205,6 +209,7 @@
 - (void)tableView:(UITableView *)tableView
     commitEditingStyle:(UITableViewCellEditingStyle)editingStyle
      forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.row >= [_archivedRooms count]) return;
     if (editingStyle == UITableViewCellEditingStyleDelete) {
         MatrixRoom *room = [_archivedRooms objectAtIndex:indexPath.row];
         [[ArchiveManager sharedManager] unarchiveRoomId:room.roomId];
@@ -216,12 +221,18 @@
 
 - (void)tableView:(UITableView *)tableView
     didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.row >= [_archivedRooms count]) return;
     MatrixRoom *room = [_archivedRooms objectAtIndex:indexPath.row];
     ChatViewController *chat = [[ChatViewController alloc] init];
     chat.room = room;
-    chat.hidesBottomBarWhenPushed = YES;
-    [self.navigationController pushViewController:chat animated:YES];
+
+    if ([NeoSplitViewController isPad]) {
+        [[NeoSplitViewController sharedSplitViewController] showChatViewController:chat];
+    } else {
+        [tableView deselectRowAtIndexPath:indexPath animated:YES];
+        chat.hidesBottomBarWhenPushed = YES;
+        [self.navigationController pushViewController:chat animated:YES];
+    }
 }
 
 - (void)dealloc {
@@ -234,8 +245,19 @@
 }
 
 - (BOOL)shouldAutorotate { return YES; }
+
 - (NeoOrientationMask)supportedInterfaceOrientations {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return UIInterfaceOrientationMaskAll;
+    }
     return UIInterfaceOrientationMaskPortrait;
+}
+
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return YES;
+    }
+    return (orientation == UIInterfaceOrientationPortrait);
 }
 
 @end

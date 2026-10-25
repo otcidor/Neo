@@ -165,6 +165,7 @@
 
     // Color themes sections:
     NSArray *themes = (indexPath.section == 0) ? _lightThemes : ((indexPath.section == 1) ? _darkThemes : _darkGlassThemes);
+    if (indexPath.row >= [themes count]) return cell;
     NeoThemeId themeId = (NeoThemeId)[themes[indexPath.row] integerValue];
 
     cell.textLabel.text = [ThemeManager nameForThemeId:themeId];
@@ -200,6 +201,7 @@
     ThemeManager *tm = [ThemeManager sharedManager];
 
     NSArray *themes = (indexPath.section == 0) ? _lightThemes : ((indexPath.section == 1) ? _darkThemes : _darkGlassThemes);
+    if (indexPath.row >= [themes count]) return;
     NeoThemeId themeId = (NeoThemeId)[themes[indexPath.row] integerValue];
     [tm setThemeId:themeId];
     [self applyThemeToUI];
@@ -207,6 +209,19 @@
 }
 
 - (BOOL)shouldAutorotate { return YES; }
-- (NeoOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskPortrait; }
+
+- (NeoOrientationMask)supportedInterfaceOrientations {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return UIInterfaceOrientationMaskAll;
+    }
+    return UIInterfaceOrientationMaskPortrait;
+}
+
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return YES;
+    }
+    return (orientation == UIInterfaceOrientationPortrait);
+}
 
 @end

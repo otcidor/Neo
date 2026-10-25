@@ -1,18 +1,20 @@
 #import "AudioMessageView.h"
 #import "MatrixAPIClient.h"
 #import "NeoOpusDecoder.h"
+#import "NeoAudioWaveformView.h"
+#import "ThemeManager.h"
 #import <AudioToolbox/AudioServices.h>
 
 @interface AudioMessageView ()
 @property (nonatomic, strong) UIButton *playButton;
-@property (nonatomic, strong) UISlider *progressSlider;
+@property (nonatomic, strong) NeoAudioWaveformView *waveformView;
 @property (nonatomic, strong) UILabel *timeLabel;
-@property (nonatomic, strong) UIImageView *micIcon;
 @property (nonatomic, strong) AVAudioPlayer *audioPlayer;
 @property (nonatomic, strong) NSTimer *progressTimer;
 @property (nonatomic, readwrite, getter=isPlaying) BOOL playing;
 @property (nonatomic, readwrite, getter=isDownloaded) BOOL downloaded;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
+@property (nonatomic, assign) BOOL autoPlayOnDownload;
 @end
 
 @implementation AudioMessageView
@@ -22,35 +24,26 @@
     if (self) {
         self.backgroundColor = [UIColor clearColor];
 
-        self.micIcon = [[UIImageView alloc] initWithFrame:CGRectMake(6, 10, 28, 28)];
-        self.micIcon.image = [UIImage imageNamed:@"filetype_icon_audio"];
-        self.micIcon.contentMode = UIViewContentModeScaleAspectFit;
-        [self addSubview:self.micIcon];
-
         self.playButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        self.playButton.frame = CGRectMake(38, 8, 30, 30);
+        self.playButton.frame = CGRectMake(4, 9, 32, 32);
         [self.playButton setImage:[UIImage imageNamed:@"Play"] forState:UIControlStateNormal];
         [self.playButton setImage:[UIImage imageNamed:@"PlayPressed"] forState:UIControlStateHighlighted];
         [self.playButton addTarget:self action:@selector(playTapped) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:self.playButton];
 
-        self.progressSlider = [[UISlider alloc] initWithFrame:CGRectMake(74, 4, frame.size.width - 80, 20)];
-        self.progressSlider.minimumValue = 0.0;
-        self.progressSlider.maximumValue = 1.0;
-        self.progressSlider.value = 0.0;
-        self.progressSlider.continuous = YES;
-        UIImage *thumb = [UIImage imageNamed:@"Scrubber"];
-        [self.progressSlider setThumbImage:thumb forState:UIControlStateNormal];
-        [self.progressSlider setThumbImage:thumb forState:UIControlStateHighlighted];
-        [self updateTrackImages];
-        [self.progressSlider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
-        [self.progressSlider addTarget:self action:@selector(sliderTouchUp:) forControlEvents:UIControlEventTouchUpInside];
-        [self.progressSlider addTarget:self action:@selector(sliderTouchUp:) forControlEvents:UIControlEventTouchUpOutside];
-        [self addSubview:self.progressSlider];
+        CGFloat waveX = 42;
+        CGFloat waveW = frame.size.width - waveX - 8;
+        if (waveW < 60) waveW = 140;
 
-        self.timeLabel = [[UILabel alloc] initWithFrame:CGRectMake(74, 24, frame.size.width - 80, 16)];
+        self.waveformView = [[NeoAudioWaveformView alloc] initWithFrame:CGRectMake(waveX, 6, waveW, 24)];
+        __weak typeof(self) weakSelf = self;
+        self.waveformView.seekHandler = ^(CGFloat p) {
+            [weakSelf seekToProgress:p];
+        };
+        [self addSubview:self.waveformView];
+
+        self.timeLabel = [[UILabel alloc] initWithFrame:CGRectMake(waveX, 31, waveW, 14)];
         self.timeLabel.font = [UIFont systemFontOfSize:11];
-        self.timeLabel.textColor = [UIColor grayColor];
         self.timeLabel.backgroundColor = [UIColor clearColor];
         self.timeLabel.text = @"0:00";
         [self addSubview:self.timeLabel];
@@ -59,27 +52,45 @@
         self.spinner.center = self.playButton.center;
         self.spinner.hidesWhenStopped = YES;
         [self addSubview:self.spinner];
+
+        [self updateColors];
+
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(handleOtherAudioDidStart:)
+                                                     name:@"NeoAudioPlaybackDidStartNotification"
+                                                   object:nil];
     }
     return self;
 }
 
-- (void)setIsOutgoing:(BOOL)isOutgoing {
-    _isOutgoing = isOutgoing;
-    [self updateTrackImages];
+- (void)handleOtherAudioDidStart:(NSNotification *)note {
+    if (note.object != self && self.playing) {
+        [self stop];
+    }
 }
 
-- (void)updateTrackImages {
-    NSString *minTrackName = self.isOutgoing ? @"ScrubberTrackProgressOut" : @"ScrubberTrackProgressInc";
-    UIImage *minTrackRaw = [UIImage imageNamed:minTrackName];
-    UIImage *minTrack = [minTrackRaw stretchableImageWithLeftCapWidth:4 topCapHeight:0];
+- (void)setIsOutgoing:(BOOL)isOutgoing {
+    _isOutgoing = isOutgoing;
+    [self updateColors];
+}
 
-    UIImage *maxTrackRaw = [UIImage imageNamed:@"ScrubberBar"];
-    UIImage *maxTrack = [maxTrackRaw stretchableImageWithLeftCapWidth:4 topCapHeight:0];
+- (void)updateColors {
+    if (self.isOutgoing) {
+        self.waveformView.unplayedColor = [UIColor colorWithWhite:1.0f alpha:0.40f];
+        self.waveformView.playedColor = [UIColor whiteColor];
+        self.timeLabel.textColor = [UIColor colorWithWhite:1.0f alpha:0.85f];
+    } else {
+        ThemeManager *tm = [ThemeManager sharedManager];
+        UIColor *accent = [tm tintColor] ?: [UIColor colorWithRed:0.20f green:0.55f blue:0.95f alpha:1.0f];
+        self.waveformView.unplayedColor = [UIColor colorWithWhite:0.75f alpha:1.0f];
+        self.waveformView.playedColor = accent;
+        self.timeLabel.textColor = [UIColor colorWithWhite:0.55f alpha:1.0f];
+    }
+}
 
-    [self.progressSlider setMinimumTrackImage:minTrack forState:UIControlStateNormal];
-    [self.progressSlider setMinimumTrackImage:minTrack forState:UIControlStateHighlighted];
-    [self.progressSlider setMaximumTrackImage:maxTrack forState:UIControlStateNormal];
-    [self.progressSlider setMaximumTrackImage:maxTrack forState:UIControlStateHighlighted];
+- (void)setSamples:(NSArray *)samples {
+    _samples = samples;
+    self.waveformView.samples = samples;
 }
 
 - (void)setAudioData:(NSData *)audioData {
@@ -93,26 +104,31 @@
     NSError *error = nil;
     self.audioPlayer = [[AVAudioPlayer alloc] initWithData:self.audioData error:&error];
     if (error) {
-        NSLog(@"AudioPlayer init error: %@ — trying Opus decode", error);
         NSData *wavData = [NeoOpusDecoder decodeOggOpusToWAV:self.audioData];
         if (wavData) {
-            NSLog(@"Opus decode OK (%lu bytes -> %lu bytes)",
-                  (unsigned long)[self.audioData length],
-                  (unsigned long)[wavData length]);
             _audioData = wavData;
             self.audioPlayer = [[AVAudioPlayer alloc] initWithData:self.audioData error:&error];
             if (error) {
-                NSLog(@"AudioPlayer still fails after Opus decode: %@", error);
                 return;
             }
         } else {
-            NSLog(@"Opus decode failed — format not supported");
             return;
         }
     }
+
+    if (!self.samples || [self.samples count] == 0) {
+        NSArray *extracted = [NeoAudioWaveformView extractSamplesFromAudioData:self.audioData count:40];
+        self.samples = extracted;
+        self.waveformView.samples = self.samples;
+        if (self.onAudioDataDecoded) {
+            self.onAudioDataDecoded(self.audioData, self.samples);
+        }
+    } else {
+        self.waveformView.samples = self.samples;
+    }
+
     self.audioPlayer.delegate = self;
     [self.audioPlayer prepareToPlay];
-    self.progressSlider.maximumValue = self.audioPlayer.duration;
     [self.playButton setImage:[UIImage imageNamed:@"Play"] forState:UIControlStateNormal];
     [self updateTimeDisplay];
 }
@@ -123,33 +139,20 @@
     [self.spinner startAnimating];
     self.playButton.hidden = YES;
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        MatrixAPIClient *client = [MatrixAPIClient sharedClient];
-        NSString *httpURLStr = [client mxcURLToHTTP:self.mxcURL];
-        if (!httpURLStr) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self.spinner stopAnimating];
-                self.playButton.hidden = NO;
-            });
-            return;
-        }
-
-        NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:httpURLStr]];
-        if (client.accessToken) {
-            [req setValue:[NSString stringWithFormat:@"Bearer %@", client.accessToken] forHTTPHeaderField:@"Authorization"];
-        }
-        NSURLResponse *response = nil;
-        NSError *error = nil;
-        NSData *data = [NSURLConnection sendSynchronousRequest:req returningResponse:&response error:&error];
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self.spinner stopAnimating];
-            self.playButton.hidden = NO;
-            if (data && !error) {
-                self.audioData = data;
+    __weak typeof(self) weakSelf = self;
+    [[MatrixAPIClient sharedClient] downloadDataFromMXC:self.mxcURL completion:^(NSData *data, NSString *mimeType, NSError *error) {
+        typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        [strongSelf.spinner stopAnimating];
+        strongSelf.playButton.hidden = NO;
+        if (data && !error) {
+            strongSelf.audioData = data;
+            if (strongSelf.autoPlayOnDownload) {
+                strongSelf.autoPlayOnDownload = NO;
+                [strongSelf playTapped];
             }
-        });
-    });
+        }
+    }];
 }
 
 - (void)proximityChanged {
@@ -167,6 +170,7 @@
 
 - (void)playTapped {
     if (!self.downloaded) {
+        self.autoPlayOnDownload = YES;
         [self startDownload];
         return;
     }
@@ -182,12 +186,13 @@
         [self.progressTimer invalidate];
         self.progressTimer = nil;
     } else {
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"NeoAudioPlaybackDidStartNotification" object:self];
+
         if (!self.audioPlayer.playing) {
-            self.audioPlayer.currentTime = self.progressSlider.value;
+            self.audioPlayer.currentTime = self.waveformView.progress * self.audioPlayer.duration;
             [self.audioPlayer prepareToPlay];
         }
 
-        // Ensure audio session active so route override works
         AVAudioSession *session = [AVAudioSession sharedInstance];
         [session setCategory:AVAudioSessionCategoryPlayAndRecord error:nil];
         [session setActive:YES error:nil];
@@ -205,24 +210,31 @@
         [self.audioPlayer play];
         self.playing = YES;
         [self.playButton setImage:[UIImage imageNamed:@"Pause"] forState:UIControlStateNormal];
-        self.progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.1 target:self selector:@selector(updateProgress) userInfo:nil repeats:YES];
+        self.progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(updateProgress) userInfo:nil repeats:YES];
     }
 }
 
 - (void)stop {
     [self.audioPlayer stop];
     self.playing = NO;
-    self.audioPlayer.currentTime = 0;
+    if (self.audioPlayer) self.audioPlayer.currentTime = 0;
     [self.progressTimer invalidate];
     self.progressTimer = nil;
     [self.playButton setImage:[UIImage imageNamed:@"Play"] forState:UIControlStateNormal];
-    self.progressSlider.value = 0;
+    self.waveformView.progress = 0;
     [self updateTimeDisplay];
 
     [[NSNotificationCenter defaultCenter] removeObserver:self
                                                     name:UIDeviceProximityStateDidChangeNotification
                                                   object:nil];
     [UIDevice currentDevice].proximityMonitoringEnabled = NO;
+}
+
+- (void)seekToProgress:(CGFloat)p {
+    if (self.audioPlayer) {
+        self.audioPlayer.currentTime = p * self.audioPlayer.duration;
+        [self updateTimeDisplay];
+    }
 }
 
 - (void)willMoveToWindow:(UIWindow *)newWindow {
@@ -234,6 +246,7 @@
 
 - (void)cleanup {
     [self stop];
+    self.audioPlayer.delegate = nil;
     self.audioPlayer = nil;
     self.audioData = nil;
 }
@@ -245,44 +258,34 @@
 
 - (void)updateProgress {
     if (self.audioPlayer && self.audioPlayer.playing) {
-        self.progressSlider.value = self.audioPlayer.currentTime;
+        CGFloat total = self.audioPlayer.duration;
+        CGFloat current = self.audioPlayer.currentTime;
+        self.waveformView.progress = (total > 0) ? (current / total) : 0.0f;
         [self updateTimeDisplay];
     }
 }
 
 - (void)updateTimeDisplay {
-    CGFloat current = self.progressSlider.value;
     CGFloat total = self.audioPlayer ? self.audioPlayer.duration : [self.duration floatValue] / 1000.0;
     if (total <= 0) total = 1;
+    CGFloat current = self.audioPlayer ? self.audioPlayer.currentTime : (self.waveformView.progress * total);
     self.timeLabel.text = [NSString stringWithFormat:@"%d:%02d / %d:%02d",
                            (int)current / 60, (int)current % 60,
                            (int)total / 60, (int)total % 60];
 }
 
-- (void)sliderChanged:(UISlider *)slider {
-    [self updateTimeDisplay];
-}
-
-- (void)sliderTouchUp:(UISlider *)slider {
-    if (self.audioPlayer) {
-        self.audioPlayer.currentTime = slider.value;
-    }
-}
-
 #pragma mark - AVAudioPlayerDelegate
 
 - (void)audioPlayerDidFinishPlaying:(AVAudioPlayer *)player successfully:(BOOL)flag {
-    self.playing = NO;
-    [self.progressTimer invalidate];
-    self.progressTimer = nil;
-    [self.playButton setImage:[UIImage imageNamed:@"Play"] forState:UIControlStateNormal];
-    self.progressSlider.value = 0;
-    [self updateTimeDisplay];
+    [self stop];
 
-    [[NSNotificationCenter defaultCenter] removeObserver:self
-                                                    name:UIDeviceProximityStateDidChangeNotification
-                                                  object:nil];
-    [UIDevice currentDevice].proximityMonitoringEnabled = NO;
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"NeoAudioPlaybackDidFinishNotification"
+                                                        object:self
+                                                      userInfo:@{@"mxcURL": self.mxcURL ?: @""}];
+
+    if (self.playbackFinishedBlock) {
+        self.playbackFinishedBlock();
+    }
 }
 
 @end

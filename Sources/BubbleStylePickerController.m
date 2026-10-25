@@ -124,6 +124,7 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
     ThemeManager *tm = [ThemeManager sharedManager];
     cell.backgroundColor = [tm cellBackgroundColor];
 
+    if (ip.row >= [self.styles count]) return cell;
     NSDictionary *style = self.styles[ip.row];
     BubblePreview *preview = (BubblePreview *)[cell.contentView viewWithTag:99];
     preview.outgoingColor = style[@"color"];
@@ -146,6 +147,7 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
 
 - (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tv deselectRowAtIndexPath:ip animated:YES];
+    if (ip.row >= [self.styles count]) return;
     NSDictionary *style = self.styles[ip.row];
     NSString *key = style[@"key"];
 
@@ -165,6 +167,22 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
         }
     }
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (BOOL)shouldAutorotate { return YES; }
+
+- (NeoOrientationMask)supportedInterfaceOrientations {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return UIInterfaceOrientationMaskAll;
+    }
+    return UIInterfaceOrientationMaskPortrait;
+}
+
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return YES;
+    }
+    return (orientation == UIInterfaceOrientationPortrait);
 }
 
 @end

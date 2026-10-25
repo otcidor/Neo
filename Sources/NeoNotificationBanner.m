@@ -73,9 +73,20 @@
 - (void)updateWithMessage:(NSString *)message sender:(NSString *)sender roomName:(NSString *)roomName roomId:(NSString *)roomId {
     _roomId = [roomId copy];
     _titleLabel.text = roomName ?: sender ?: @"Neo";
-    _bodyLabel.text = message ?: @"";
+    if (sender && [sender length] > 0 && roomName && ![sender isEqualToString:roomName]) {
+        _bodyLabel.text = [NSString stringWithFormat:@"%@: %@", sender, message ?: @""];
+    } else {
+        _bodyLabel.text = message ?: @"";
+    }
 
-    NSString *initLetter = [roomName length] > 0 ? [[roomName substringToIndex:1] uppercaseString] : @"#";
+    NSString *initLetter = @"#";
+    if ([roomName length] > 0) {
+        if ([roomName hasPrefix:@"#"] && [roomName length] > 1) {
+            initLetter = [[roomName substringWithRange:NSMakeRange(1, 1)] uppercaseString];
+        } else {
+            initLetter = [[roomName substringToIndex:1] uppercaseString];
+        }
+    }
     UIGraphicsBeginImageContextWithOptions(CGSizeMake(36, 36), NO, 0.0f);
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     NSUInteger hash = [roomName hash];

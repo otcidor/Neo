@@ -3,7 +3,7 @@
 
 @class ReplyBubbleView;
 
-@interface ChatViewController : UIViewController <UITableViewDataSource, UITableViewDelegate, UITextViewDelegate>
+@interface ChatViewController : UIViewController <UITableViewDataSource, UITableViewDelegate, UITextViewDelegate, UIGestureRecognizerDelegate>
 
 @property (nonatomic, strong) MatrixRoom *room;
 @property (nonatomic, strong) UIImage *roomAvatar;

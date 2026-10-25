@@ -168,4 +168,8 @@ extern NSString *const kDefaultsKeyNextBatch;
 + (NSString *)localNameForRoomId:(NSString *)roomId;
 + (void)setLocalName:(NSString *)name forRoomId:(NSString *)roomId;
 
+// Room name resolution and caching
++ (NSString *)nameForRoomId:(NSString *)roomId;
++ (void)cacheRoomName:(NSString *)name forRoomId:(NSString *)roomId;
+
 @end

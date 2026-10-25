@@ -6,6 +6,7 @@
 #import "ThemeManager.h"
 #import "RoomListViewController.h"
 #import "TabBarController.h"
+#import "NeoSplitViewController.h"
 #import <QuartzCore/QuartzCore.h>
 
 @implementation LoginViewController
@@ -179,7 +180,14 @@
 
         UIWindow *keyWindow = [[UIApplication sharedApplication] keyWindow];
         TabBarController *tbc = [[TabBarController alloc] init];
-        keyWindow.rootViewController = tbc;
+        if ([NeoSplitViewController isPad]) {
+            NeoSplitViewController *splitVC = [NeoSplitViewController sharedSplitViewController];
+            splitVC.masterViewController = tbc;
+            [splitVC clearDetail];
+            keyWindow.rootViewController = splitVC;
+        } else {
+            keyWindow.rootViewController = tbc;
+        }
 
         // Fresh session: kick the foreground sync engine (cold-start full sync —
         // the token was cleared on logout, so this seeds the whole room list).
@@ -204,7 +212,17 @@
 }
 
 - (NeoOrientationMask)supportedInterfaceOrientations {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return UIInterfaceOrientationMaskAll;
+    }
     return UIInterfaceOrientationMaskPortrait;
+}
+
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return YES;
+    }
+    return (orientation == UIInterfaceOrientationPortrait);
 }
 
 @end

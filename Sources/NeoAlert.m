@@ -65,8 +65,8 @@
         }
         if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
             UIPopoverPresentationController *pop = ac.popoverPresentationController;
-            pop.sourceView = sourceView;
-            pop.sourceRect = sourceRect;
+            pop.sourceView = sourceView ?: vc.view;
+            pop.sourceRect = (sourceView != nil) ? sourceRect : CGRectMake(vc.view.bounds.size.width / 2.0f, vc.view.bounds.size.height / 2.0f, 1.0f, 1.0f);
         }
         [vc presentViewController:ac animated:YES completion:nil];
     } else {
@@ -95,7 +95,14 @@
         };
         as.delegate = del;
         objc_setAssociatedObject(as, "del", del, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [as showInView:sourceView];
+        UIView *targetView = sourceView ?: vc.view;
+        if (!targetView) targetView = [UIApplication sharedApplication].keyWindow;
+        if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+            CGRect rect = (sourceView != nil && !CGRectIsEmpty(sourceRect)) ? sourceRect : CGRectMake(targetView.bounds.size.width / 2.0f, targetView.bounds.size.height / 2.0f, 1.0f, 1.0f);
+            [as showFromRect:rect inView:targetView animated:YES];
+        } else {
+            [as showInView:targetView];
+        }
     }
 }
 

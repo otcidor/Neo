@@ -93,6 +93,7 @@
         cell.textLabel.font = [UIFont boldSystemFontOfSize:16];
     }
 
+    if (ip.row >= [_rooms count]) return cell;
     NSDictionary *r = _rooms[ip.row];
     cell.textLabel.text = r[@"name"] ?: r[@"roomId"] ?: @"";
     cell.textLabel.textColor = [UIColor blackColor];
@@ -108,6 +109,7 @@
 
 - (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tv deselectRowAtIndexPath:ip animated:YES];
+    if (ip.row >= [_rooms count]) return;
     NSDictionary *r = _rooms[ip.row];
     NSString *roomId = r[@"roomId"];
     if (!roomId || !self.message) return;
@@ -231,6 +233,22 @@
         }
         uploadAndSend(data);
     }];
+}
+
+- (BOOL)shouldAutorotate { return YES; }
+
+- (NeoOrientationMask)supportedInterfaceOrientations {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return UIInterfaceOrientationMaskAll;
+    }
+    return UIInterfaceOrientationMaskPortrait;
+}
+
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return YES;
+    }
+    return (orientation == UIInterfaceOrientationPortrait);
 }
 
 @end

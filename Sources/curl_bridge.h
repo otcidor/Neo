@@ -18,6 +18,7 @@ void        curl_bridge_global_init(void);
 CurlHandle  curl_bridge_init(void);
 void        curl_bridge_cleanup(CurlHandle h);
 void        curl_bridge_set_url(CurlHandle h, const char *url);
+void        curl_bridge_set_proxy(CurlHandle h, const char *proxy);
 void        curl_bridge_set_ssl_verify(CurlHandle h);
 void        curl_bridge_set_ca_bundle(CurlHandle h, const char *path);
 void        curl_bridge_set_follow_redirects(CurlHandle h);

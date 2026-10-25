@@ -51,6 +51,8 @@ typedef enum {
 @property (nonatomic, assign) BOOL readByOther;
 @property (nonatomic, copy) NSString *audioURL;
 @property (nonatomic, strong) NSNumber *audioDuration;
+@property (nonatomic, strong) NSData *cachedAudioData;
+@property (nonatomic, strong) NSArray *waveformSamples;
 @property (nonatomic, copy) NSString *videoURL;
 @property (nonatomic, copy) NSString *videoThumbnailURL;
 @property (nonatomic, strong) NSNumber *videoDuration;

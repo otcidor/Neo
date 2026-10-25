@@ -11,6 +11,7 @@
 #import "NeoCompatibility.h"
 #import "DemoModeManager.h"
 #import "NeoBackgroundKeeper.h"
+#import "NeoSplitViewController.h"
 
 static NSString *const kBubbleStyleKey = @"neo_bubble_style";
 static NSString *const kWallpaperKey = @"neo_wallpaper";
@@ -145,7 +146,7 @@ static NSString *kWpImages[] = {
 
 - (NSInteger)tableView:(UITableView *)tableView
  numberOfRowsInSection:(NSInteger)section {
-    if (section == 0) return 2;
+    if (section == 0) return 3;
     if (section == 1) {
         NSInteger base = 7;
         return [DemoModeManager sharedManager].demoModeUnlocked ? base + 1 : base;
@@ -182,15 +183,39 @@ static NSString *kWpImages[] = {
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
 
         if (indexPath.row == 0) {
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             cell.imageView.image = [ThemeManager settingsIconNamed:@"user"];
             cell.textLabel.text = NSLocalizedString(@"Username", nil);
             BOOL demo = [DemoModeManager sharedManager].demoModeEnabled;
             cell.detailTextLabel.text = demo ? @"@user:matrix.org" : (client.userId ?: @"—");
-        } else {
+        } else if (indexPath.row == 1) {
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
             cell.imageView.image = [ThemeManager settingsIconNamed:@"server"];
             cell.textLabel.text = NSLocalizedString(@"Server", nil);
             BOOL demo = [DemoModeManager sharedManager].demoModeEnabled;
             cell.detailTextLabel.text = demo ? @"https://matrix.org" : (client.homeserver ?: @"—");
+        } else {
+            cell.imageView.image = [ThemeManager settingsIconNamed:@"networks"];
+            cell.textLabel.text = NSLocalizedString(@"Proxy", nil);
+            NSString *proxy = [[NSUserDefaults standardUserDefaults] stringForKey:@"neo_network_proxy"];
+            cell.detailTextLabel.text = ([proxy length] > 0) ? proxy : NSLocalizedString(@"Disabled", nil);
+            if (tm_cell.isDarkGlass) {
+                cell.accessoryView = [ThemeManager modernDisclosureIndicator];
+                UIView *selBg = [[UIView alloc] init];
+                selBg.backgroundColor = [UIColor colorWithRed:0.18 green:0.22 blue:0.28 alpha:1.0];
+                cell.selectedBackgroundView = selBg;
+            } else if (tm_cell.isSkeuomorphicMode) {
+                cell.accessoryView = [ThemeManager disclosureIndicator];
+                cell.selectedBackgroundView = nil;
+                cell.selectionStyle = UITableViewCellSelectionStyleBlue;
+            } else {
+                cell.accessoryView = nil;
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                cell.selectedBackgroundView = nil;
+                cell.selectionStyle = UITableViewCellSelectionStyleBlue;
+            }
         }
 
         UIView *sep = [cell.contentView viewWithTag:98];
@@ -431,6 +456,24 @@ static NSString *kWpImages[] = {
     didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 
+    if (indexPath.section == 0 && indexPath.row == 2) {
+        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:NSLocalizedString(@"Proxy Settings", nil)
+                                                        message:NSLocalizedString(@"Enter SOCKS5 or HTTP proxy URL (e.g. socks5://127.0.0.1:1080 or http://10.0.0.1:8080). Leave empty to disable.", nil)
+                                                       delegate:self
+                                              cancelButtonTitle:NSLocalizedString(@"Cancel", nil)
+                                              otherButtonTitles:NSLocalizedString(@"Save", nil), nil];
+        alert.alertViewStyle = UIAlertViewStylePlainTextInput;
+        UITextField *field = [alert textFieldAtIndex:0];
+        field.placeholder = @"socks5://127.0.0.1:1080";
+        field.text = [[NSUserDefaults standardUserDefaults] stringForKey:@"neo_network_proxy"] ?: @"";
+        field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        field.autocorrectionType = UITextAutocorrectionTypeNo;
+        field.keyboardType = UIKeyboardTypeURL;
+        alert.tag = 555;
+        [alert show];
+        return;
+    }
+
     if (indexPath.section == 0 && indexPath.row == 1) {
         _serverTapCount++;
         [_tapResetTimer invalidate];
@@ -475,7 +518,12 @@ static NSString *kWpImages[] = {
                                                  destructiveButtonTitle:nil
                                                       otherButtonTitles:@"20", @"50", NSLocalizedString(@"No limit", nil), nil];
             sheet.tag = 555;
-            [sheet showInView:self.view];
+            if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+                CGRect cellRect = [tableView rectForRowAtIndexPath:indexPath];
+                [sheet showFromRect:cellRect inView:tableView animated:YES];
+            } else {
+                [sheet showInView:self.view];
+            }
         }
         return;
     }
@@ -532,9 +580,22 @@ static NSString *kWpImages[] = {
 - (void)alertView:(UIAlertView *)alertView
     clickedButtonAtIndex:(NSInteger)buttonIndex {
     if (buttonIndex == 1) {
-        if (alertView.tag == 1001) {
+        if (alertView.tag == 555) {
+            UITextField *field = [alertView textFieldAtIndex:0];
+            NSString *val = [field.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if ([val length] > 0) {
+                [[NSUserDefaults standardUserDefaults] setObject:val forKey:@"neo_network_proxy"];
+            } else {
+                [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"neo_network_proxy"];
+            }
+            [[NSUserDefaults standardUserDefaults] synchronize];
+            [_tableView reloadData];
+        } else if (alertView.tag == 1001) {
             [[MatrixAPIClient sharedClient] clearAllCaches];
             [[MatrixAPIClient sharedClient] clearCredentials];
+            if ([NeoSplitViewController isPad]) {
+                [[NeoSplitViewController sharedSplitViewController] clearDetail];
+            }
             LoginViewController *login = [[LoginViewController alloc] init];
             UINavigationController *nav = [[UINavigationController alloc]
                 initWithRootViewController:login];
@@ -559,8 +620,19 @@ static NSString *kWpImages[] = {
 }
 
 - (BOOL)shouldAutorotate { return YES; }
+
 - (NeoOrientationMask)supportedInterfaceOrientations {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return UIInterfaceOrientationMaskAll;
+    }
     return UIInterfaceOrientationMaskPortrait;
+}
+
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return YES;
+    }
+    return (orientation == UIInterfaceOrientationPortrait);
 }
 
 @end

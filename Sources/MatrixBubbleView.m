@@ -616,14 +616,14 @@ static bool isEmojiChar(NSString *singleChar) {
 }
 
 - (void)handleLinkTap:(UITapGestureRecognizer *)tap {
-    if ([_linkResults count] == 0) return;
+    if (!_ctFrame || [_linkResults count] == 0) return;
     CGPoint point = [tap locationInView:self];
 
     // Convert tap to Core Text coordinate space
     CGPoint ctPoint = CGPointMake(point.x, self.bounds.size.height - point.y);
 
     NSArray *lines = (__bridge NSArray *)CTFrameGetLines(_ctFrame);
-    if (!lines) return;
+    if (!lines || [lines count] == 0) return;
 
     CGPoint origins[[lines count]];
     CTFrameGetLineOrigins(_ctFrame, CFRangeMake(0, 0), origins);

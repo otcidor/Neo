@@ -138,3 +138,13 @@
 "Cache Cleared" = "Cache Cleared";
 "Local cache has been cleared." = "Local cache has been cleared.";
 "🔒 Encrypted message (unsupported)" = "🔒 Encrypted message (unsupported)";
+"Proxy" = "Proxy";
+"Proxy Settings" = "Proxy Settings";
+"Enter SOCKS5 or HTTP proxy URL (e.g. socks5://127.0.0.1:1080 or http://10.0.0.1:8080). Leave empty to disable." = "Enter SOCKS5 or HTTP proxy URL (e.g. socks5://127.0.0.1:1080 or http://10.0.0.1:8080). Leave empty to disable.";
+"Disabled" = "Disabled";
+"Slide to cancel" = "Slide to cancel";
+"Slide up to lock" = "Slide up to lock";
+
+/* iPad Detail Empty State */
+"Select a conversation to start chatting" = "Select a conversation to start chatting";
+"No Chat Selected" = "No Chat Selected";

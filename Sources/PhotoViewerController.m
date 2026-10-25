@@ -1,5 +1,6 @@
 #import "PhotoViewerController.h"
 #import "NeoAlert.h"
+#import "NeoCompatibility.h"
 
 @implementation PhotoViewerController {
     UIImageView *_imageView;
@@ -90,5 +91,9 @@
     CGFloat scale = MIN(to.width / from.width, to.height / from.height);
     return CGSizeMake(from.width * scale, from.height * scale);
 }
+
+- (BOOL)shouldAutorotate { return YES; }
+- (NeoOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation { return YES; }
 
 @end

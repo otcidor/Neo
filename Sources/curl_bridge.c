@@ -18,6 +18,14 @@ void curl_bridge_set_url(CurlHandle h, const char *url) {
     curl_easy_setopt(h, CURLOPT_URL, url);
 }
 
+void curl_bridge_set_proxy(CurlHandle h, const char *proxy) {
+    if (proxy && proxy[0] != '\0') {
+        curl_easy_setopt(h, CURLOPT_PROXY, proxy);
+    } else {
+        curl_easy_setopt(h, CURLOPT_PROXY, NULL);
+    }
+}
+
 /* Full cert verification. This vendored OpenSSL has no default trust store on
  * iOS (unlike Linux /etc/ssl/certs), so a CA bundle MUST be supplied explicitly
  * via curl_bridge_set_ca_bundle() (see CurlFetcher, which points this at the

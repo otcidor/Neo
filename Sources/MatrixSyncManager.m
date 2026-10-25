@@ -184,50 +184,70 @@ static const NSInteger kMaxNotifPerRoom = 3;
                 self.totalUnread++;
 
                 if (isBackground) {
-        NSString *body = evt[@"content"][@"body"] ?: @"";
-        NSString *roomName = [MatrixAPIClient localNameForRoomId:roomId];
-        if (!roomName) roomName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
+                    NSString *body = evt[@"content"][@"body"] ?: @"";
+                    NSString *sender = evt[@"sender"] ?: @"";
+                    NSString *senderDisplayName = [self displayNameForUserId:sender inRoom:roomId fromSyncData:roomData];
 
-        // Cancel existing pending notification for this room (coalesce)
-        NSNumber *existingCount = self.pendingNotifCounts[roomId];
-        if (existingCount) {
-            for (UILocalNotification *note in [[UIApplication sharedApplication] scheduledLocalNotifications]) {
-                if ([[note.userInfo objectForKey:@"room_id"] isEqualToString:roomId]) {
-                    [[UIApplication sharedApplication] cancelLocalNotification:note];
-                    break;
-                }
-            }
-        }
+                    NSString *roomName = [MatrixAPIClient nameForRoomId:roomId];
+                    if (!roomName || [roomName length] == 0) {
+                        roomName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
+                    }
+                    if (!roomName || [roomName length] == 0) {
+                        roomName = senderDisplayName ?: NSLocalizedString(@"Chat", nil);
+                    }
 
-        int notifCount = [existingCount intValue] + 1;
-        self.pendingNotifCounts[roomId] = @(notifCount);
+                    // Cancel existing pending notification for this room (coalesce)
+                    NSNumber *existingCount = self.pendingNotifCounts[roomId];
+                    if (existingCount) {
+                        for (UILocalNotification *note in [[UIApplication sharedApplication] scheduledLocalNotifications]) {
+                            if ([[note.userInfo objectForKey:@"room_id"] isEqualToString:roomId]) {
+                                [[UIApplication sharedApplication] cancelLocalNotification:note];
+                                break;
+                            }
+                        }
+                    }
 
-        // Cap: stop scheduling new notifications at kMaxNotifPerRoom
-        if (notifCount <= kMaxNotifPerRoom) {
-            UILocalNotification *note = [[UILocalNotification alloc] init];
-            note.fireDate = [NSDate dateWithTimeIntervalSinceNow:3.0];
-            if (notifCount == 1) {
-                note.alertBody = [NSString stringWithFormat:@"%@: %@", roomName ?: roomId, body];
-            } else if (notifCount == kMaxNotifPerRoom) {
-                note.alertBody = [NSString stringWithFormat:NSLocalizedString(@"%@ (%d+ new)", nil), roomName ?: roomId, notifCount];
-            } else {
-                note.alertBody = [NSString stringWithFormat:NSLocalizedString(@"%@ (%d new)", nil), roomName ?: roomId, notifCount];
-            }
-            note.soundName = UILocalNotificationDefaultSoundName;
-            note.userInfo = @{@"room_id": roomId ?: @"", @"event_id": eventId ?: @""};
-            note.applicationIconBadgeNumber = self.totalUnread;
-            [[UIApplication sharedApplication] scheduleLocalNotification:note];
-        }
+                    int notifCount = [existingCount intValue] + 1;
+                    self.pendingNotifCounts[roomId] = @(notifCount);
+
+                    // Cap: stop scheduling new notifications at kMaxNotifPerRoom
+                    if (notifCount <= kMaxNotifPerRoom) {
+                        UILocalNotification *note = [[UILocalNotification alloc] init];
+                        note.fireDate = [NSDate dateWithTimeIntervalSinceNow:3.0];
+                        if (notifCount == 1) {
+                            if (senderDisplayName && [senderDisplayName length] > 0 && ![senderDisplayName isEqualToString:roomName]) {
+                                note.alertBody = [NSString stringWithFormat:@"%@: %@: %@", roomName, senderDisplayName, body];
+                            } else {
+                                note.alertBody = [NSString stringWithFormat:@"%@: %@", roomName, body];
+                            }
+                        } else if (notifCount == kMaxNotifPerRoom) {
+                            note.alertBody = [NSString stringWithFormat:NSLocalizedString(@"%@ (%d+ new)", nil), roomName, notifCount];
+                        } else {
+                            note.alertBody = [NSString stringWithFormat:NSLocalizedString(@"%@ (%d new)", nil), roomName, notifCount];
+                        }
+                        note.soundName = UILocalNotificationDefaultSoundName;
+                        note.userInfo = @{@"room_id": roomId ?: @"", @"event_id": eventId ?: @""};
+                        note.applicationIconBadgeNumber = self.totalUnread;
+                        [[UIApplication sharedApplication] scheduleLocalNotification:note];
+                    }
                 } else {
                     if (![self.activeRoomId isEqualToString:roomId]) {
                         NSString *body = evt[@"content"][@"body"] ?: @"";
                         NSString *sender = evt[@"sender"] ?: @"";
-                        NSString *roomName = [MatrixAPIClient localNameForRoomId:roomId];
-                        if (!roomName) roomName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
+                        NSString *senderDisplayName = [self displayNameForUserId:sender inRoom:roomId fromSyncData:roomData];
+
+                        NSString *roomName = [MatrixAPIClient nameForRoomId:roomId];
+                        if (!roomName || [roomName length] == 0) {
+                            roomName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
+                        }
+                        if (!roomName || [roomName length] == 0) {
+                            roomName = senderDisplayName ?: NSLocalizedString(@"Chat", nil);
+                        }
+
                         dispatch_async(dispatch_get_main_queue(), ^{
                             [NeoNotificationBanner showMessage:body
-                                                        sender:sender
-                                                      roomName:roomName ?: roomId
+                                                        sender:senderDisplayName ?: sender
+                                                      roomName:roomName
                                                         roomId:roomId];
                         });
                     }
@@ -261,20 +281,34 @@ static const NSInteger kMaxNotifPerRoom = 3;
 }
 
 - (NSString *)displayNameForUserId:(NSString *)userId inRoom:(NSString *)roomId fromSyncData:(NSDictionary *)roomData {
+    if (!userId || [userId length] == 0) return @"";
     NSArray *stateEvents = roomData[@"state"][@"events"];
-    for (NSDictionary *evt in stateEvents) {
-        if ([evt[@"type"] isEqualToString:@"m.room.member"] && [evt[@"state_key"] isEqualToString:userId]) {
-            NSString *displayName = evt[@"content"][@"displayname"];
-            if ([displayName length] > 0) return displayName;
+    if ([stateEvents isKindOfClass:[NSArray class]]) {
+        for (NSDictionary *evt in stateEvents) {
+            if ([evt[@"type"] isEqualToString:@"m.room.member"] && [evt[@"state_key"] isEqualToString:userId]) {
+                NSString *displayName = evt[@"content"][@"displayname"];
+                if ([displayName isKindOfClass:[NSString class]] && [displayName length] > 0) return displayName;
+            }
         }
     }
     NSDictionary *members = [[MatrixAPIClient sharedClient] cachedMembersForRoom:roomId];
-    NSString *cachedName = members[userId][@"displayname"];
-    if ([cachedName length] > 0) return cachedName;
+    id mEntry = members[userId];
+    NSString *cachedName = nil;
+    if ([mEntry isKindOfClass:[NSDictionary class]]) {
+        cachedName = mEntry[@"displayname"];
+    } else if ([mEntry isKindOfClass:[NSString class]]) {
+        cachedName = mEntry;
+    }
+    if ([cachedName isKindOfClass:[NSString class]] && [cachedName length] > 0) return cachedName;
     if ([userId length] > 0) {
         NSRange colonRange = [userId rangeOfString:@":"];
         if (colonRange.location != NSNotFound) {
-            return [userId substringToIndex:colonRange.location];
+            NSString *clean = [userId substringToIndex:colonRange.location];
+            if ([clean hasPrefix:@"@"]) clean = [clean substringFromIndex:1];
+            return clean;
+        }
+        if ([userId hasPrefix:@"@"]) {
+            return [userId substringFromIndex:1];
         }
     }
     return userId;

@@ -208,6 +208,7 @@
         [cell.contentView addSubview:subLabel];
     }
 
+    if (ip.row >= [self.networks count]) return cell;
     NSDictionary *net = self.networks[ip.row];
     ThemeManager *tm = [ThemeManager sharedManager];
 
@@ -286,6 +287,7 @@
 
 - (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tv deselectRowAtIndexPath:ip animated:YES];
+    if (ip.row >= [self.networks count]) return;
     NSDictionary *net = self.networks[ip.row];
 
     RoomListViewController *vc = [[RoomListViewController alloc] init];
@@ -337,6 +339,22 @@
     }
 
     [nav pushViewController:vc animated:YES];
+}
+
+- (BOOL)shouldAutorotate { return YES; }
+
+- (NeoOrientationMask)supportedInterfaceOrientations {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return UIInterfaceOrientationMaskAll;
+    }
+    return UIInterfaceOrientationMaskPortrait;
+}
+
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        return YES;
+    }
+    return (orientation == UIInterfaceOrientationPortrait);
 }
 
 @end
