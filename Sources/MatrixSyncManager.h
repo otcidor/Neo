@@ -11,6 +11,7 @@ extern NSString *const MatrixSessionExpiredNotification;
 
 @property (nonatomic, readonly, getter=isSyncing) BOOL syncing;
 @property (nonatomic, readonly) NSInteger totalUnread;
+@property (nonatomic, copy) NSString *activeRoomId;
 
 + (instancetype)sharedManager;
 

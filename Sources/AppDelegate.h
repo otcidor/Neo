@@ -12,4 +12,6 @@
 
 @property (nonatomic) UIBackgroundTaskIdentifier backgroundTaskId;
 
+- (void)handleNotificationUserInfo:(NSDictionary *)userInfo;
+
 @end

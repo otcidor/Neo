@@ -225,6 +225,13 @@
     [UIDevice currentDevice].proximityMonitoringEnabled = NO;
 }
 
+- (void)willMoveToWindow:(UIWindow *)newWindow {
+    [super willMoveToWindow:newWindow];
+    if (!newWindow && self.playing) {
+        [self stop];
+    }
+}
+
 - (void)cleanup {
     [self stop];
     self.audioPlayer = nil;

@@ -28,7 +28,7 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
 }
 @end
 
-@interface BubbleStylePickerController ()
+@interface BubbleStylePickerController () <UIGestureRecognizerDelegate>
 @property (nonatomic, strong) NSArray *styles;
 @end
 
@@ -71,6 +71,23 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
         self.navigationController.interactivePopGestureRecognizer.delegate = (id<UIGestureRecognizerDelegate>)self;
     }
     [self applyTheme];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        if (self.navigationController.interactivePopGestureRecognizer.delegate == (id<UIGestureRecognizerDelegate>)self) {
+            self.navigationController.interactivePopGestureRecognizer.delegate = nil;
+        }
+    }
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)] &&
+        gestureRecognizer == self.navigationController.interactivePopGestureRecognizer) {
+        return [self.navigationController.viewControllers count] > 1;
+    }
+    return YES;
 }
 
 - (void)applyTheme {
@@ -142,6 +159,11 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
 }
 
 - (void)dealloc {
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        if (self.navigationController.interactivePopGestureRecognizer.delegate == (id<UIGestureRecognizerDelegate>)self) {
+            self.navigationController.interactivePopGestureRecognizer.delegate = nil;
+        }
+    }
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 

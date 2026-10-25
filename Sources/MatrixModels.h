@@ -68,6 +68,9 @@ typedef enum {
 @property (nonatomic, copy) NSString *formattedBody;
 @property (nonatomic, strong) NSArray *mentionedUserIds;
 @property (nonatomic, assign) BOOL isRoomMention;
+@property (nonatomic, assign) CGFloat cachedRowHeight;
+@property (nonatomic, assign) NSInteger cachedReactionsCount;
+@property (nonatomic, assign) BOOL cachedShowUser;
 - (instancetype)initWithDictionary:(NSDictionary *)dict roomId:(NSString *)roomId;
 - (BOOL)isMentioningUserId:(NSString *)userId;
 - (void)resolveReplyFromMessages:(NSArray *)messages;

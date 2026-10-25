@@ -7,6 +7,9 @@
 #import "ThemeManager.h"
 #import <QuartzCore/QuartzCore.h>
 
+@interface ArchivedChatsViewController () <UIGestureRecognizerDelegate>
+@end
+
 @implementation ArchivedChatsViewController {
     UITableView *_tableView;
     NSMutableArray *_archivedRooms;
@@ -15,6 +18,9 @@
 
 - (void)loadView {
     [super loadView];
+    if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
+        self.edgesForExtendedLayout = UIRectEdgeNone;
+    }
     self.title = NSLocalizedString(@"Archived", nil);
 
     CGFloat w = self.view.bounds.size.width;
@@ -50,6 +56,23 @@
     }
     [self applyTheme];
     [self loadArchivedRooms];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        if (self.navigationController.interactivePopGestureRecognizer.delegate == (id<UIGestureRecognizerDelegate>)self) {
+            self.navigationController.interactivePopGestureRecognizer.delegate = nil;
+        }
+    }
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)] &&
+        gestureRecognizer == self.navigationController.interactivePopGestureRecognizer) {
+        return [self.navigationController.viewControllers count] > 1;
+    }
+    return YES;
 }
 
 - (void)applyTheme {
@@ -167,7 +190,8 @@
     avatarView.image = avatar ?: [UIImage imageNamed:@"PersonalChatOS6Large"];
 
     UILabel *sep = (UILabel *)[cell.contentView viewWithTag:98];
-    sep.frame = CGRectMake(64, 59, cellW - 64, 0.5);
+    sep.frame = CGRectMake(0, 59.5f, cellW, 0.5f);
+    sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     sep.backgroundColor = [tm separatorColor];
 
     return cell;
@@ -201,6 +225,11 @@
 }
 
 - (void)dealloc {
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        if (self.navigationController.interactivePopGestureRecognizer.delegate == (id<UIGestureRecognizerDelegate>)self) {
+            self.navigationController.interactivePopGestureRecognizer.delegate = nil;
+        }
+    }
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 

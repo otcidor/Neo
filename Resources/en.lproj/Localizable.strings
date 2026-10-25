@@ -116,6 +116,9 @@
 
 /* Settings */
 "Hide Networks" = "Hide Networks";
+"Background Keep-Alive" = "Background Keep-Alive";
+"Message Limit" = "Message Limit";
+"No limit" = "No limit";
 
 /* Files */
 "Download" = "Download";

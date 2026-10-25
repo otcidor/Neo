@@ -116,6 +116,9 @@
 
 /* Settings */
 "Hide Networks" = "Ocultar Redes";
+"Background Keep-Alive" = "Notificaciones en 2º plano";
+"Message Limit" = "Límite de mensajes";
+"No limit" = "Sin límite";
 
 /* Files */
 "Download" = "Descargar";

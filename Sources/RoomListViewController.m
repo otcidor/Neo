@@ -80,14 +80,18 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         tint = [UIColor colorWithRed:r*0.3 green:g*0.3 blue:b*0.3 alpha:1.0];
     }
     if (tm.isSkeuomorphicMode) {
-        UIImage *barImg = [NeoSkeuoRenderer navBarImageWithColor:tint height:44.0f];
+        UIImage *barImg = [NeoSkeuoRenderer navBarImageWithColor:tint height:44.0f isDarkMode:tm.isDarkMode];
         [self.navigationController.navigationBar setBackgroundImage:barImg forBarMetrics:UIBarMetricsDefault];
         if (IS_IOS7_OR_LATER) {
-            UIImage *barImg64 = [NeoSkeuoRenderer navBarImageWithColor:tint height:64.0f];
+            UIImage *barImg64 = [NeoSkeuoRenderer navBarImageWithColor:tint height:64.0f isDarkMode:tm.isDarkMode];
             if ([self.navigationController.navigationBar respondsToSelector:@selector(setBackgroundImage:forBarPosition:barMetrics:)]) {
                 [(id)self.navigationController.navigationBar setBackgroundImage:barImg64 forBarPosition:UIBarPositionTopAttached barMetrics:UIBarMetricsDefault];
             }
-            self.navigationController.navigationBar.barTintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:tint];
+            if (tm.isDarkMode) {
+                self.navigationController.navigationBar.barTintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:tint];
+            } else {
+                self.navigationController.navigationBar.barTintColor = tint;
+            }
             self.navigationController.navigationBar.tintColor = [UIColor whiteColor];
         } else {
             self.navigationController.navigationBar.tintColor = tint;
@@ -124,9 +128,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         if (!IS_IOS7_OR_LATER) self.navigationController.navigationBar.barStyle = [tm barStyle];
         self.tableView.backgroundColor = [tm backgroundColor];
         self.view.backgroundColor = [tm backgroundColor];
-    } else if (self.spaceFilter == nil) {
-        self.tableView.backgroundColor = [UIColor whiteColor];
-        self.view.backgroundColor = [UIColor whiteColor];
+    } else {
+        self.tableView.backgroundColor = [tm cellBackgroundColor];
+        self.view.backgroundColor = [tm backgroundColor];
     }
 
     if (self.spaceFilter == nil) {
@@ -178,6 +182,14 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         [self.searchBar setBackgroundImage:[ThemeManager modernSearchBarBgImage]];
         [self.searchBar setSearchFieldBackgroundImage:[ThemeManager modernSearchFieldImage] forState:UIControlStateNormal];
         self.searchBar.tintColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.30 alpha:1.0];
+    } else if (tm.isSkeuomorphicMode) {
+        headerView.backgroundColor = tm.isDarkMode ? [UIColor colorWithRed:0.11 green:0.12 blue:0.14 alpha:1.0] : [UIColor colorWithRed:0.75 green:0.77 blue:0.80 alpha:1.0];
+        UIImage *bgImg = [NeoSkeuoRenderer searchBarBgImageForDarkMode:tm.isDarkMode];
+        UIImage *fieldImg = [NeoSkeuoRenderer searchFieldImageForDarkMode:tm.isDarkMode];
+        [self.searchBar setBackgroundImage:bgImg];
+        [self.searchBar setSearchFieldBackgroundImage:fieldImg forState:UIControlStateNormal];
+        self.searchBar.tintColor = tm.isDarkMode ? [UIColor colorWithWhite:0.90 alpha:1.0] : [UIColor colorWithRed:0.20 green:0.42 blue:0.78 alpha:1.0];
+        self.searchBar.barStyle = tm.isDarkMode ? UIBarStyleBlack : UIBarStyleDefault;
     } else if (tm.isDarkMode) {
         headerView.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
         [self.searchBar setBackgroundImage:[[UIImage alloc] init]];
@@ -695,9 +707,9 @@ static UIColor *colorForTheme(SpaceTheme theme) {
         if (!IS_IOS7_OR_LATER && !tm.isDarkGlass) self.navigationController.navigationBar.barStyle = [tm barStyle];
         self.tableView.backgroundColor = [tm backgroundColor];
         self.view.backgroundColor = [tm backgroundColor];
-    } else if (self.spaceFilter == nil) {
-        self.tableView.backgroundColor = [UIColor whiteColor];
-        self.view.backgroundColor = [UIColor whiteColor];
+    } else {
+        self.tableView.backgroundColor = [tm cellBackgroundColor];
+        self.view.backgroundColor = [tm backgroundColor];
     }
     [self applySearchBarTheme];
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -772,6 +784,7 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
         UIView *sep = [[UIView alloc] initWithFrame:CGRectZero];
         sep.tag = 98;
+        sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
         sep.backgroundColor = [UIColor colorWithWhite:0.85 alpha:1.0];
         [cell.contentView addSubview:sep];
 
@@ -937,10 +950,10 @@ static UIColor *colorForTheme(SpaceTheme theme) {
 
     UIView *sep = (UIView *)[cell.contentView viewWithTag:98];
     if (tm.isDarkGlass) {
-        sep.frame = CGRectMake(78, 79.5f, cellW - 78, 0.5f);
+        sep.frame = CGRectMake(0, 79.5f, cellW, 0.5f);
         sep.backgroundColor = [tm separatorColor];
     } else {
-        sep.frame = CGRectMake(78, 79.0f, cellW - 78, 1.0f);
+        sep.frame = CGRectMake(0, 79.0f, cellW, 1.0f);
         sep.backgroundColor = [tm separatorColor];
     }
 

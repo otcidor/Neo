@@ -121,6 +121,9 @@
 
 - (void)prepareForReuse {
     [super prepareForReuse];
+    if (self.bubbleView && [self.bubbleView.mediaView respondsToSelector:@selector(stop)]) {
+        [(id)self.bubbleView.mediaView stop];
+    }
     self.bubbleView.replySenderName = nil;
     self.bubbleView.replyBody = nil;
     self.bubbleView.mediaView = nil;

@@ -2,6 +2,9 @@
 #import "MatrixModels.h"
 #import "NeoCompatibility.h"
 #import "NeoCurlTransport.h"
+#import "UIImage+WebP.h"
+#import "NeoImageMemoryCache.h"
+#import "NeoDatabase.h"
 #import <Security/Security.h>
 #import <CommonCrypto/CommonDigest.h>
 
@@ -42,7 +45,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
         instance.memberCache.countLimit = 40;
         instance.avatarCache = [[NSCache alloc] init];
         instance.avatarCache.countLimit = 200;
-        instance.avatarCache.totalCostLimit = 48 * 1024 * 1024;
+        instance.avatarCache.totalCostLimit = 12 * 1024 * 1024;
         instance->_lastImgActivity = [NSDate timeIntervalSinceReferenceDate];
         [instance migrateLegacyCachesIfNeeded];
     });
@@ -138,6 +141,8 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
     [self.messageCache removeAllObjects];
     [self.memberCache removeAllObjects];
     [self.avatarCache removeAllObjects];
+    [[NeoImageMemoryCache sharedCache] clearMemory];
+    [[NeoDatabase sharedDatabase] clearAll];
 
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *cachesRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0];
@@ -196,11 +201,12 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
         if (httpResp.statusCode >= 400) {
             NSString *body = @"";
             if (data) {
-                body = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                body = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
             }
+            NSString *errDesc = [NSHTTPURLResponse localizedStringForStatusCode:httpResp.statusCode] ?: @"HTTP Error";
             NSDictionary *errInfo = @{@"statusCode": @(httpResp.statusCode),
-                                      @"body": body,
-                                      @"error": [NSHTTPURLResponse localizedStringForStatusCode:httpResp.statusCode]};
+                                      @"body": body ?: @"",
+                                      @"error": errDesc};
             NSError *err = [NSError errorWithDomain:@"MatrixAPI" code:httpResp.statusCode
                                            userInfo:errInfo];
             safeCompletion(nil, err);
@@ -891,13 +897,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 
 - (void)saveMessageEvents:(NSArray *)events forRoom:(NSString *)roomId {
     if (!events || !roomId) return;
-    NSInteger count = [events count];
-    if (count <= 5) {
-        [events writeToFile:[self messageCachePathForRoom:roomId] atomically:YES];
-    } else {
-        NSArray *first = [events subarrayWithRange:NSMakeRange(0, 5)];
-        [first writeToFile:[self messageCachePathForRoom:roomId] atomically:YES];
-    }
+    [[NeoDatabase sharedDatabase] saveMessagesBatch:events inRoom:roomId];
 }
 
 - (NSArray *)cachedMessageEventsForRoom:(NSString *)roomId {
@@ -907,6 +907,13 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 - (NSArray *)cachedMessagesForRoom:(NSString *)roomId {
     NSArray *mem = [self.messageCache objectForKey:roomId];
     if (mem) return mem;
+
+    NSArray *dbMsgs = [[NeoDatabase sharedDatabase] loadMessagesForRoom:roomId limit:50];
+    if ([dbMsgs count] > 0) {
+        [self.messageCache setObject:dbMsgs forKey:roomId];
+        return dbMsgs;
+    }
+
     NSArray *events = [self cachedMessageEventsForRoom:roomId];
     if (!events) return nil;
     NSMutableArray *msgs = [NSMutableArray array];
@@ -1208,7 +1215,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
             return;
         }
 
-        UIImage *image = [UIImage imageWithData:data];
+        UIImage *image = [UIImage neo_imageWithDataOrWebP:data];
         if (!image) {
             IMGLog(@"imageWithData falló. Bytes: %lu. Header: %@",
                   (unsigned long)[data length],

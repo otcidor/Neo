@@ -28,11 +28,7 @@ static NSString *const kSkeuoStyleDefaultsKey = @"neo_ui_style_skeuomorphic";
         _currentThemeId = (NeoThemeId)saved;
         _isDarkMode = [ThemeManager isDarkThemeId:_currentThemeId];
         _isDarkGlass = (_currentThemeId == NeoThemeDarkGlass);
-        if ([[NSUserDefaults standardUserDefaults] objectForKey:kSkeuoStyleDefaultsKey] == nil) {
-            _isSkeuomorphicMode = YES;
-        } else {
-            _isSkeuomorphicMode = [[NSUserDefaults standardUserDefaults] boolForKey:kSkeuoStyleDefaultsKey];
-        }
+        _isSkeuomorphicMode = YES;
     }
     return self;
 }
@@ -109,23 +105,17 @@ static NSString *const kSkeuoStyleDefaultsKey = @"neo_ui_style_skeuomorphic";
         return [UIColor colorWithRed:0.10 green:0.10 blue:0.12 alpha:1.0];
     }
     if (!self.isDarkMode) {
-        UIColor *swatch = [self tintColor];
-        CGFloat r, g, b, a;
-        [swatch getRed:&r green:&g blue:&b alpha:&a];
-        return [UIColor colorWithRed:(r * 0.08 + 0.92)
-                                green:(g * 0.08 + 0.92)
-                                 blue:(b * 0.08 + 0.92)
-                                alpha:1.0];
+        return [UIColor colorWithRed:0.96 green:0.96 blue:0.97 alpha:1.0];
     } else {
         switch (self.currentThemeId) {
             case NeoThemeDarkGreen:
-                return [UIColor colorWithRed:0.05 green:0.10 blue:0.07 alpha:1.0];
+                return [UIColor colorWithRed:0.11 green:0.13 blue:0.115 alpha:1.0];
             case NeoThemeDarkBlue:
-                return [UIColor colorWithRed:0.04 green:0.06 blue:0.12 alpha:1.0];
+                return [UIColor colorWithRed:0.11 green:0.12 blue:0.14 alpha:1.0];
             case NeoThemeDarkPurple:
-                return [UIColor colorWithRed:0.08 green:0.04 blue:0.12 alpha:1.0];
+                return [UIColor colorWithRed:0.13 green:0.11 blue:0.135 alpha:1.0];
             case NeoThemeDarkRed:
-                return [UIColor colorWithRed:0.12 green:0.04 blue:0.05 alpha:1.0];
+                return [UIColor colorWithRed:0.135 green:0.11 blue:0.11 alpha:1.0];
             default:
                 return [UIColor colorWithWhite:0.12 alpha:1.0];
         }
@@ -141,13 +131,13 @@ static NSString *const kSkeuoStyleDefaultsKey = @"neo_ui_style_skeuomorphic";
     } else {
         switch (self.currentThemeId) {
             case NeoThemeDarkGreen:
-                return [UIColor colorWithRed:0.09 green:0.16 blue:0.11 alpha:1.0];
+                return [UIColor colorWithRed:0.16 green:0.185 blue:0.165 alpha:1.0];
             case NeoThemeDarkBlue:
-                return [UIColor colorWithRed:0.06 green:0.09 blue:0.18 alpha:1.0];
+                return [UIColor colorWithRed:0.15 green:0.17 blue:0.195 alpha:1.0];
             case NeoThemeDarkPurple:
-                return [UIColor colorWithRed:0.12 green:0.06 blue:0.18 alpha:1.0];
+                return [UIColor colorWithRed:0.18 green:0.16 blue:0.19 alpha:1.0];
             case NeoThemeDarkRed:
-                return [UIColor colorWithRed:0.18 green:0.06 blue:0.08 alpha:1.0];
+                return [UIColor colorWithRed:0.19 green:0.16 blue:0.16 alpha:1.0];
             default:
                 return [UIColor colorWithWhite:0.18 alpha:1.0];
         }
@@ -166,7 +156,7 @@ static NSString *const kSkeuoStyleDefaultsKey = @"neo_ui_style_skeuomorphic";
     if (self.isDarkGlass) {
         return [UIColor colorWithWhite:1.0 alpha:0.10];
     }
-    return self.isDarkMode ? [UIColor colorWithWhite:0.30 alpha:1.0] : [UIColor colorWithWhite:0.85 alpha:1.0];
+    return self.isDarkMode ? [UIColor colorWithWhite:0.25 alpha:1.0] : [UIColor colorWithRed:0.86 green:0.86 blue:0.88 alpha:1.0];
 }
 
 - (UIBarStyle)barStyle {
@@ -202,14 +192,18 @@ static NSString *const kSkeuoStyleDefaultsKey = @"neo_ui_style_skeuomorphic";
 
     if (self.isSkeuomorphicMode) {
         UIColor *color = [self navBarColor];
-        UIImage *barImg = [NeoSkeuoRenderer navBarImageWithColor:color height:44.0f];
+        UIImage *barImg = [NeoSkeuoRenderer navBarImageWithColor:color height:44.0f isDarkMode:self.isDarkMode];
         [navBar setBackgroundImage:barImg forBarMetrics:UIBarMetricsDefault];
         if (IS_IOS7_OR_LATER) {
-            UIImage *barImg64 = [NeoSkeuoRenderer navBarImageWithColor:color height:64.0f];
+            UIImage *barImg64 = [NeoSkeuoRenderer navBarImageWithColor:color height:64.0f isDarkMode:self.isDarkMode];
             if ([navBar respondsToSelector:@selector(setBackgroundImage:forBarPosition:barMetrics:)]) {
                 [(id)navBar setBackgroundImage:barImg64 forBarPosition:UIBarPositionTopAttached barMetrics:UIBarMetricsDefault];
             }
-            navBar.barTintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:color];
+            if (self.isDarkMode) {
+                navBar.barTintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:color];
+            } else {
+                navBar.barTintColor = color;
+            }
             navBar.tintColor = [UIColor whiteColor];
         } else {
             navBar.tintColor = color;
@@ -450,6 +444,8 @@ static NSString *const kSkeuoStyleDefaultsKey = @"neo_ui_style_skeuomorphic";
         bgColor = [UIColor colorWithRed:0.68 green:0.32 blue:0.88 alpha:1.0];
     } else if ([name isEqualToString:@"networks"]) {
         bgColor = [UIColor colorWithRed:0.35 green:0.34 blue:0.84 alpha:1.0];
+    } else if ([name isEqualToString:@"background"]) {
+        bgColor = [UIColor colorWithRed:1.0 green:0.23 blue:0.19 alpha:1.0];
     } else if ([name isEqualToString:@"limit"]) {
         bgColor = [UIColor colorWithRed:1.0 green:0.58 blue:0.0 alpha:1.0];
     } else if ([name isEqualToString:@"demo"]) {
@@ -531,6 +527,15 @@ static NSString *const kSkeuoStyleDefaultsKey = @"neo_ui_style_skeuomorphic";
         [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(16.0f, 7.5f, 5.5f, 5.5f) cornerRadius:1.5f] fill];
         [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(7.5f, 16.0f, 5.5f, 5.5f) cornerRadius:1.5f] fill];
         [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(16.0f, 16.0f, 5.5f, 5.5f) cornerRadius:1.5f] fill];
+    } else if ([name isEqualToString:@"background"]) {
+        UIBezierPath *bell = [UIBezierPath bezierPath];
+        [bell moveToPoint:CGPointMake(14.5f, 7.5f)];
+        [bell addQuadCurveToPoint:CGPointMake(9.0f, 17.5f) controlPoint:CGPointMake(9.0f, 11.0f)];
+        [bell addLineToPoint:CGPointMake(20.0f, 17.5f)];
+        [bell addQuadCurveToPoint:CGPointMake(14.5f, 7.5f) controlPoint:CGPointMake(20.0f, 11.0f)];
+        [bell closePath];
+        [bell fill];
+        [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(13.0f, 18.0f, 3.0f, 2.0f)] fill];
     } else if ([name isEqualToString:@"limit"]) {
         UIBezierPath *clk = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(7.5f, 7.5f, 14.0f, 14.0f)];
         clk.lineWidth = 1.8f;

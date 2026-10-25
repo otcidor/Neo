@@ -1,6 +1,7 @@
 #import "MatrixSyncManager.h"
 #import "MatrixAPIClient.h"
 #import "MatrixModels.h"
+#import "NeoNotificationBanner.h"
 
 NSString *const MatrixSyncNewMessageNotification = @"MatrixSyncNewMessageNotification";
 NSString *const MatrixSyncUnreadUpdateNotification = @"MatrixSyncUnreadUpdateNotification";
@@ -217,6 +218,19 @@ static const NSInteger kMaxNotifPerRoom = 3;
             note.applicationIconBadgeNumber = self.totalUnread;
             [[UIApplication sharedApplication] scheduleLocalNotification:note];
         }
+                } else {
+                    if (![self.activeRoomId isEqualToString:roomId]) {
+                        NSString *body = evt[@"content"][@"body"] ?: @"";
+                        NSString *sender = evt[@"sender"] ?: @"";
+                        NSString *roomName = [MatrixAPIClient localNameForRoomId:roomId];
+                        if (!roomName) roomName = [MatrixRoom displayNameForRoomId:roomId fromSyncData:roomData];
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            [NeoNotificationBanner showMessage:body
+                                                        sender:sender
+                                                      roomName:roomName ?: roomId
+                                                        roomId:roomId];
+                        });
+                    }
                 }
                 }
 

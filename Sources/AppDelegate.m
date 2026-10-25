@@ -5,6 +5,7 @@
 #import "MatrixSyncManager.h"
 #import "RoomListViewController.h"
 #import "ThemeManager.h"
+#import "NeoBackgroundKeeper.h"
 
 @implementation AppDelegate
 
@@ -59,14 +60,21 @@
         [[MatrixSyncManager sharedManager] startSync];
     }
 
+    if ([[NeoBackgroundKeeper sharedKeeper] isEnabled]) {
+        [[NeoBackgroundKeeper sharedKeeper] startKeepAlive];
+    }
+
     self.backgroundTaskId = [application beginBackgroundTaskWithExpirationHandler:^{
-        [[MatrixSyncManager sharedManager] stopSync];
+        if (![[NeoBackgroundKeeper sharedKeeper] isRunning]) {
+            [[MatrixSyncManager sharedManager] stopSync];
+        }
         [application endBackgroundTask:self.backgroundTaskId];
         self.backgroundTaskId = UIBackgroundTaskInvalid;
     }];
 }
 
 - (void)applicationWillEnterForeground:(UIApplication *)application {
+    [[NeoBackgroundKeeper sharedKeeper] stopKeepAlive];
     [[MatrixSyncManager sharedManager] cancelAllPendingNotifications];
 
     if (self.backgroundTaskId != UIBackgroundTaskInvalid) {

@@ -10,6 +10,7 @@
 #import "NeoAlert.h"
 #import "NeoCompatibility.h"
 #import "DemoModeManager.h"
+#import "NeoBackgroundKeeper.h"
 
 static NSString *const kBubbleStyleKey = @"neo_bubble_style";
 static NSString *const kWallpaperKey = @"neo_wallpaper";
@@ -61,6 +62,9 @@ static NSString *kWpImages[] = {
 
 - (void)loadView {
     [super loadView];
+    if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
+        self.edgesForExtendedLayout = UIRectEdgeNone;
+    }
     self.title = NSLocalizedString(@"Settings", nil);
 
     CGFloat w = self.view.bounds.size.width;
@@ -143,7 +147,7 @@ static NSString *kWpImages[] = {
  numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 2;
     if (section == 1) {
-        NSInteger base = 6;
+        NSInteger base = 7;
         return [DemoModeManager sharedManager].demoModeUnlocked ? base + 1 : base;
     }
     if (section == 2) return 2;
@@ -195,13 +199,13 @@ static NSString *kWpImages[] = {
             sep.tag = 98;
             [cell.contentView addSubview:sep];
         }
-        sep.frame = (indexPath.row == 1) ? CGRectMake(0, 43.5f, cellW, 0.5f) : CGRectMake(58.0f, 43.5f, cellW - 58.0f, 0.5f);
+        sep.frame = CGRectMake(0, 43.5f, cellW, 0.5f);
         sep.backgroundColor = [tm_cell separatorColor];
 
         return cell;
 
     } else if (indexPath.section == 1) {
-        if (indexPath.row == 4 || (indexPath.row == 6 && [DemoModeManager sharedManager].demoModeUnlocked)) {
+        if (indexPath.row == 4 || indexPath.row == 5 || (indexPath.row == 7 && [DemoModeManager sharedManager].demoModeUnlocked)) {
             static NSString *switchCellId = @"SettingsSwitchCell";
             UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:switchCellId];
             if (!cell) {
@@ -232,6 +236,13 @@ static NSString *kWpImages[] = {
                 [toggle addTarget:self action:@selector(hideNetworksToggled:)
                  forControlEvents:UIControlEventValueChanged];
                 toggle.on = [[NSUserDefaults standardUserDefaults] boolForKey:@"neo_hide_networks_tab"];
+            } else if (indexPath.row == 5) {
+                cell.imageView.image = [ThemeManager settingsIconNamed:@"background"];
+                cell.textLabel.text = NSLocalizedString(@"Background Keep-Alive", nil);
+                [toggle removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+                [toggle addTarget:self action:@selector(backgroundKeepAliveToggled:)
+                 forControlEvents:UIControlEventValueChanged];
+                toggle.on = [NeoBackgroundKeeper sharedKeeper].isEnabled;
             } else {
                 cell.imageView.image = [ThemeManager settingsIconNamed:@"demo"];
                 cell.textLabel.text = @"Demo Mode";
@@ -318,22 +329,20 @@ static NSString *kWpImages[] = {
             cell.imageView.image = [ThemeManager settingsIconNamed:@"theme"];
             cell.textLabel.text = @"Theme";
             cell.detailTextLabel.text = [ThemeManager nameForThemeId:[ThemeManager sharedManager].currentThemeId];
-        } else if (indexPath.row == 5) {
+        } else if (indexPath.row == 6) {
             cell.imageView.image = [ThemeManager settingsIconNamed:@"limit"];
             cell.textLabel.text = NSLocalizedString(@"Message Limit", nil);
             NSInteger limit = [[NSUserDefaults standardUserDefaults] integerForKey:kMessageLimitKey];
             cell.detailTextLabel.text = (limit <= 0) ? NSLocalizedString(@"No limit", nil) : [NSString stringWithFormat:@"%ld", (long)limit];
         }
 
-        NSInteger totalRows = [self tableView:tableView numberOfRowsInSection:1];
-        BOOL isLast = (indexPath.row == totalRows - 1);
         UIView *sep = [cell.contentView viewWithTag:98];
         if (!sep) {
             sep = [[UIView alloc] initWithFrame:CGRectZero];
             sep.tag = 98;
             [cell.contentView addSubview:sep];
         }
-        sep.frame = isLast ? CGRectMake(0, 43.5f, cellW, 0.5f) : CGRectMake(58.0f, 43.5f, cellW - 58.0f, 0.5f);
+        sep.frame = CGRectMake(0, 43.5f, cellW, 0.5f);
         sep.backgroundColor = [tm_cell separatorColor];
 
         return cell;
@@ -377,7 +386,7 @@ static NSString *kWpImages[] = {
             sep.tag = 98;
             [cell.contentView addSubview:sep];
         }
-        sep.frame = (indexPath.row == 1) ? CGRectMake(0, 43.5f, cellW, 0.5f) : CGRectMake(58.0f, 43.5f, cellW - 58.0f, 0.5f);
+        sep.frame = CGRectMake(0, 43.5f, cellW, 0.5f);
         sep.backgroundColor = [tm_cell separatorColor];
 
         return cell;
@@ -412,6 +421,10 @@ static NSString *kWpImages[] = {
     [[NSUserDefaults standardUserDefaults] synchronize];
     [[NSNotificationCenter defaultCenter] postNotificationName:@"NeoNetworksVisibilityChanged"
                                                         object:nil];
+}
+
+- (void)backgroundKeepAliveToggled:(UISwitch *)toggle {
+    [NeoBackgroundKeeper sharedKeeper].isEnabled = toggle.on;
 }
 
 - (void)tableView:(UITableView *)tableView
@@ -455,7 +468,7 @@ static NSString *kWpImages[] = {
         } else if (indexPath.row == 3) {
             ThemeSelectionViewController *vc = [[ThemeSelectionViewController alloc] init];
             [self.navigationController pushViewController:vc animated:YES];
-        } else if (indexPath.row == 5) {
+        } else if (indexPath.row == 6) {
             UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:NSLocalizedString(@"Message Limit", nil)
                                                                delegate:self
                                                       cancelButtonTitle:NSLocalizedString(@"Cancel", nil)

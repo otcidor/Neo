@@ -11,6 +11,9 @@
 @implementation NetworksViewController
 
 - (void)loadView {
+    if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
+        self.edgesForExtendedLayout = UIRectEdgeNone;
+    }
     UIView *view = [[UIView alloc] initWithFrame:[UIScreen mainScreen].applicationFrame];
     view.backgroundColor = [UIColor whiteColor];
     self.view = view;
@@ -26,7 +29,12 @@
     self.tableView.rowHeight = 70.0f;
     self.tableView.tableFooterView = [[UIView alloc] init];
     if (IS_IOS7_OR_LATER) {
-        self.tableView.separatorInset = UIEdgeInsetsMake(0, 74, 0, 0);
+        if ([self.tableView respondsToSelector:@selector(setSeparatorInset:)]) {
+            self.tableView.separatorInset = UIEdgeInsetsZero;
+        }
+        if ([self.tableView respondsToSelector:@selector(setLayoutMargins:)]) {
+            self.tableView.layoutMargins = UIEdgeInsetsZero;
+        }
     }
     [view addSubview:self.tableView];
 }
@@ -266,6 +274,13 @@
         cell.selectionStyle = UITableViewCellSelectionStyleGray;
     }
 
+    if ([cell respondsToSelector:@selector(setSeparatorInset:)]) {
+        cell.separatorInset = UIEdgeInsetsZero;
+    }
+    if ([cell respondsToSelector:@selector(setLayoutMargins:)]) {
+        cell.layoutMargins = UIEdgeInsetsZero;
+    }
+
     return cell;
 }
 
@@ -284,14 +299,18 @@
         [tm applyThemeToNavigationBar:nav.navigationBar];
     } else if (tm.isSkeuomorphicMode) {
         UIColor *tint = net[@"color"];
-        UIImage *barImg = [NeoSkeuoRenderer navBarImageWithColor:tint height:44.0f];
+        UIImage *barImg = [NeoSkeuoRenderer navBarImageWithColor:tint height:44.0f isDarkMode:tm.isDarkMode];
         [nav.navigationBar setBackgroundImage:barImg forBarMetrics:UIBarMetricsDefault];
         if (IS_IOS7_OR_LATER) {
-            UIImage *barImg64 = [NeoSkeuoRenderer navBarImageWithColor:tint height:64.0f];
+            UIImage *barImg64 = [NeoSkeuoRenderer navBarImageWithColor:tint height:64.0f isDarkMode:tm.isDarkMode];
             if ([nav.navigationBar respondsToSelector:@selector(setBackgroundImage:forBarPosition:barMetrics:)]) {
                 [(id)nav.navigationBar setBackgroundImage:barImg64 forBarPosition:UIBarPositionTopAttached barMetrics:UIBarMetricsDefault];
             }
-            nav.navigationBar.barTintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:tint];
+            if (tm.isDarkMode) {
+                nav.navigationBar.barTintColor = [NeoSkeuoRenderer darkTabTintColorForThemeColor:tint];
+            } else {
+                nav.navigationBar.barTintColor = tint;
+            }
             nav.navigationBar.tintColor = [UIColor whiteColor];
         } else {
             nav.navigationBar.tintColor = tint;

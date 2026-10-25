@@ -71,28 +71,56 @@ static UIColor *NeoAdjustColor(UIColor *color, CGFloat factor, CGFloat add) {
 }
 
 + (UIImage *)navBarImageWithColor:(UIColor *)tintColor height:(CGFloat)height {
+    return [self navBarImageWithColor:tintColor height:height isDarkMode:YES];
+}
+
++ (UIImage *)navBarImageWithColor:(UIColor *)tintColor height:(CGFloat)height isDarkMode:(BOOL)isDarkMode {
+    if (height <= 0.0f) return nil;
     if (!tintColor) tintColor = [UIColor colorWithRed:0.0f green:0.48f blue:1.0f alpha:1.0f];
     static NSMutableDictionary *cache = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         cache = [[NSMutableDictionary alloc] init];
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidReceiveMemoryWarningNotification
+                                                          object:nil
+                                                           queue:[NSOperationQueue mainQueue]
+                                                      usingBlock:^(NSNotification *note) {
+            [cache removeAllObjects];
+        }];
     });
 
     CGFloat r, g, b, a;
     NeoGetRGBComponents(tintColor, &r, &g, &b, &a);
-    NSString *key = [NSString stringWithFormat:@"nav_%.2f_%.2f_%.2f_%.0f", r, g, b, height];
+    NSString *key = [NSString stringWithFormat:@"nav_%.2f_%.2f_%.2f_%.0f_%d", r, g, b, height, isDarkMode ? 1 : 0];
     UIImage *cached = [cache objectForKey:key];
     if (cached) return cached;
 
     CGSize size = CGSizeMake(2.0f, height);
     UIGraphicsBeginImageContextWithOptions(size, YES, 0.0f);
     CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (!ctx) {
+        UIGraphicsEndImageContext();
+        return nil;
+    }
 
-    UIColor *darkTint = [self darkTabTintColorForThemeColor:tintColor];
+    UIColor *navTop;
+    UIColor *navBottom;
+    UIColor *statusBg;
+    UIColor *bottomRim;
 
-    // Rich satin tones mirroring the elegance of the tab bar
-    UIColor *navTop    = NeoAdjustColor(darkTint, 1.45f, 0.08f);
-    UIColor *navBottom = NeoAdjustColor(darkTint, 0.95f, -0.01f);
+    if (isDarkMode) {
+        UIColor *darkTint = [self darkTabTintColorForThemeColor:tintColor];
+        navTop    = NeoAdjustColor(darkTint, 1.45f, 0.08f);
+        navBottom = NeoAdjustColor(darkTint, 0.95f, -0.01f);
+        statusBg  = NeoAdjustColor(darkTint, 1.05f, 0.02f);
+        bottomRim = NeoAdjustColor(darkTint, 0.35f, -0.04f);
+    } else {
+        // Vibrant glossy skeuomorphic iOS 6 colored navigation bar
+        navTop    = NeoAdjustColor(tintColor, 1.15f, 0.08f);
+        navBottom = NeoAdjustColor(tintColor, 0.78f, -0.06f);
+        statusBg  = NeoAdjustColor(tintColor, 1.25f, 0.12f);
+        bottomRim = NeoAdjustColor(tintColor, 0.40f, -0.10f);
+    }
 
     CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
     NSArray *gradientColors = @[
@@ -104,28 +132,26 @@ static UIColor *NeoAdjustColor(UIColor *color, CGFloat factor, CGFloat add) {
 
     if (height >= 64.0f) {
         // iOS 7+ bar attached to top layout guide:
-        // 1. Status Bar area: y = 0 to 20 (deep dark satin base)
-        UIColor *statusBg = NeoAdjustColor(darkTint, 1.05f, 0.02f);
+        // 1. Status Bar area: y = 0 to 20
         [statusBg setFill];
         CGContextFillRect(ctx, CGRectMake(0, 0, size.width, 20.0f));
 
         // Subtle 0.5pt separator line between status bar and nav bar
-        [[UIColor colorWithWhite:0.0f alpha:0.45f] setFill];
+        [[UIColor colorWithWhite:0.0f alpha:isDarkMode ? 0.45f : 0.25f] setFill];
         CGContextFillRect(ctx, CGRectMake(0, 19.5f, size.width, 0.5f));
 
         // 2. Navigation Bar area: exactly 44 points from y = 20.0 to height
         CGContextDrawLinearGradient(ctx, gradient, CGPointMake(0, 20.0f), CGPointMake(0, height), 0);
 
         // Top 0.5pt highlight line of the nav bar at y = 20.0
-        [[UIColor colorWithWhite:1.0f alpha:0.25f] setFill];
+        [[UIColor colorWithWhite:1.0f alpha:isDarkMode ? 0.25f : 0.45f] setFill];
         CGContextFillRect(ctx, CGRectMake(0, 20.0f, size.width, 0.5f));
 
         // Bottom dark bevel border at y = height - 1.0f
-        [[UIColor colorWithWhite:0.0f alpha:0.55f] setFill];
+        [[UIColor colorWithWhite:0.0f alpha:isDarkMode ? 0.55f : 0.40f] setFill];
         CGContextFillRect(ctx, CGRectMake(0, height - 1.0f, size.width, 0.5f));
 
-        // Bottom crisp separator line at y = height - 0.5f (solid dark bottom rim)
-        UIColor *bottomRim = NeoAdjustColor(darkTint, 0.35f, -0.04f);
+        // Bottom crisp separator line at y = height - 0.5f
         [bottomRim setFill];
         CGContextFillRect(ctx, CGRectMake(0, height - 0.5f, size.width, 0.5f));
     } else {
@@ -133,15 +159,14 @@ static UIColor *NeoAdjustColor(UIColor *color, CGFloat factor, CGFloat add) {
         CGContextDrawLinearGradient(ctx, gradient, CGPointMake(0, 0), CGPointMake(0, height), 0);
 
         // Top 0.5pt highlight line at y = 0
-        [[UIColor colorWithWhite:1.0f alpha:0.25f] setFill];
+        [[UIColor colorWithWhite:1.0f alpha:isDarkMode ? 0.25f : 0.45f] setFill];
         CGContextFillRect(ctx, CGRectMake(0, 0, size.width, 0.5f));
 
         // Bottom dark bevel border
-        [[UIColor colorWithWhite:0.0f alpha:0.55f] setFill];
+        [[UIColor colorWithWhite:0.0f alpha:isDarkMode ? 0.55f : 0.40f] setFill];
         CGContextFillRect(ctx, CGRectMake(0, height - 1.0f, size.width, 0.5f));
 
         // Bottom crisp separator line
-        UIColor *bottomRim = NeoAdjustColor(darkTint, 0.35f, -0.04f);
         [bottomRim setFill];
         CGContextFillRect(ctx, CGRectMake(0, height - 0.5f, size.width, 0.5f));
     }
@@ -159,6 +184,153 @@ static UIColor *NeoAdjustColor(UIColor *color, CGFloat factor, CGFloat add) {
     return resizable;
 }
 
+#pragma mark - Search Bar Generation
+
++ (UIImage *)searchBarBgImageForDarkMode:(BOOL)isDarkMode {
+    static UIImage *darkBg = nil;
+    static UIImage *lightBg = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        CGSize size = CGSizeMake(2.0f, 44.0f);
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+
+        // 1. Dark Mode Background
+        {
+            UIGraphicsBeginImageContextWithOptions(size, YES, 0.0f);
+            CGContextRef ctx = UIGraphicsGetCurrentContext();
+            UIColor *cTop = [UIColor colorWithRed:0.18f green:0.19f blue:0.21f alpha:1.0f];
+            UIColor *cBottom = [UIColor colorWithRed:0.11f green:0.12f blue:0.13f alpha:1.0f];
+            NSArray *cols = @[(__bridge id)[cTop CGColor], (__bridge id)[cBottom CGColor]];
+            CGFloat locs[] = {0.0f, 1.0f};
+            CGGradientRef grad = CGGradientCreateWithColors(cs, (__bridge CFArrayRef)cols, locs);
+            CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, 0.5f), CGPointMake(0, 43.0f), 0);
+            CGGradientRelease(grad);
+
+            // Top highlight
+            [[UIColor colorWithWhite:1.0f alpha:0.10f] setFill];
+            CGContextFillRect(ctx, CGRectMake(0, 0, size.width, 0.5f));
+
+            // Bottom border
+            [[UIColor colorWithWhite:0.0f alpha:0.75f] setFill];
+            CGContextFillRect(ctx, CGRectMake(0, 43.5f, size.width, 0.5f));
+
+            UIImage *raw = UIGraphicsGetImageFromCurrentImageContext();
+            UIGraphicsEndImageContext();
+            darkBg = [raw resizableImageWithCapInsets:UIEdgeInsetsZero];
+        }
+
+        // 2. Light Mode Background (Classic iOS 6 metallic linen/silver gradient)
+        {
+            UIGraphicsBeginImageContextWithOptions(size, YES, 0.0f);
+            CGContextRef ctx = UIGraphicsGetCurrentContext();
+            UIColor *cTop = [UIColor colorWithRed:0.89f green:0.90f blue:0.92f alpha:1.0f];
+            UIColor *cBottom = [UIColor colorWithRed:0.73f green:0.75f blue:0.78f alpha:1.0f];
+            NSArray *cols = @[(__bridge id)[cTop CGColor], (__bridge id)[cBottom CGColor]];
+            CGFloat locs[] = {0.0f, 1.0f};
+            CGGradientRef grad = CGGradientCreateWithColors(cs, (__bridge CFArrayRef)cols, locs);
+            CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, 0.5f), CGPointMake(0, 43.0f), 0);
+            CGGradientRelease(grad);
+
+            // Top highlight
+            [[UIColor colorWithWhite:1.0f alpha:0.80f] setFill];
+            CGContextFillRect(ctx, CGRectMake(0, 0, size.width, 0.5f));
+
+            // Bottom dark border
+            [[UIColor colorWithRed:0.55f green:0.57f blue:0.60f alpha:1.0f] setFill];
+            CGContextFillRect(ctx, CGRectMake(0, 43.0f, size.width, 0.5f));
+
+            // Bottom white drop reflection
+            [[UIColor colorWithWhite:1.0f alpha:0.35f] setFill];
+            CGContextFillRect(ctx, CGRectMake(0, 43.5f, size.width, 0.5f));
+
+            UIImage *raw = UIGraphicsGetImageFromCurrentImageContext();
+            UIGraphicsEndImageContext();
+            lightBg = [raw resizableImageWithCapInsets:UIEdgeInsetsZero];
+        }
+
+        CGColorSpaceRelease(cs);
+    });
+    return isDarkMode ? darkBg : lightBg;
+}
+
++ (UIImage *)searchFieldImageForDarkMode:(BOOL)isDarkMode {
+    static UIImage *darkField = nil;
+    static UIImage *lightField = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        CGSize size = CGSizeMake(32.0f, 28.0f);
+        CGRect r = CGRectInset(CGRectMake(0, 0, 32.0f, 28.0f), 0.5f, 0.5f);
+
+        // 1. Dark Mode Recessed Field
+        {
+            UIGraphicsBeginImageContextWithOptions(size, NO, 0.0f);
+
+            // Bottom outer bevel highlight
+            UIBezierPath *outerPath = [UIBezierPath bezierPathWithRoundedRect:CGRectOffset(r, 0, 0.5f) cornerRadius:13.5f];
+            [[UIColor colorWithWhite:1.0f alpha:0.12f] setStroke];
+            outerPath.lineWidth = 1.0f;
+            [outerPath stroke];
+
+            // Inset capsule fill
+            UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:13.5f];
+            [[UIColor colorWithRed:0.08f green:0.09f blue:0.11f alpha:1.0f] setFill];
+            [path fill];
+
+            // Dark inner top shadow border
+            [[UIColor colorWithWhite:0.0f alpha:0.60f] setStroke];
+            path.lineWidth = 1.0f;
+            [path stroke];
+
+            UIImage *raw = UIGraphicsGetImageFromCurrentImageContext();
+            UIGraphicsEndImageContext();
+            darkField = [raw resizableImageWithCapInsets:UIEdgeInsetsMake(13, 14, 13, 14)];
+        }
+
+        // 2. Light Mode Classic iOS 6 Recessed White Pill
+        {
+            UIGraphicsBeginImageContextWithOptions(size, NO, 0.0f);
+            CGContextRef ctx = UIGraphicsGetCurrentContext();
+
+            // Bottom outer crisp white bevel
+            UIBezierPath *outerPath = [UIBezierPath bezierPathWithRoundedRect:CGRectOffset(r, 0, 1.0f) cornerRadius:13.5f];
+            [[UIColor colorWithWhite:1.0f alpha:0.85f] setStroke];
+            outerPath.lineWidth = 1.0f;
+            [outerPath stroke];
+
+            // Inset capsule with subtle gradient (sunken into bar)
+            UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:13.5f];
+            CGContextSaveGState(ctx);
+            [path addClip];
+            CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+            UIColor *top = [UIColor colorWithRed:0.92f green:0.92f blue:0.94f alpha:1.0f];
+            UIColor *bottom = [UIColor whiteColor];
+            NSArray *cols = @[(__bridge id)[top CGColor], (__bridge id)[bottom CGColor]];
+            CGFloat locs[] = {0.0f, 1.0f};
+            CGGradientRef grad = CGGradientCreateWithColors(cs, (__bridge CFArrayRef)cols, locs);
+            CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, 0), CGPointMake(0, 28.0f), 0);
+            CGGradientRelease(grad);
+            CGColorSpaceRelease(cs);
+            CGContextRestoreGState(ctx);
+
+            // Inset border stroke
+            [[UIColor colorWithRed:0.58f green:0.60f blue:0.64f alpha:1.0f] setStroke];
+            path.lineWidth = 1.0f;
+            [path stroke];
+
+            // Inner top subtle shadow
+            UIBezierPath *topInnerArc = [UIBezierPath bezierPathWithArcCenter:CGPointMake(16.0f, 14.0f) radius:12.5f startAngle:(CGFloat)M_PI endAngle:0 clockwise:NO];
+            [[UIColor colorWithWhite:0.0f alpha:0.15f] setStroke];
+            topInnerArc.lineWidth = 1.0f;
+            [topInnerArc stroke];
+
+            UIImage *raw = UIGraphicsGetImageFromCurrentImageContext();
+            UIGraphicsEndImageContext();
+            lightField = [raw resizableImageWithCapInsets:UIEdgeInsetsMake(13, 14, 13, 14)];
+        }
+    });
+    return isDarkMode ? darkField : lightField;
+}
+
 #pragma mark - Tab Bar Generation
 
 + (UIImage *)tabBarBackgroundImageWithThemeColor:(UIColor *)themeColor {
@@ -166,6 +338,12 @@ static UIColor *NeoAdjustColor(UIColor *color, CGFloat factor, CGFloat add) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         cache = [[NSMutableDictionary alloc] init];
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidReceiveMemoryWarningNotification
+                                                          object:nil
+                                                           queue:[NSOperationQueue mainQueue]
+                                                      usingBlock:^(NSNotification *note) {
+            [cache removeAllObjects];
+        }];
     });
 
     UIColor *darkTint = [self darkTabTintColorForThemeColor:themeColor];
@@ -178,6 +356,10 @@ static UIColor *NeoAdjustColor(UIColor *color, CGFloat factor, CGFloat add) {
     CGSize size = CGSizeMake(2.0f, 49.0f);
     UIGraphicsBeginImageContextWithOptions(size, NO, 0.0f);
     CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (!ctx) {
+        UIGraphicsEndImageContext();
+        return nil;
+    }
 
     UIColor *tabTop    = NeoAdjustColor(darkTint, 1.18f, 0.06f);
     UIColor *tabBottom = NeoAdjustColor(darkTint, 0.85f, -0.02f);

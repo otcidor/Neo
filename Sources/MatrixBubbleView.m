@@ -322,9 +322,13 @@ static bool isEmojiChar(NSString *singleChar) {
     CGFloat tsY = CGRectGetMaxY(bFrame) - kTimestampHeight - 4.0f;
     NSString *timeStr = @"";
     if (self.timestamp) {
-        NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
-        fmt.dateFormat = @"HH:mm";
-        timeStr = [fmt stringFromDate:self.timestamp];
+        static NSDateFormatter *sTimeFormatter = nil;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            sTimeFormatter = [[NSDateFormatter alloc] init];
+            sTimeFormatter.dateFormat = @"HH:mm";
+        });
+        timeStr = [sTimeFormatter stringFromDate:self.timestamp];
     }
     CGSize tsSize = [MatrixBubbleView neoSizeForString:timeStr
                                                   font:[UIFont italicSystemFontOfSize:12]

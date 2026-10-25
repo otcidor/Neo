@@ -21,7 +21,7 @@ static NSString *kWpImages[] = {
 #define kWpCount 14
 static NSString *kCellId = @"WPCell";
 
-@interface WallpaperGalleryViewController () {
+@interface WallpaperGalleryViewController () <UIGestureRecognizerDelegate> {
     UIScrollView *_scrollView;
 }
 @end
@@ -64,6 +64,23 @@ static NSString *kCellId = @"WPCell";
     }
     [self applyTheme];
     [self layoutThumbnails];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        if (self.navigationController.interactivePopGestureRecognizer.delegate == (id<UIGestureRecognizerDelegate>)self) {
+            self.navigationController.interactivePopGestureRecognizer.delegate = nil;
+        }
+    }
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)] &&
+        gestureRecognizer == self.navigationController.interactivePopGestureRecognizer) {
+        return [self.navigationController.viewControllers count] > 1;
+    }
+    return YES;
 }
 
 - (void)viewDidLayoutSubviews {
@@ -165,6 +182,11 @@ static NSString *kCellId = @"WPCell";
 }
 
 - (void)dealloc {
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        if (self.navigationController.interactivePopGestureRecognizer.delegate == (id<UIGestureRecognizerDelegate>)self) {
+            self.navigationController.interactivePopGestureRecognizer.delegate = nil;
+        }
+    }
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 

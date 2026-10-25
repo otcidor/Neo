@@ -240,6 +240,9 @@
         self.myReactions = [NSMutableDictionary dictionary];
         self.reactionEventIds = [NSMutableDictionary dictionary];
         self.myReactionEventIds = [NSMutableDictionary dictionary];
+        _cachedRowHeight = 0;
+        _cachedReactionsCount = -1;
+        _cachedShowUser = NO;
 
         double ts = [dict[@"origin_server_ts"] doubleValue] / 1000.0;
         if (ts > 0) {

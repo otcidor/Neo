@@ -23,6 +23,7 @@
 #import "NeoSyncProcessor.h"
 #import "NeoReactionViewBuilder.h"
 #import "TGTableDeltaUpdater.h"
+#import "UIImage+WebP.h"
 #import "NeoProgressSpinnerView.h"
 #import "NeoMessageContextMenuView.h"
 #import "NeoMentionAutocompleteView.h"
@@ -169,7 +170,7 @@
 }
 @end
 
-@interface ChatViewController () <UIActionSheetDelegate, UIAlertViewDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate, NSURLConnectionDataDelegate>
+@interface ChatViewController () <UIActionSheetDelegate, UIAlertViewDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate, NSURLConnectionDataDelegate, UIGestureRecognizerDelegate>
 @end
 
 @implementation ChatViewController {
@@ -209,6 +210,10 @@
     UILabel *_placeholderLabel;
     CGFloat _inputBarHeight;
     NSCache *_rowHeightCache;
+    UIButton *_scrollDownButton;
+    UIImageView *_scrollDownBadgeBg;
+    UILabel *_scrollDownBadgeLabel;
+    NSInteger _scrollDownUnreadCount;
 }
 
 static const CGFloat kNeoInputBarBaseH = 44.0f;
@@ -259,6 +264,29 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     [self.view addSubview:inputView];
     self.inputContainer = inputView;
     _inputBarHeight = kNeoInputBarBaseH;
+
+    _scrollDownButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    _scrollDownButton.frame = CGRectMake(w - 38 - 12, tableH - 38 - 8, 38, 38);
+    _scrollDownButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleTopMargin;
+    [_scrollDownButton setImage:[UIImage imageNamed:@"ConversationScrollDown"] forState:UIControlStateNormal];
+    [_scrollDownButton setImage:[UIImage imageNamed:@"ConversationScrollDown_Highlighted"] forState:UIControlStateHighlighted];
+    [_scrollDownButton addTarget:self action:@selector(scrollDownButtonTapped) forControlEvents:UIControlEventTouchUpInside];
+    _scrollDownButton.hidden = YES;
+    _scrollDownButton.alpha = 0.0f;
+
+    _scrollDownBadgeBg = [[UIImageView alloc] initWithFrame:CGRectMake(20, -5, 20, 20)];
+    _scrollDownBadgeBg.image = [UIImage imageNamed:@"ConversationUnreadBadge"];
+    _scrollDownBadgeBg.hidden = YES;
+
+    _scrollDownBadgeLabel = [[UILabel alloc] initWithFrame:_scrollDownBadgeBg.bounds];
+    _scrollDownBadgeLabel.font = [UIFont boldSystemFontOfSize:10];
+    _scrollDownBadgeLabel.textColor = [UIColor whiteColor];
+    _scrollDownBadgeLabel.textAlignment = NSTextAlignmentCenter;
+    _scrollDownBadgeLabel.backgroundColor = [UIColor clearColor];
+    [_scrollDownBadgeBg addSubview:_scrollDownBadgeLabel];
+    [_scrollDownButton addSubview:_scrollDownBadgeBg];
+
+    [self.view addSubview:_scrollDownButton];
 
     UIImageView *inputBg = [[UIImageView alloc] initWithFrame:inputView.bounds];
     inputBg.tag = 92;
@@ -349,6 +377,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    [MatrixSyncManager sharedManager].activeRoomId = self.room.roomId;
     if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
         self.navigationController.interactivePopGestureRecognizer.delegate = (id<UIGestureRecognizerDelegate>)self;
     }
@@ -489,6 +518,14 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    if ([[MatrixSyncManager sharedManager].activeRoomId isEqualToString:self.room.roomId]) {
+        [MatrixSyncManager sharedManager].activeRoomId = nil;
+    }
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        if (self.navigationController.interactivePopGestureRecognizer.delegate == (id<UIGestureRecognizerDelegate>)self) {
+            self.navigationController.interactivePopGestureRecognizer.delegate = nil;
+        }
+    }
     if (_audioRecorder && _audioRecorder.recording) {
         [self cancelRecordingTapped];
     }
@@ -500,6 +537,14 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     [[NSNotificationCenter defaultCenter] removeObserver:self name:@"NeoMentionTappedNotification" object:nil];
     [self removeSyncObservers];
     _syncActive = NO;
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)] &&
+        gestureRecognizer == self.navigationController.interactivePopGestureRecognizer) {
+        return [self.navigationController.viewControllers count] > 1;
+    }
+    return YES;
 }
 
 - (void)addSyncObservers {
@@ -1256,6 +1301,52 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     if (scrollView.contentOffset.y < -30 && !_loadingMore && _prevBatchToken) {
         [self loadMoreMessages];
     }
+    CGFloat distanceFromBottom = scrollView.contentSize.height - (scrollView.contentOffset.y + scrollView.bounds.size.height);
+    if (distanceFromBottom > 250.0f) {
+        [self showScrollDownButtonAnimated:YES];
+    } else {
+        [self hideScrollDownButtonAnimated:YES];
+    }
+}
+
+- (void)showScrollDownButtonAnimated:(BOOL)animated {
+    if (!_scrollDownButton) return;
+    if (!_scrollDownButton.hidden && _scrollDownButton.alpha == 1.0f) return;
+    _scrollDownButton.hidden = NO;
+    if (animated) {
+        [UIView animateWithDuration:0.25 animations:^{
+            self->_scrollDownButton.alpha = 1.0f;
+        }];
+    } else {
+        _scrollDownButton.alpha = 1.0f;
+    }
+}
+
+- (void)hideScrollDownButtonAnimated:(BOOL)animated {
+    if (!_scrollDownButton || _scrollDownButton.hidden) return;
+    _scrollDownUnreadCount = 0;
+    _scrollDownBadgeBg.hidden = YES;
+    if (animated) {
+        [UIView animateWithDuration:0.2 animations:^{
+            self->_scrollDownButton.alpha = 0.0f;
+        } completion:^(BOOL finished) {
+            if (finished) self->_scrollDownButton.hidden = YES;
+        }];
+    } else {
+        _scrollDownButton.alpha = 0.0f;
+        _scrollDownButton.hidden = YES;
+    }
+}
+
+- (void)scrollDownButtonTapped {
+    _scrollDownUnreadCount = 0;
+    _scrollDownBadgeBg.hidden = YES;
+    NSInteger lastRow = [_displayItems count] - 1;
+    if (lastRow >= 0) {
+        NSIndexPath *last = [NSIndexPath indexPathForRow:lastRow inSection:0];
+        [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:YES];
+    }
+    [self hideScrollDownButtonAnimated:YES];
 }
 
 - (void)processEphemeralEvents:(NSArray *)events {
@@ -1347,11 +1438,17 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     }];
 
     if (changed) {
+        if (_scrollDownButton && !_scrollDownButton.hidden) {
+            _scrollDownUnreadCount += [events count];
+            _scrollDownBadgeLabel.text = (_scrollDownUnreadCount > 99) ? @"99+" : [NSString stringWithFormat:@"%d", (int)_scrollDownUnreadCount];
+            _scrollDownBadgeBg.hidden = NO;
+        }
         [self trimMessagesToLimit];
         [self markReadMessages];
         [[MatrixAPIClient sharedClient] cacheMessages:[self.messages copy] forRoom:self.room.roomId];
         [self resolveAllReplies];
-        [self reloadTableAnimatedWithAutoScroll:_shouldAutoScroll];
+        BOOL canAutoScroll = _shouldAutoScroll && (_scrollDownButton ? _scrollDownButton.hidden : YES);
+        [self reloadTableAnimatedWithAutoScroll:canAutoScroll];
     }
 }
 
@@ -2004,6 +2101,11 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 }
 
 - (void)dealloc {
+    if ([self.navigationController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        if (self.navigationController.interactivePopGestureRecognizer.delegate == (id<UIGestureRecognizerDelegate>)self) {
+            self.navigationController.interactivePopGestureRecognizer.delegate = nil;
+        }
+    }
     [_rowHeightCache removeAllObjects];
     _rowHeightCache = nil;
     [_recordingTimer invalidate];
@@ -2635,6 +2737,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         if (_mentionAutocompleteView && !_mentionAutocompleteView.hidden) {
             [_mentionAutocompleteView updatePositionAboveView:self.inputContainer inContainer:self.view];
         }
+        if (_scrollDownButton) {
+            _scrollDownButton.frame = CGRectMake(w - 38 - 12, tableH - 38 - 8, 38, 38);
+        }
     };
 
     if (duration > 0.0) {
@@ -2982,7 +3087,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         } else if ([msg.pendingLocalPath length] > 0 && [[NSFileManager defaultManager] fileExistsAtPath:msg.pendingLocalPath]) {
             NSData *pData = [NSData dataWithContentsOfFile:msg.pendingLocalPath options:NSDataReadingMappedIfSafe error:nil];
             if (pData) {
-                msg.cachedImage = [UIImage imageWithData:pData];
+                msg.cachedImage = [UIImage neo_imageWithDataOrWebP:pData];
                 msg.imageWidth = msg.cachedImage.size.width;
                 msg.imageHeight = msg.cachedImage.size.height;
                 preview.image = msg.cachedImage;
@@ -3465,18 +3570,18 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
     MatrixMessage *msg = (MatrixMessage *)item;
     BOOL isFirstInGroup = [self isFirstInGroupAtIndexPath:indexPath];
-    NSString *cacheKey = msg.eventId ? [NSString stringWithFormat:@"%@_%d_%d_%d", msg.eventId, (int)[msg.reactions count], msg.isRedacted ? 1 : 0, isFirstInGroup ? 1 : 0] : nil;
-    if (cacheKey && _rowHeightCache) {
-        NSNumber *cached = [_rowHeightCache objectForKey:cacheKey];
-        if (cached) {
-            return [cached floatValue];
-        }
-    }
-
     NSString *myId = [[MatrixAPIClient sharedClient] userId];
     BOOL isSelf = (myId && [msg.sender isEqualToString:myId]);
     BOOL isGroupChat = YES;
     BOOL showUser = (!isSelf && isGroupChat && isFirstInGroup);
+    NSInteger currentReactions = [msg.reactions count];
+
+    if (msg.cachedRowHeight > 0 &&
+        msg.cachedReactionsCount == currentReactions &&
+        msg.cachedShowUser == showUser) {
+        return msg.cachedRowHeight;
+    }
+
     BOOL showTimestamp = YES;
     BOOL isAudio = [msg.msgType isEqualToString:@"m.audio"] || [msg.msgType isEqualToString:@"m.voice"];
     BOOL isVideo = [msg.msgType isEqualToString:@"m.video"];
@@ -3539,9 +3644,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     CGFloat replyH = (msg.replyToEventId && [msg.replyToEventId length] > 0) ? [MatrixBubbleView replyPreviewHeight] : 0;
     CGFloat totalH = bubbleH + reactionH + replyH;
 
-    if (cacheKey && _rowHeightCache) {
-        [_rowHeightCache setObject:@(totalH) forKey:cacheKey];
-    }
+    msg.cachedRowHeight = totalH;
+    msg.cachedReactionsCount = currentReactions;
+    msg.cachedShowUser = showUser;
     return totalH;
 }
 
