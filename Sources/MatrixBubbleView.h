@@ -23,6 +23,7 @@ typedef enum {
 @property (assign, nonatomic) BOOL isEmojiOnly;
 @property (copy, nonatomic) NSString *senderId;
 @property (assign, nonatomic) BOOL isMentioned;
+@property (assign, nonatomic) BOOL isVisualMedia;
 
 + (BOOL)stringContainsEmojiOnly:(NSString *)string length:(NSUInteger *)count;
 + (UIColor *)colorForUserId:(NSString *)userId;
@@ -36,10 +37,18 @@ typedef enum {
 
 - (CGRect)bubbleFrame;
 
++ (CGFloat)maxBubbleWidth;
+
 + (CGFloat)cellHeightForText:(NSString *)txt
                      showUser:(BOOL)showUserFlag
                 showTimestamp:(BOOL)showTimestampFlag
                    isRedacted:(BOOL)isRedactedFlag;
+
++ (CGFloat)cellHeightForText:(NSString *)txt
+                  isOutgoing:(BOOL)isOutgoing
+                    showUser:(BOOL)showUserFlag
+               showTimestamp:(BOOL)showTimestampFlag
+                  isRedacted:(BOOL)isRedactedFlag;
 
 + (CGFloat)cellHeightForEmojiOnly:(NSString *)txt;
 
@@ -48,6 +57,28 @@ typedef enum {
                         showTimestamp:(BOOL)showTimestampFlag
                            isRedacted:(BOOL)isRedactedFlag
                           mediaHeight:(CGFloat)mediaHeight;
+
++ (CGFloat)cellHeightForMediaWithText:(NSString *)txt
+                           isOutgoing:(BOOL)isOutgoing
+                             showUser:(BOOL)showUserFlag
+                        showTimestamp:(BOOL)showTimestampFlag
+                           isRedacted:(BOOL)isRedactedFlag
+                          mediaHeight:(CGFloat)mediaHeight;
+
++ (CGFloat)cellHeightForMediaWithText:(NSString *)txt
+                           isOutgoing:(BOOL)isOutgoing
+                             showUser:(BOOL)showUserFlag
+                        showTimestamp:(BOOL)showTimestampFlag
+                           isRedacted:(BOOL)isRedactedFlag
+                            mediaSize:(CGSize)mediaSize;
+
++ (CGFloat)cellHeightForMediaWithText:(NSString *)txt
+                           isOutgoing:(BOOL)isOutgoing
+                             showUser:(BOOL)showUserFlag
+                        showTimestamp:(BOOL)showTimestampFlag
+                           isRedacted:(BOOL)isRedactedFlag
+                            mediaSize:(CGSize)mediaSize
+                        isVisualMedia:(BOOL)isVisualMedia;
 
 + (CGFloat)textXOffsetForType:(MatrixBubbleMessageType)type;
 

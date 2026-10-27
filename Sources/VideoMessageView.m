@@ -29,12 +29,14 @@
         _playOverlay.userInteractionEnabled = NO;
         [self addSubview:_playOverlay];
 
-        _durationLabel = [[UILabel alloc] initWithFrame:CGRectMake(6, frame.size.height - 22, frame.size.width - 12, 18)];
-        _durationLabel.font = [UIFont boldSystemFontOfSize:13];
+        _durationLabel = [[UILabel alloc] initWithFrame:CGRectMake(6, frame.size.height - 22, 48, 16)];
+        _durationLabel.font = [UIFont boldSystemFontOfSize:11];
         _durationLabel.textColor = [UIColor whiteColor];
-        _durationLabel.backgroundColor = [UIColor clearColor];
-        _durationLabel.textAlignment = NSTextAlignmentRight;
-        _durationLabel.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleWidth;
+        _durationLabel.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55f];
+        _durationLabel.layer.cornerRadius = 3;
+        _durationLabel.clipsToBounds = YES;
+        _durationLabel.textAlignment = NSTextAlignmentCenter;
+        _durationLabel.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleRightMargin;
         _durationLabel.shadowColor = [UIColor colorWithWhite:0 alpha:0.6];
         _durationLabel.shadowOffset = CGSizeMake(0, -1);
         [self addSubview:_durationLabel];
@@ -57,7 +59,8 @@
     [super layoutSubviews];
     _thumbnailView.frame = self.bounds;
     _playOverlay.center = CGPointMake(self.bounds.size.width / 2.0f, self.bounds.size.height / 2.0f);
-    _durationLabel.frame = CGRectMake(6, self.bounds.size.height - 22, self.bounds.size.width - 12, 18);
+    CGFloat dw = self.durationLabel.frame.size.width > 20 ? self.durationLabel.frame.size.width : 48;
+    _durationLabel.frame = CGRectMake(6, self.bounds.size.height - 22, dw, 16);
     _spinner.center = CGPointMake(self.bounds.size.width / 2.0f, self.bounds.size.height / 2.0f);
 }
 
@@ -74,6 +77,9 @@
     NSInteger ms = [duration integerValue];
     NSInteger sec = ms / 1000;
     self.durationLabel.text = [NSString stringWithFormat:@"%d:%02d", (int)sec / 60, (int)sec % 60];
+    CGSize sz = [self.durationLabel.text sizeWithFont:self.durationLabel.font];
+    CGFloat w = ceilf(sz.width) + 12.0f;
+    self.durationLabel.frame = CGRectMake(6, self.bounds.size.height - 22, w, 16);
 }
 
 - (NSString *)cachePathForThumbnailMXC:(NSString *)mxcURL {

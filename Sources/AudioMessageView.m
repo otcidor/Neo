@@ -76,15 +76,13 @@
 
 - (void)updateColors {
     if (self.isOutgoing) {
-        self.waveformView.unplayedColor = [UIColor colorWithWhite:1.0f alpha:0.40f];
-        self.waveformView.playedColor = [UIColor whiteColor];
-        self.timeLabel.textColor = [UIColor colorWithWhite:1.0f alpha:0.85f];
+        self.waveformView.unplayedColor = [UIColor colorWithRed:0.58f green:0.85f blue:0.53f alpha:1.0f];
+        self.waveformView.playedColor = [UIColor colorWithRed:0.0f green:0.65f blue:0.0f alpha:1.0f];
+        self.timeLabel.textColor = [UIColor colorWithRed:0.0f green:0.55f blue:0.04f alpha:0.85f];
     } else {
-        ThemeManager *tm = [ThemeManager sharedManager];
-        UIColor *accent = [tm tintColor] ?: [UIColor colorWithRed:0.20f green:0.55f blue:0.95f alpha:1.0f];
-        self.waveformView.unplayedColor = [UIColor colorWithWhite:0.75f alpha:1.0f];
-        self.waveformView.playedColor = accent;
-        self.timeLabel.textColor = [UIColor colorWithWhite:0.55f alpha:1.0f];
+        self.waveformView.unplayedColor = [UIColor colorWithRed:0.79f green:0.79f blue:0.79f alpha:1.0f];
+        self.waveformView.playedColor = [UIColor colorWithRed:0.04f green:0.52f blue:0.92f alpha:1.0f];
+        self.timeLabel.textColor = [UIColor colorWithRed:0.32f green:0.32f blue:0.32f alpha:0.65f];
     }
 }
 

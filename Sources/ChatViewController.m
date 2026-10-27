@@ -3023,46 +3023,92 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     return body;
 }
 
++ (CGSize)mediaDisplaySizeForOriginalWidth:(CGFloat)origW height:(CGFloat)origH isPad:(BOOL)isPad hasCaption:(BOOL)hasCaption {
+    if (origW <= 0.0f || origH <= 0.0f) {
+        origW = 240.0f;
+        origH = 135.0f;
+    }
+
+    // In Onegram Classic iOS 6:
+    // Standalone media uses max 246 pt (iPhone) / 330 pt (iPad).
+    // Media with caption is enclosed in a bubble (with 26pt horizontal insets).
+    // On iPhone (320pt): max content width is 224 pt (320 * 0.70).
+    // On iPad: max content width is 304 pt.
+    CGFloat maxW = isPad ? (hasCaption ? 304.0f : 330.0f) : (hasCaption ? 224.0f : 246.0f);
+    CGFloat maxH = isPad ? 360.0f : 260.0f;
+    CGFloat minW = isPad ? 160.0f : 130.0f;
+    CGFloat minH = isPad ? 140.0f : 110.0f;
+
+    CGFloat aspect = origW / origH;
+    CGFloat targetW = maxW;
+    CGFloat targetH = maxH;
+
+    if (aspect >= 1.0f) {
+        // Landscape or square: fit to maxW
+        targetW = maxW;
+        targetH = floorf(targetW / aspect);
+        if (targetH < minH) {
+            targetH = minH;
+            targetW = floorf(targetH * aspect);
+        }
+    } else {
+        // Portrait: fit to maxH
+        targetH = maxH;
+        targetW = floorf(targetH * aspect);
+        if (targetW < minW) {
+            targetW = minW;
+            targetH = floorf(targetW / aspect);
+        }
+    }
+
+    targetW = MIN(maxW, MAX(minW, targetW));
+    targetH = MIN(maxH, MAX(minH, targetH));
+
+    return CGSizeMake(ceilf(targetW), ceilf(targetH));
+}
+
++ (CGSize)mediaDisplaySizeForOriginalWidth:(CGFloat)origW height:(CGFloat)origH isPad:(BOOL)isPad {
+    return [self mediaDisplaySizeForOriginalWidth:origW height:origH isPad:isPad hasCaption:NO];
+}
+
+- (CGSize)mediaSizeForVideoMessage:(MatrixMessage *)msg {
+    CGFloat origW = 0.0f;
+    CGFloat origH = 0.0f;
+    if (msg.cachedVideoThumbnail) {
+        origW = msg.cachedVideoThumbnail.size.width;
+        origH = msg.cachedVideoThumbnail.size.height;
+    }
+    if (origW <= 0.0f || origH <= 0.0f) {
+        origW = msg.videoWidth;
+        origH = msg.videoHeight;
+    }
+    if (origW <= 0.0f || origH <= 0.0f) {
+        origW = 240.0f;
+        origH = 135.0f;
+    }
+    BOOL isPad = ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad);
+    BOOL hasCaption = ([self displayCaptionForMessage:msg].length > 0);
+    return [ChatViewController mediaDisplaySizeForOriginalWidth:origW height:origH isPad:isPad hasCaption:hasCaption];
+}
+
 - (CGSize)mediaSizeForImageMessage:(MatrixMessage *)msg {
-    CGFloat origW = 0;
-    CGFloat origH = 0;
+    CGFloat origW = 0.0f;
+    CGFloat origH = 0.0f;
     if (msg.cachedImage) {
         origW = msg.cachedImage.size.width;
         origH = msg.cachedImage.size.height;
     }
-    if (origW <= 0 || origH <= 0) {
+    if (origW <= 0.0f || origH <= 0.0f) {
         origW = msg.imageWidth;
         origH = msg.imageHeight;
     }
-    if (origW <= 0 || origH <= 0) {
-        origW = 200.0f;
-        origH = 150.0f;
+    if (origW <= 0.0f || origH <= 0.0f) {
+        origW = 240.0f;
+        origH = 180.0f;
     }
-
-    CGFloat maxW = 210.0f;
-    CGFloat maxH = 220.0f;
-    CGFloat minW = 130.0f;
-    CGFloat minH = 100.0f;
-
-    CGFloat ratio = origH / origW;
-
-    CGFloat targetW = maxW;
-    CGFloat targetH = roundf(targetW * ratio);
-
-    if (targetH > maxH) {
-        targetH = maxH;
-        targetW = roundf(targetH / ratio);
-    }
-
-    if (targetW > maxW) {
-        targetW = maxW;
-        targetH = roundf(targetW * ratio);
-    }
-
-    targetW = MAX(minW, MIN(maxW, targetW));
-    targetH = MAX(minH, MIN(maxH, targetH));
-
-    return CGSizeMake(targetW, targetH);
+    BOOL isPad = ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad);
+    BOOL hasCaption = ([self displayCaptionForMessage:msg].length > 0);
+    return [ChatViewController mediaDisplaySizeForOriginalWidth:origW height:origH isPad:isPad hasCaption:hasCaption];
 }
 
 #pragma mark - UITableView
@@ -3139,14 +3185,8 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         }
         mediaView = fileView;
     } else if (isVideo) {
-        CGFloat vidW = 200;
-        CGFloat vidH = 140;
-        if (msg.videoWidth > 0 && msg.videoHeight > 0) {
-            CGFloat ratio = msg.videoHeight / msg.videoWidth;
-            vidH = vidW * ratio;
-            if (vidH > 200) { vidH = 200; vidW = vidH / ratio; }
-        }
-        VideoMessageView *videoView = [[VideoMessageView alloc] initWithFrame:CGRectMake(0, 0, vidW, vidH)];
+        CGSize vidSize = [self mediaSizeForVideoMessage:msg];
+        VideoMessageView *videoView = [[VideoMessageView alloc] initWithFrame:CGRectMake(0, 0, vidSize.width, vidSize.height)];
         videoView.videoMxcURL = msg.videoURL;
         videoView.thumbnailMxcURL = msg.videoThumbnailURL;
         videoView.duration = msg.videoDuration;
@@ -3170,6 +3210,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                     if (thumb) {
                         dispatch_async(dispatch_get_main_queue(), ^{
                             msg.cachedVideoThumbnail = thumb;
+                            msg.videoWidth = thumb.size.width;
+                            msg.videoHeight = thumb.size.height;
+                            msg.cachedRowHeight = 0;
                             [tableView reloadRowsAtIndexPaths:@[cellPath] withRowAnimation:UITableViewRowAnimationNone];
                         });
                     }
@@ -3182,6 +3225,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                     [[MatrixAPIClient sharedClient] downloadImageFromMXC:thumbMXC completion:^(UIImage *thumbImg, NSError *thumbErr) {
                         if (thumbImg) {
                             msg.cachedVideoThumbnail = thumbImg;
+                            msg.videoWidth = thumbImg.size.width;
+                            msg.videoHeight = thumbImg.size.height;
+                            msg.cachedRowHeight = 0;
                             dispatch_async(dispatch_get_main_queue(), ^{
                                 [tableView reloadRowsAtIndexPaths:@[cellPath] withRowAnimation:UITableViewRowAnimationNone];
                             });
@@ -3244,6 +3290,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                     msg.cachedImage = img;
                     msg.imageWidth = img.size.width;
                     msg.imageHeight = img.size.height;
+                    msg.cachedRowHeight = 0;
                     dispatch_async(dispatch_get_main_queue(), ^{
                         [tableView reloadRowsAtIndexPaths:@[cellPath]
                                          withRowAnimation:UITableViewRowAnimationNone];
@@ -3278,6 +3325,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     NSString *displayBody = [[DemoModeManager sharedManager] obfuscateMessage:caption ?: @""];
     [cell setMessage:msg.isRedacted ? msg.body : displayBody];
     cell.bubbleView.isEmojiOnly = isEmojiOnly;
+    cell.bubbleView.isVisualMedia = (isVideo || (hasMedia && !isAudio && !isFile));
     [cell setTimestamp:msg.timestamp];
     [cell setIsRedacted:msg.isRedacted];
     [cell setUserWrited:[self displayNameForSender:msg.sender]];
@@ -3744,36 +3792,38 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     CGFloat bubbleH;
     if (isFile) {
         bubbleH = [MatrixBubbleView cellHeightForMediaWithText:caption
-                                                       showUser:showUser
-                                                  showTimestamp:showTimestamp
-                                                     isRedacted:msg.isRedacted
-                                                    mediaHeight:60];
+                                                    isOutgoing:isSelf
+                                                      showUser:showUser
+                                                 showTimestamp:showTimestamp
+                                                    isRedacted:msg.isRedacted
+                                                     mediaSize:CGSizeMake(240, 60)
+                                                 isVisualMedia:NO];
     } else if (isAudio) {
         bubbleH = [MatrixBubbleView cellHeightForMediaWithText:caption
-                                                       showUser:showUser
-                                                  showTimestamp:showTimestamp
-                                                     isRedacted:msg.isRedacted
-                                                    mediaHeight:50];
+                                                    isOutgoing:isSelf
+                                                      showUser:showUser
+                                                 showTimestamp:showTimestamp
+                                                    isRedacted:msg.isRedacted
+                                                     mediaSize:CGSizeMake(200, 50)
+                                                 isVisualMedia:NO];
     } else if (isVideo) {
-        CGFloat vidW = 200;
-        CGFloat vidH = 140;
-        if (msg.videoWidth > 0 && msg.videoHeight > 0) {
-            CGFloat ratio = msg.videoHeight / msg.videoWidth;
-            vidH = vidW * ratio;
-            if (vidH > 200) { vidH = 200; vidW = vidH / ratio; }
-        }
+        CGSize vidSize = [self mediaSizeForVideoMessage:msg];
         bubbleH = [MatrixBubbleView cellHeightForMediaWithText:caption
-                                                       showUser:showUser
-                                                  showTimestamp:showTimestamp
-                                                     isRedacted:msg.isRedacted
-                                                    mediaHeight:vidH];
+                                                    isOutgoing:isSelf
+                                                      showUser:showUser
+                                                 showTimestamp:showTimestamp
+                                                    isRedacted:msg.isRedacted
+                                                     mediaSize:vidSize
+                                                 isVisualMedia:YES];
     } else if (hasMedia) {
         CGSize imgSize = [self mediaSizeForImageMessage:msg];
         bubbleH = [MatrixBubbleView cellHeightForMediaWithText:caption
-                                                       showUser:showUser
-                                                  showTimestamp:showTimestamp
-                                                     isRedacted:msg.isRedacted
-                                                    mediaHeight:imgSize.height];
+                                                    isOutgoing:isSelf
+                                                      showUser:showUser
+                                                 showTimestamp:showTimestamp
+                                                    isRedacted:msg.isRedacted
+                                                     mediaSize:imgSize
+                                                 isVisualMedia:YES];
     } else {
         NSUInteger emojiCount = 0;
         BOOL emojiOnly = ![msg.msgType isEqualToString:@"m.image"] && ![msg.body hasPrefix:@"mxc://"]
@@ -3782,6 +3832,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
             bubbleH = [MatrixBubbleView cellHeightForEmojiOnly:msg.body];
         } else {
             bubbleH = [MatrixBubbleView cellHeightForText:msg.body
+                                                 isOutgoing:isSelf
                                                  showUser:showUser
                                             showTimestamp:showTimestamp
                                                isRedacted:msg.isRedacted];

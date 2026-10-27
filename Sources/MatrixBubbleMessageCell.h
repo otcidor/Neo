@@ -4,6 +4,7 @@
 @interface MatrixBubbleMessageCell : UITableViewCell
 
 @property (strong, nonatomic) MatrixBubbleView *bubbleView;
+@property (strong, nonatomic) UIImageView *dateSeparatorBgView;
 @property (strong, nonatomic) UILabel *dateSeparatorLabel;
 
 - (void)configureWithType:(MatrixBubbleMessageType)type

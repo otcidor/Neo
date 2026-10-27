@@ -23,14 +23,14 @@
 
         self.nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(60, 6, frame.size.width - 66, 22)];
         self.nameLabel.font = [UIFont boldSystemFontOfSize:14];
-        self.nameLabel.textColor = [UIColor darkTextColor];
+        self.nameLabel.textColor = [UIColor colorWithRed:0.05 green:0.40 blue:0.85 alpha:1.0];
         self.nameLabel.backgroundColor = [UIColor clearColor];
         self.nameLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
         [self addSubview:self.nameLabel];
 
         self.sizeLabel = [[UILabel alloc] initWithFrame:CGRectMake(60, 28, frame.size.width - 66, 16)];
         self.sizeLabel.font = [UIFont systemFontOfSize:12];
-        self.sizeLabel.textColor = [UIColor grayColor];
+        self.sizeLabel.textColor = [UIColor colorWithWhite:0.45 alpha:1.0];
         self.sizeLabel.backgroundColor = [UIColor clearColor];
         [self addSubview:self.sizeLabel];
 

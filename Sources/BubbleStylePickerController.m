@@ -41,6 +41,7 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
     self.tableView.rowHeight = 60;
 
     self.styles = @[
+        @{@"key": @"neo-telegram-classic", @"name": @"Telegram Classic", @"color": [UIColor colorWithRed:100/255.0 green:180/255.0 blue:90/255.0 alpha:1.0]},
         @{@"key": @"neo",        @"name": @"Neo",        @"color": [UIColor colorWithRed:30/255.0  green:160/255.0 blue:80/255.0   alpha:1.0]},
         @{@"key": @"neo-cyan",   @"name": @"Cyan",       @"color": [UIColor colorWithRed:0/255.0   green:150/255.0 blue:150/255.0 alpha:1.0]},
         @{@"key": @"neo-purple", @"name": @"Purple",     @"color": [UIColor colorWithRed:140/255.0 green:35/255.0  blue:160/255.0 alpha:1.0]},
@@ -49,9 +50,8 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
         @{@"key": @"neo-red",    @"name": @"Red",        @"color": [UIColor colorWithRed:180/255.0 green:40/255.0  blue:40/255.0  alpha:1.0]},
         @{@"key": @"neo-teal",   @"name": @"Teal",       @"color": [UIColor colorWithRed:0/255.0   green:130/255.0 blue:110/255.0 alpha:1.0]},
         @{@"key": @"neo-indigo", @"name": @"Indigo",     @"color": [UIColor colorWithRed:75/255.0  green:30/255.0  blue:130/255.0 alpha:1.0]},
-        @{@"key": @"whatsapp",    @"name": @"WhatsApp",    @"color": [UIColor colorWithRed:0/255.0   green:100/255.0 blue:200/255.0 alpha:1.0]},
+        @{@"key": @"whatsapp",    @"name": @"WhatsApp",    @"color": [UIColor colorWithRed:220/255.0 green:245/255.0 blue:198/255.0 alpha:1.0]},
         @{@"key": @"neo-telegram", @"name": @"Telegram",   @"color": [UIColor colorWithRed:0/255.0   green:136/255.0 blue:204/255.0 alpha:1.0]},
-        @{@"key": @"neo-telegram-classic", @"name": @"Telegram Classic", @"color": [UIColor colorWithRed:100/255.0 green:180/255.0 blue:90/255.0 alpha:1.0]},
     ];
 
     [self applyTheme];
@@ -136,7 +136,7 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
 
     NSString *current = [[NSUserDefaults standardUserDefaults] stringForKey:kBubbleStyleKey];
     NSString *key = style[@"key"];
-    if ((current == nil && [key isEqualToString:@"neo"]) || [current isEqualToString:key]) {
+    if ((current == nil && [key isEqualToString:@"neo-telegram-classic"]) || [current isEqualToString:key]) {
         cell.accessoryType = UITableViewCellAccessoryCheckmark;
     } else {
         cell.accessoryType = UITableViewCellAccessoryNone;
@@ -151,12 +151,13 @@ static NSString *const kBubbleStyleKey = @"neo_bubble_style";
     NSDictionary *style = self.styles[ip.row];
     NSString *key = style[@"key"];
 
-    if ([key isEqualToString:@"neo"]) {
+    if ([key isEqualToString:@"neo-telegram-classic"]) {
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:kBubbleStyleKey];
     } else {
         [[NSUserDefaults standardUserDefaults] setObject:key forKey:kBubbleStyleKey];
     }
     [[NSUserDefaults standardUserDefaults] synchronize];
+    [[NSNotificationCenter defaultCenter] postNotificationName:NeoThemeDidChangeNotification object:nil];
     [tv reloadData];
 }
 

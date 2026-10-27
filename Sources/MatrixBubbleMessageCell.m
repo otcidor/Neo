@@ -2,7 +2,7 @@
 
 @implementation MatrixBubbleMessageCell
 
-@synthesize bubbleView, dateSeparatorLabel;
+@synthesize bubbleView, dateSeparatorLabel, dateSeparatorBgView;
 
 - (void)setup {
     self.backgroundColor = [UIColor clearColor];
@@ -34,19 +34,30 @@
         dateSeparator:(NSString *)dateSeparator {
 
     if (dateSeparator) {
+        if (!self.dateSeparatorBgView) {
+            self.dateSeparatorBgView = [[UIImageView alloc] initWithFrame:CGRectZero];
+            UIImage *rawImg = [UIImage imageNamed:@"SystemMessageBackground"];
+            if (rawImg) {
+                self.dateSeparatorBgView.image = [rawImg stretchableImageWithLeftCapWidth:(int)(rawImg.size.width / 2) topCapHeight:(int)(rawImg.size.height / 2)];
+            }
+            [self.contentView addSubview:self.dateSeparatorBgView];
+        }
         if (!self.dateSeparatorLabel) {
             self.dateSeparatorLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-            self.dateSeparatorLabel.font = [UIFont systemFontOfSize:12];
-            self.dateSeparatorLabel.textColor = [UIColor colorWithWhite:0.45 alpha:1.0];
+            self.dateSeparatorLabel.font = [UIFont boldSystemFontOfSize:12];
+            self.dateSeparatorLabel.textColor = [UIColor whiteColor];
+            self.dateSeparatorLabel.shadowColor = [UIColor colorWithWhite:0.0 alpha:0.45f];
+            self.dateSeparatorLabel.shadowOffset = CGSizeMake(0, -1);
             self.dateSeparatorLabel.textAlignment = NSTextAlignmentCenter;
             self.dateSeparatorLabel.backgroundColor = [UIColor clearColor];
             [self.contentView addSubview:self.dateSeparatorLabel];
         }
         self.dateSeparatorLabel.text = dateSeparator;
-        self.dateSeparatorLabel.frame = CGRectMake(0, 4, self.contentView.frame.size.width, 20);
+        self.dateSeparatorBgView.hidden = NO;
         self.dateSeparatorLabel.hidden = NO;
-    } else if (self.dateSeparatorLabel) {
-        self.dateSeparatorLabel.hidden = YES;
+    } else {
+        if (self.dateSeparatorBgView) self.dateSeparatorBgView.hidden = YES;
+        if (self.dateSeparatorLabel) self.dateSeparatorLabel.hidden = YES;
     }
 
     CGFloat y = dateSeparator ? 28 : 0;
@@ -115,7 +126,15 @@
         [self.bubbleView setNeedsDisplay];
     }
     if (self.dateSeparatorLabel && !self.dateSeparatorLabel.hidden) {
-        self.dateSeparatorLabel.frame = CGRectMake(0, 4, self.contentView.bounds.size.width, 20);
+        CGSize sz = [self.dateSeparatorLabel.text sizeWithFont:self.dateSeparatorLabel.font];
+        CGFloat bw = ceilf(sz.width) + 18.0f;
+        CGFloat bh = 20.0f;
+        CGFloat bx = floorf((self.contentView.bounds.size.width - bw) / 2.0f);
+        CGFloat by = 4.0f;
+        if (self.dateSeparatorBgView) {
+            self.dateSeparatorBgView.frame = CGRectMake(bx, by, bw, bh);
+        }
+        self.dateSeparatorLabel.frame = CGRectMake(bx, by, bw, bh);
     }
 }
 

@@ -79,6 +79,7 @@ static NSString *kWpImages[] = {
                                    UIViewAutoresizingFlexibleHeight;
     _tableView.backgroundView = nil;
     _tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
+    _tableView.tableFooterView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 24.0f)];
     [self.view addSubview:_tableView];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -144,18 +145,21 @@ static NSString *kWpImages[] = {
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
-    return 32.0f;
+    if (section == 0) return 36.0f;
+    return 44.0f;
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
     ThemeManager *tm = [ThemeManager sharedManager];
     CGFloat w = tableView.bounds.size.width;
-    UIView *v = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 32.0f)];
+    CGFloat h = [self tableView:tableView heightForHeaderInSection:section];
+    UIView *v = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
     v.backgroundColor = [tm backgroundColor];
 
     NSString *title = [self tableView:tableView titleForHeaderInSection:section];
     if ([title length] > 0) {
-        UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, w - 32, 16)];
+        CGFloat labelY = (section == 0) ? 14.0f : 20.0f;
+        UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(16, labelY, w - 32, 16)];
         lbl.font = [UIFont boldSystemFontOfSize:12];
         lbl.textColor = [tm secondaryTextColor];
         lbl.backgroundColor = [UIColor clearColor];
@@ -166,15 +170,11 @@ static NSString *kWpImages[] = {
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
-    return (section == 2) ? 24.0f : 12.0f;
+    return 0.0f;
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
-    ThemeManager *tm = [ThemeManager sharedManager];
-    CGFloat h = [self tableView:tableView heightForFooterInSection:section];
-    UIView *v = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, h)];
-    v.backgroundColor = [tm backgroundColor];
-    return v;
+    return nil;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView
@@ -251,13 +251,15 @@ static NSString *kWpImages[] = {
             }
         }
 
+        NSInteger totalRows = [self tableView:tableView numberOfRowsInSection:0];
+        BOOL isLast = (indexPath.row == totalRows - 1);
         UIView *sep = [cell.contentView viewWithTag:98];
         if (!sep) {
             sep = [[UIView alloc] initWithFrame:CGRectZero];
             sep.tag = 98;
             [cell.contentView addSubview:sep];
         }
-        sep.frame = CGRectMake(0, 43.5f, cellW, 0.5f);
+        sep.frame = isLast ? CGRectMake(0, 43.5f, cellW, 0.5f) : CGRectMake(58.0f, 43.5f, cellW - 58.0f, 0.5f);
         sep.backgroundColor = [tm_cell separatorColor];
 
         return cell;
@@ -382,7 +384,7 @@ static NSString *kWpImages[] = {
                 @"neo-telegram": @"Telegram",
                 @"neo-telegram-classic": @"Telegram Classic",
             };
-            cell.detailTextLabel.text = names[style] ?: (style == nil ? @"Neo" : style);
+            cell.detailTextLabel.text = names[style] ?: (style == nil ? @"Telegram Classic" : style);
         } else if (indexPath.row == 3) {
             cell.imageView.image = [ThemeManager settingsIconNamed:@"theme"];
             cell.textLabel.text = @"Theme";
@@ -394,13 +396,15 @@ static NSString *kWpImages[] = {
             cell.detailTextLabel.text = (limit <= 0) ? NSLocalizedString(@"No limit", nil) : [NSString stringWithFormat:@"%ld", (long)limit];
         }
 
+        NSInteger totalRows = [self tableView:tableView numberOfRowsInSection:1];
+        BOOL isLast = (indexPath.row == totalRows - 1);
         UIView *sep = [cell.contentView viewWithTag:98];
         if (!sep) {
             sep = [[UIView alloc] initWithFrame:CGRectZero];
             sep.tag = 98;
             [cell.contentView addSubview:sep];
         }
-        sep.frame = CGRectMake(0, 43.5f, cellW, 0.5f);
+        sep.frame = isLast ? CGRectMake(0, 43.5f, cellW, 0.5f) : CGRectMake(58.0f, 43.5f, cellW - 58.0f, 0.5f);
         sep.backgroundColor = [tm_cell separatorColor];
 
         return cell;
@@ -444,8 +448,14 @@ static NSString *kWpImages[] = {
             sep.tag = 98;
             [cell.contentView addSubview:sep];
         }
-        sep.frame = CGRectMake(0, 43.5f, cellW, 0.5f);
-        sep.backgroundColor = [tm_cell separatorColor];
+        if (indexPath.row == 0) {
+            sep.hidden = NO;
+            sep.frame = CGRectMake(58.0f, 43.5f, cellW - 58.0f, 0.5f);
+            sep.backgroundColor = [tm_cell separatorColor];
+        } else {
+            sep.hidden = YES;
+            sep.frame = CGRectZero;
+        }
 
         return cell;
     }
