@@ -1,4 +1,5 @@
 #import "NeoSkeuoRenderer.h"
+#import "ThemeManager.h"
 #import <QuartzCore/QuartzCore.h>
 
 @implementation NeoSkeuoRenderer
@@ -547,6 +548,86 @@ static UIColor *NeoAdjustColor(UIColor *color, CGFloat factor, CGFloat add) {
 
 + (UIView *)classicDisclosureIndicator {
     return [[UIImageView alloc] initWithImage:[self classicDisclosureIndicatorImage]];
+}
+
+#pragma mark - Chat Bubble Gloss
+
++ (void)drawClassicBubbleGlossInContext:(CGContextRef)context
+                                 bounds:(CGRect)bounds
+                             isOutgoing:(BOOL)outgoing
+                                hasTail:(BOOL)tail {
+    if (!context || bounds.size.width <= 0 || bounds.size.height <= 0) return;
+
+    const CGFloat kTailWidth = 6.0f;
+    const CGFloat kGlossRadius = 11.0f;
+    const CGFloat kGlossMargin = 3.0f;
+    const CGFloat kGlossMaxHeight = 22.0f;
+
+    CGRect body = bounds;
+    if (tail) {
+        body.size.width -= kTailWidth;
+        if (!outgoing) {
+            body.origin.x += kTailWidth;
+        }
+    }
+
+    CGRect inner = CGRectInset(body, 1.0f, 1.0f);
+    if (inner.size.width < 2.0f * kGlossRadius || inner.size.height < 2.0f * kGlossRadius) return;
+
+    BOOL isDark = [ThemeManager sharedManager].isDarkMode;
+
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    if (!space) return;
+
+    // 1. Subtle upper sheen fading into body over fixed reach (up to 44pt)
+    CGFloat topAlpha = isDark ? 0.14f : 0.28f;
+    CGFloat midAlpha = isDark ? 0.05f : 0.10f;
+    CGFloat sheenColors[] = {
+        1.0f, 1.0f, 1.0f, topAlpha,
+        1.0f, 1.0f, 1.0f, midAlpha,
+        1.0f, 1.0f, 1.0f, 0.0f
+    };
+    CGFloat sheenLocs[] = { 0.0f, 0.40f, 1.0f };
+    CGGradientRef sheenGrad = CGGradientCreateWithColorComponents(space, sheenColors, sheenLocs, 3);
+    if (sheenGrad) {
+        CGFloat reach = MIN(inner.size.height, 2.0f * kGlossMaxHeight);
+        CGContextSaveGState(context);
+        [[UIBezierPath bezierPathWithRoundedRect:inner cornerRadius:kGlossRadius] addClip];
+        CGContextDrawLinearGradient(context, sheenGrad,
+                                   CGPointMake(0, inner.origin.y),
+                                   CGPointMake(0, inner.origin.y + reach),
+                                   kCGGradientDrawsAfterEndLocation);
+        CGContextRestoreGState(context);
+        CGGradientRelease(sheenGrad);
+    }
+
+    // 2. Signature iOS 6 glossy oval light capsule on upper part
+    CGFloat capsuleHeight = MIN(kGlossMaxHeight, floorf(inner.size.height * 0.46f));
+    if (capsuleHeight >= 6.0f) {
+        CGRect capsule = CGRectMake(inner.origin.x + kGlossMargin,
+                                    inner.origin.y + 1.5f,
+                                    inner.size.width - 2.0f * kGlossMargin,
+                                    capsuleHeight);
+        CGFloat shineAlpha = isDark ? 0.18f : 0.52f;
+        CGFloat shineColors[] = {
+            1.0f, 1.0f, 1.0f, shineAlpha,
+            1.0f, 1.0f, 1.0f, 0.0f
+        };
+        CGGradientRef lightGrad = CGGradientCreateWithColorComponents(space, shineColors, NULL, 2);
+        if (lightGrad) {
+            CGContextSaveGState(context);
+            CGFloat capsuleRadius = MIN(capsuleHeight / 2.0f, kGlossRadius - 2.0f);
+            [[UIBezierPath bezierPathWithRoundedRect:capsule cornerRadius:capsuleRadius] addClip];
+            CGContextDrawLinearGradient(context, lightGrad,
+                                       CGPointMake(0, capsule.origin.y),
+                                       CGPointMake(0, CGRectGetMaxY(capsule)),
+                                       0);
+            CGContextRestoreGState(context);
+            CGGradientRelease(lightGrad);
+        }
+    }
+
+    CGColorSpaceRelease(space);
 }
 
 @end

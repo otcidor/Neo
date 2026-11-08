@@ -338,6 +338,10 @@ static UIColor *colorForTheme(SpaceTheme theme) {
                                     withNewItems:self.filteredRooms
                             singleUpdateBlock:^(NSArray<TGTableAlignment *> *deletes,
                                                 NSArray<TGTableAlignment *> *inserts) {
+            if ([deletes count] == 0 && [inserts count] == 0) {
+                [self.tableView reloadData];
+                return;
+            }
             [self.tableView beginUpdates];
             for (TGTableAlignment *al in deletes) {
                 NSMutableArray *idxs = [NSMutableArray array];

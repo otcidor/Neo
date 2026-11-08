@@ -6,6 +6,7 @@
 #import "ThemeManager.h"
 #import "RoomListViewController.h"
 #import "TabBarController.h"
+#import "AppDelegate.h"
 #import "NeoSplitViewController.h"
 #import <QuartzCore/QuartzCore.h>
 
@@ -180,6 +181,10 @@
 
         UIWindow *keyWindow = [[UIApplication sharedApplication] keyWindow];
         TabBarController *tbc = [[TabBarController alloc] init];
+        AppDelegate *appDelegate = (AppDelegate *)[UIApplication sharedApplication].delegate;
+        if ([appDelegate respondsToSelector:@selector(setTabBarController:)]) {
+            appDelegate.tabBarController = tbc;
+        }
         if ([NeoSplitViewController isPad]) {
             NeoSplitViewController *splitVC = [NeoSplitViewController sharedSplitViewController];
             splitVC.masterViewController = tbc;

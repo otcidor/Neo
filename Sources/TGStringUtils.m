@@ -6,7 +6,10 @@ bool TGIsRTL(void)
     static bool value = false;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        value = ([NSLocale characterDirectionForLanguage:[[NSLocale preferredLanguages] objectAtIndex:0]] == NSLocaleLanguageDirectionRightToLeft);
+        NSArray *langs = [NSLocale preferredLanguages];
+        if ([langs count] > 0) {
+            value = ([NSLocale characterDirectionForLanguage:[langs objectAtIndex:0]] == NSLocaleLanguageDirectionRightToLeft);
+        }
     });
     return value;
 }
@@ -16,8 +19,10 @@ bool TGIsArabic(void)
     static bool value = false;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSString *language = [[NSLocale preferredLanguages] objectAtIndex:0];
-        value = [language isEqualToString:@"ar"];
+        NSArray *langs = [NSLocale preferredLanguages];
+        if ([langs count] > 0) {
+            value = [[langs objectAtIndex:0] isEqualToString:@"ar"];
+        }
     });
     return value;
 }
@@ -27,8 +32,10 @@ bool TGIsKorean(void)
     static bool value = false;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSString *language = [[NSLocale preferredLanguages] objectAtIndex:0];
-        value = [language isEqualToString:@"ko"];
+        NSArray *langs = [NSLocale preferredLanguages];
+        if ([langs count] > 0) {
+            value = [[langs objectAtIndex:0] isEqualToString:@"ko"];
+        }
     });
     return value;
 }

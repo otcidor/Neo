@@ -155,8 +155,16 @@ extern NSString *const kDefaultsKeyNextBatch;
 - (NSInteger)cachedMemberCountForRoom:(NSString *)roomId;
 
 - (NSString *)mxcURLToHTTP:(NSString *)mxcURL;
+- (NSString *)mxcURLToHTTP:(NSString *)mxcURL thumbnail:(BOOL)thumbnail;
+- (NSString *)mxcURLToHTTP:(NSString *)mxcURL thumbnail:(BOOL)thumbnail width:(NSInteger)width height:(NSInteger)height;
 - (void)downloadImageFromMXC:(NSString *)mxcURL
                     completion:(void(^)(UIImage *image, NSError *error))completion;
+- (void)downloadAvatarFromMXC:(NSString *)mxcURL
+                     completion:(void(^)(UIImage *image, NSError *error))completion;
+- (void)downloadFullImageFromMXC:(NSString *)mxcURL
+                      completion:(void(^)(UIImage *image, NSError *error))completion;
+- (UIImage *)cachedFullImageForMXC:(NSString *)mxcURL;
+- (void)cacheImage:(UIImage *)image data:(NSData *)data forMXC:(NSString *)mxcURL;
 - (void)downloadDataFromMXC:(NSString *)mxcURL
                  completion:(void(^)(NSData *data, NSString *mimeType, NSError *error))completion;
 + (void)cleanupMediaCacheOlderThanDays:(NSInteger)days;

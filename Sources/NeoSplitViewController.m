@@ -1,5 +1,6 @@
 #import "NeoSplitViewController.h"
 #import "NeoDetailEmptyViewController.h"
+#import "NeoBackSwipe.h"
 #import "ChatViewController.h"
 #import "ThemeManager.h"
 #import "NeoCompatibility.h"
@@ -32,6 +33,7 @@
     if (self) {
         NeoDetailEmptyViewController *emptyVC = [[NeoDetailEmptyViewController alloc] init];
         _detailNavigationController = [[UINavigationController alloc] initWithRootViewController:emptyVC];
+        [_detailNavigationController neo_enableBackSwipe];
     }
     return self;
 }

@@ -35,7 +35,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
     dispatch_once(&onceToken, ^{
         instance = [[self alloc] init];
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-        instance.homeserver = [defaults stringForKey:kDefaultsKeyHomeserver];
+        instance.homeserver = [defaults stringForKey:kDefaultsKeyHomeserver] ?: @"https://neo.otcidor.win";
         instance.accessToken = [defaults stringForKey:kDefaultsKeyAccessToken];
         instance.deviceId = [defaults stringForKey:kDefaultsKeyDeviceId];
         instance.userId = [defaults stringForKey:kDefaultsKeyUserId];
@@ -116,10 +116,14 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
 
 - (void)saveCredentials {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    [defaults setObject:self.homeserver forKey:kDefaultsKeyHomeserver];
-    [defaults setObject:self.accessToken forKey:kDefaultsKeyAccessToken];
-    [defaults setObject:self.deviceId forKey:kDefaultsKeyDeviceId];
-    [defaults setObject:self.userId forKey:kDefaultsKeyUserId];
+    if (self.homeserver) [defaults setObject:self.homeserver forKey:kDefaultsKeyHomeserver];
+    else [defaults removeObjectForKey:kDefaultsKeyHomeserver];
+    if (self.accessToken) [defaults setObject:self.accessToken forKey:kDefaultsKeyAccessToken];
+    else [defaults removeObjectForKey:kDefaultsKeyAccessToken];
+    if (self.deviceId) [defaults setObject:self.deviceId forKey:kDefaultsKeyDeviceId];
+    else [defaults removeObjectForKey:kDefaultsKeyDeviceId];
+    if (self.userId) [defaults setObject:self.userId forKey:kDefaultsKeyUserId];
+    else [defaults removeObjectForKey:kDefaultsKeyUserId];
     [defaults synchronize];
 }
 
@@ -156,6 +160,7 @@ NSString *const NeoCacheDidClearNotification = @"NeoCacheDidClearNotification";
         [appSupport stringByAppendingPathComponent:@"com.neo.memberCache"],
         [cachesRoot stringByAppendingPathComponent:@"com.neo.avatarCache"],
         [cachesRoot stringByAppendingPathComponent:@"com.neo.FileCache"],
+        [cachesRoot stringByAppendingPathComponent:@"FileCache"],
         [cachesRoot stringByAppendingPathComponent:@"MediaCache"],
         // Legacy cache locations if any remains
         [cachesRoot stringByAppendingPathComponent:@"com.neo.messageCache"],
@@ -317,6 +322,12 @@ static id NeoGetSession(void) {
 - (void)loginWithUser:(NSString *)user
              password:(NSString *)password
            completion:(MatrixCompletion)completion {
+    if (!user || [user length] == 0 || !password || [password length] == 0) {
+        if (completion) {
+            completion(nil, [NSError errorWithDomain:@"MatrixAPIClient" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Username and password required"}]);
+        }
+        return;
+    }
     NSMutableURLRequest *req = [self requestWithPath:@"/_matrix/client/r0/login" method:@"POST"];
     NSDictionary *body = @{
         @"type": @"m.login.password",
@@ -446,6 +457,10 @@ static id NeoGetSession(void) {
              roomId:(NSString *)roomId
             eventId:(NSString *)eventId
          completion:(MatrixCompletion)completion {
+    if (!eventId || [eventId length] == 0 || !newBody || [roomId length] == 0) {
+        if (completion) completion(nil, [NSError errorWithDomain:@"MatrixAPIClient" code:-1 userInfo:nil]);
+        return;
+    }
     NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:
         @"/_matrix/client/r0/rooms/%@/send/m.room.message/%@",
@@ -476,6 +491,10 @@ static id NeoGetSession(void) {
               roomId:(NSString *)roomId
              eventId:(NSString *)eventId
           completion:(MatrixCompletion)completion {
+    if (!eventId || [eventId length] == 0 || !emoji || [emoji length] == 0 || [roomId length] == 0) {
+        if (completion) completion(nil, [NSError errorWithDomain:@"MatrixAPIClient" code:-1 userInfo:nil]);
+        return;
+    }
     NSString *txnId = NeoGenerateUUID();
     NSString *path = [NSString stringWithFormat:
         @"/_matrix/client/r0/rooms/%@/send/m.reaction/%@",
@@ -1064,6 +1083,10 @@ static id NeoGetSession(void) {
 }
 
 - (NSString *)mxcURLToHTTP:(NSString *)mxcURL thumbnail:(BOOL)thumbnail {
+    return [self mxcURLToHTTP:mxcURL thumbnail:thumbnail width:800 height:800];
+}
+
+- (NSString *)mxcURLToHTTP:(NSString *)mxcURL thumbnail:(BOOL)thumbnail width:(NSInteger)width height:(NSInteger)height {
     if (![mxcURL hasPrefix:@"mxc://"]) return nil;
     NSString *path = [mxcURL substringFromIndex:6];
     NSRange slash = [path rangeOfString:@"/"];
@@ -1072,9 +1095,11 @@ static id NeoGetSession(void) {
     NSString *mediaId = [path substringFromIndex:slash.location + 1];
 
     if (thumbnail) {
+        NSInteger w = width > 0 ? width : 800;
+        NSInteger h = height > 0 ? height : 800;
         return [NSString stringWithFormat:
-            @"%@/_matrix/client/v1/media/thumbnail/%@/%@?width=256&height=256&method=scale",
-            self.homeserver, serverName, mediaId];
+            @"%@/_matrix/client/v1/media/thumbnail/%@/%@?width=%ld&height=%ld&method=scale",
+            self.homeserver, serverName, mediaId, (long)w, (long)h];
     }
     return [NSString stringWithFormat:
         @"%@/_matrix/client/v1/media/download/%@/%@",
@@ -1084,28 +1109,140 @@ static id NeoGetSession(void) {
 - (void)downloadImageFromMXC:(NSString *)mxcURL
                   completion:(void(^)(UIImage *image, NSError *error))completion {
     if (!mxcURL || [mxcURL length] == 0) {
-        completion(nil, nil);
+        if (completion) completion(nil, nil);
         return;
     }
 
     UIImage *cached = [self.avatarCache objectForKey:mxcURL];
     if (cached) {
-        completion(cached, nil);
+        if (completion) completion(cached, nil);
         return;
     }
 
     UIImage *diskImage = [self imageFromAvatarDiskForKey:mxcURL];
     if (diskImage) {
         [self.avatarCache setObject:diskImage forKey:mxcURL];
-        completion(diskImage, nil);
+        if (completion) completion(diskImage, nil);
         return;
     }
 
-    // Avatars: 256x256 thumbnail primary (60pt views need ~120px @2x); full download only as fallback
-    [self downloadFromURL:[self mxcURLToHTTP:mxcURL thumbnail:YES]
+    NSString *fullKey = [@"full_" stringByAppendingString:mxcURL];
+    UIImage *fullCached = [self.avatarCache objectForKey:fullKey];
+    if (!fullCached) fullCached = [self imageFromAvatarDiskForKey:fullKey];
+    if (fullCached) {
+        [self.avatarCache setObject:fullCached forKey:mxcURL];
+        if (completion) completion(fullCached, nil);
+        return;
+    }
+
+    // Chat image preview: 800x800 thumbnail primary; full download as fallback
+    [self downloadFromURL:[self mxcURLToHTTP:mxcURL thumbnail:YES width:800 height:800]
                fallbackURL:[self mxcURLToHTTP:mxcURL thumbnail:NO]
                   cacheKey:mxcURL
                  completion:completion];
+}
+
+- (void)downloadAvatarFromMXC:(NSString *)mxcURL
+                   completion:(void(^)(UIImage *image, NSError *error))completion {
+    if (!mxcURL || [mxcURL length] == 0) {
+        if (completion) completion(nil, nil);
+        return;
+    }
+
+    NSString *avatarKey = [@"avatar_" stringByAppendingString:mxcURL];
+    UIImage *cached = [self.avatarCache objectForKey:avatarKey];
+    if (!cached) cached = [self.avatarCache objectForKey:mxcURL];
+    if (cached) {
+        if (completion) completion(cached, nil);
+        return;
+    }
+
+    UIImage *diskImage = [self imageFromAvatarDiskForKey:avatarKey];
+    if (!diskImage) diskImage = [self imageFromAvatarDiskForKey:mxcURL];
+    if (diskImage) {
+        [self.avatarCache setObject:diskImage forKey:avatarKey];
+        if (completion) completion(diskImage, nil);
+        return;
+    }
+
+    // Avatars: 256x256 thumbnail primary (60pt views need ~120px @2x); full download as fallback
+    [self downloadFromURL:[self mxcURLToHTTP:mxcURL thumbnail:YES width:256 height:256]
+               fallbackURL:[self mxcURLToHTTP:mxcURL thumbnail:NO]
+                  cacheKey:avatarKey
+                 completion:completion];
+}
+
+- (void)downloadFullImageFromMXC:(NSString *)mxcURL
+                      completion:(void(^)(UIImage *image, NSError *error))completion {
+    if (!mxcURL || [mxcURL length] == 0) {
+        if (completion) completion(nil, nil);
+        return;
+    }
+
+    NSString *fullKey = [@"full_" stringByAppendingString:mxcURL];
+
+    UIImage *cached = [self.avatarCache objectForKey:fullKey];
+    if (cached) {
+        if (completion) completion(cached, nil);
+        return;
+    }
+
+    UIImage *diskImage = [self imageFromAvatarDiskForKey:fullKey];
+    if (diskImage) {
+        [self.avatarCache setObject:diskImage forKey:fullKey];
+        if (completion) completion(diskImage, nil);
+        return;
+    }
+
+    UIImage *defaultImg = [self.avatarCache objectForKey:mxcURL];
+    if (!defaultImg) defaultImg = [self imageFromAvatarDiskForKey:mxcURL];
+    if (defaultImg && (defaultImg.size.width >= 1200 || defaultImg.size.height >= 1200)) {
+        [self.avatarCache setObject:defaultImg forKey:fullKey];
+        if (completion) completion(defaultImg, nil);
+        return;
+    }
+
+    // Full uncompressed download
+    [self downloadFromURL:[self mxcURLToHTTP:mxcURL thumbnail:NO]
+               fallbackURL:nil
+                  cacheKey:fullKey
+                 completion:completion];
+}
+
+- (UIImage *)cachedFullImageForMXC:(NSString *)mxcURL {
+    if (!mxcURL || [mxcURL length] == 0) return nil;
+    NSString *fullKey = [@"full_" stringByAppendingString:mxcURL];
+    UIImage *img = [self.avatarCache objectForKey:fullKey];
+    if (img) return img;
+    img = [self imageFromAvatarDiskForKey:fullKey];
+    if (img) {
+        [self.avatarCache setObject:img forKey:fullKey];
+        return img;
+    }
+    UIImage *defaultImg = [self.avatarCache objectForKey:mxcURL];
+    if (!defaultImg) defaultImg = [self imageFromAvatarDiskForKey:mxcURL];
+    if (defaultImg && (defaultImg.size.width >= 1200 || defaultImg.size.height >= 1200)) {
+        [self.avatarCache setObject:defaultImg forKey:fullKey];
+        return defaultImg;
+    }
+    return nil;
+}
+
+- (void)cacheImage:(UIImage *)image data:(NSData *)data forMXC:(NSString *)mxcURL {
+    if (!mxcURL || [mxcURL length] == 0 || (!image && !data)) return;
+    if (!image && data) {
+        image = [UIImage neo_imageWithDataOrWebP:data];
+    }
+    if (!image) return;
+
+    NSString *fullKey = [@"full_" stringByAppendingString:mxcURL];
+    NSUInteger cost = data ? [data length] : (NSUInteger)(image.size.width * image.size.height * 4);
+
+    [self.avatarCache setObject:image forKey:mxcURL cost:cost];
+    [self.avatarCache setObject:image forKey:fullKey cost:cost];
+
+    [self saveImageToDisk:image data:data forKey:mxcURL];
+    [self saveImageToDisk:image data:data forKey:fullKey];
 }
 
 - (void)downloadDataFromMXC:(NSString *)mxcURL
@@ -1299,12 +1436,12 @@ static id NeoGetSession(void) {
 
         IMGLog(@"OK: %.0fx%.0f desde %@", image.size.width, image.size.height, urlString);
         [self.avatarCache setObject:image forKey:cacheKey cost:[data length]];
-        [self saveAvatarToDisk:image forKey:cacheKey];
+        [self saveImageToDisk:image data:data forKey:cacheKey];
         completion(image, nil);
     }];
 }
 
-#pragma mark - Avatar Disk Cache
+#pragma mark - Avatar & Media Disk Cache
 
 - (NSString *)avatarCacheDir {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
@@ -1317,7 +1454,9 @@ static id NeoGetSession(void) {
 }
 
 - (NSString *)avatarCachePathForKey:(NSString *)key {
+    if (!key || [key length] == 0) return nil;
     const char *str = [key UTF8String];
+    if (!str) return nil;
     unsigned char md[CC_MD5_DIGEST_LENGTH];
     CC_MD5(str, (CC_LONG)strlen(str), md);
     NSMutableString *hash = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
@@ -1327,15 +1466,26 @@ static id NeoGetSession(void) {
     return [[self avatarCacheDir] stringByAppendingPathComponent:[hash stringByAppendingString:@".png"]];
 }
 
-- (void)saveAvatarToDisk:(UIImage *)image forKey:(NSString *)key {
-    if (!image || [key length] == 0) return;
-    if (image.size.width > 1024 || image.size.height > 1024) return;
-    NSData *png = UIImagePNGRepresentation(image);
-    if (!png) return;
+- (void)saveImageToDisk:(UIImage *)image data:(NSData *)data forKey:(NSString *)key {
+    if ((!image && !data) || [key length] == 0) return;
     NSString *path = [self avatarCachePathForKey:key];
+    if (!path) return;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
-        [png writeToFile:path atomically:YES];
+        NSData *toWrite = data;
+        if (!toWrite && image) {
+            toWrite = UIImageJPEGRepresentation(image, 0.88);
+            if (!toWrite) {
+                toWrite = UIImagePNGRepresentation(image);
+            }
+        }
+        if (toWrite) {
+            [toWrite writeToFile:path atomically:YES];
+        }
     });
+}
+
+- (void)saveAvatarToDisk:(UIImage *)image forKey:(NSString *)key {
+    [self saveImageToDisk:image data:nil forKey:key];
 }
 
 - (UIImage *)imageFromAvatarDiskForKey:(NSString *)key {
@@ -1350,9 +1500,17 @@ static id NeoGetSession(void) {
     if (!mxcURL || [mxcURL length] == 0) return;
     
     [self.avatarCache removeObjectForKey:mxcURL];
+    NSString *fullKey = [@"full_" stringByAppendingString:mxcURL];
+    [self.avatarCache removeObjectForKey:fullKey];
+    NSString *avatarKey = [@"avatar_" stringByAppendingString:mxcURL];
+    [self.avatarCache removeObjectForKey:avatarKey];
     
     NSString *avatarPath = [self avatarCachePathForKey:mxcURL];
     [[NSFileManager defaultManager] removeItemAtPath:avatarPath error:nil];
+    NSString *fullPath = [self avatarCachePathForKey:fullKey];
+    [[NSFileManager defaultManager] removeItemAtPath:fullPath error:nil];
+    NSString *avatarKeyPath = [self avatarCachePathForKey:avatarKey];
+    [[NSFileManager defaultManager] removeItemAtPath:avatarKeyPath error:nil];
     
     NSString *safeName = [mxcURL stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
     safeName = [safeName stringByReplacingOccurrencesOfString:@":" withString:@"_"];
@@ -1362,12 +1520,17 @@ static id NeoGetSession(void) {
                            stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.mp4", safeName]];
     [[NSFileManager defaultManager] removeItemAtPath:mediaPath error:nil];
     
-    NSString *fileDir = [cachesRoot stringByAppendingPathComponent:@"FileCache"];
-    NSArray *fileContents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:fileDir error:nil];
-    for (NSString *fileName in fileContents) {
-        if ([fileName hasPrefix:safeName]) {
-            NSString *path = [fileDir stringByAppendingPathComponent:fileName];
-            [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    NSArray *fileDirs = @[
+        [cachesRoot stringByAppendingPathComponent:@"com.neo.FileCache"],
+        [cachesRoot stringByAppendingPathComponent:@"FileCache"]
+    ];
+    for (NSString *fileDir in fileDirs) {
+        NSArray *fileContents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:fileDir error:nil];
+        for (NSString *fileName in fileContents) {
+            if ([fileName hasPrefix:safeName]) {
+                NSString *path = [fileDir stringByAppendingPathComponent:fileName];
+                [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+            }
         }
     }
 }
@@ -1383,14 +1546,19 @@ static id NeoGetSession(void) {
         }
         return;
     }
-    NSData *imageData = UIImageJPEGRepresentation(image, 0.80);
+    NSData *imageData = UIImageJPEGRepresentation(image, 0.88);
     if (!imageData) {
-        imageData = UIImageJPEGRepresentation(image, 0.50);
+        imageData = UIImageJPEGRepresentation(image, 0.65);
     }
     [self uploadData:imageData
             mimeType:@"image/jpeg"
             filename:@"image.jpg"
-          completion:completion];
+          completion:^(NSString *contentURI, NSError *error) {
+        if (contentURI && image) {
+            [self cacheImage:image data:imageData forMXC:contentURI];
+        }
+        if (completion) completion(contentURI, error);
+    }];
 }
 
 #pragma mark - Local room names

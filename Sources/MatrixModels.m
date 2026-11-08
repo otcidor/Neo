@@ -1,7 +1,16 @@
 #import "MatrixModels.h"
 #import "MatrixAPIClient.h"
+#import "NeoZalgoFilter.h"
 
 @implementation MatrixRoom
+
+- (void)setName:(NSString *)name {
+    _name = [NeoSanitizeZalgoText(name) copy];
+}
+
+- (void)setLastMessage:(NSString *)lastMessage {
+    _lastMessage = [NeoSanitizeZalgoText(lastMessage) copy];
+}
 - (instancetype)initWithDictionary:(NSDictionary *)dict {
     self = [super init];
     if (self) {
@@ -167,10 +176,12 @@
                         [cleanHeroes addObject:dn];
                     } else if ([h hasPrefix:@"@"]) {
                         NSRange colon = [h rangeOfString:@":"];
-                        if (colon.location != NSNotFound) {
+                        if (colon.location != NSNotFound && colon.location > 1) {
                             [cleanHeroes addObject:[h substringWithRange:NSMakeRange(1, colon.location - 1)]];
-                        } else {
+                        } else if ([h length] > 1) {
                             [cleanHeroes addObject:[h substringFromIndex:1]];
+                        } else {
+                            [cleanHeroes addObject:h];
                         }
                     } else {
                         [cleanHeroes addObject:h];
@@ -201,8 +212,12 @@
                     }
                     if ([stateKey hasPrefix:@"@"]) {
                         NSRange colon = [stateKey rangeOfString:@":"];
-                        if (colon.location != NSNotFound) {
+                        if (colon.location != NSNotFound && colon.location > 1) {
                             NSString *cleaned = [stateKey substringWithRange:NSMakeRange(1, colon.location - 1)];
+                            [MatrixAPIClient cacheRoomName:cleaned forRoomId:roomId];
+                            return cleaned;
+                        } else if ([stateKey length] > 1) {
+                            NSString *cleaned = [stateKey substringFromIndex:1];
                             [MatrixAPIClient cacheRoomName:cleaned forRoomId:roomId];
                             return cleaned;
                         }
@@ -229,6 +244,11 @@
 @end
 
 @implementation MatrixMessage
+
+- (void)setBody:(NSString *)body {
+    _body = [NeoSanitizeZalgoText(body) copy];
+}
+
 - (instancetype)initWithDictionary:(NSDictionary *)dict roomId:(NSString *)roomId {
     self = [super init];
     if (self) {
@@ -237,7 +257,7 @@
         _roomId = roomId ?: @"";
         NSDictionary *content = dict[@"content"];
         if ([content isKindOfClass:[NSDictionary class]]) {
-            _body = content[@"body"] ?: @"";
+            _body = [NeoSanitizeZalgoText(content[@"body"] ?: @"") copy];
             _msgType = content[@"msgtype"] ?: @"m.text";
             _imageURL = content[@"url"] ?: @"";
             _audioURL = content[@"url"] ?: @"";
@@ -270,7 +290,7 @@
 
             if ([content[@"format"] isEqualToString:@"org.matrix.custom.html"] &&
                 [content[@"formatted_body"] isKindOfClass:[NSString class]]) {
-                _formattedBody = content[@"formatted_body"];
+                _formattedBody = [NeoSanitizeZalgoText(content[@"formatted_body"]) copy];
             }
 
             NSDictionary *mentions = content[@"m.mentions"];
@@ -387,11 +407,16 @@
 @end
 
 @implementation MatrixUser
+
+- (void)setDisplayName:(NSString *)displayName {
+    _displayName = [NeoSanitizeZalgoText(displayName) copy];
+}
+
 - (instancetype)initWithDictionary:(NSDictionary *)dict {
     self = [super init];
     if (self) {
         _userId = dict[@"user_id"] ?: @"";
-        _displayName = dict[@"displayname"] ?: _userId;
+        _displayName = [NeoSanitizeZalgoText(dict[@"displayname"] ?: _userId) copy];
         _avatarUrl = dict[@"avatar_url"] ?: @"";
     }
     return self;
@@ -409,11 +434,16 @@
 @end
 
 @implementation MatrixSpace
+
+- (void)setName:(NSString *)name {
+    _name = [NeoSanitizeZalgoText(name) copy];
+}
+
 - (instancetype)initWithDictionary:(NSDictionary *)dict {
     self = [super init];
     if (self) {
         _spaceId = dict[@"room_id"] ?: @"";
-        _name = dict[@"name"] ?: _spaceId;
+        _name = [NeoSanitizeZalgoText(dict[@"name"] ?: _spaceId) copy];
         _childRoomIds = [NSMutableArray array];
         _theme = SpaceThemeDefault;
     }

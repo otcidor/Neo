@@ -183,6 +183,10 @@
         [self.playButton setImage:[UIImage imageNamed:@"Play"] forState:UIControlStateNormal];
         [self.progressTimer invalidate];
         self.progressTimer = nil;
+        [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                        name:UIDeviceProximityStateDidChangeNotification
+                                                      object:nil];
+        [UIDevice currentDevice].proximityMonitoringEnabled = NO;
     } else {
         [[NSNotificationCenter defaultCenter] postNotificationName:@"NeoAudioPlaybackDidStartNotification" object:self];
 
@@ -199,6 +203,9 @@
         AudioSessionSetProperty(kAudioSessionProperty_OverrideAudioRoute,
                                 sizeof(route), &route);
 
+        [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                        name:UIDeviceProximityStateDidChangeNotification
+                                                      object:nil];
         [UIDevice currentDevice].proximityMonitoringEnabled = YES;
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(proximityChanged)
@@ -226,6 +233,9 @@
                                                     name:UIDeviceProximityStateDidChangeNotification
                                                   object:nil];
     [UIDevice currentDevice].proximityMonitoringEnabled = NO;
+
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    [session setCategory:AVAudioSessionCategoryPlayback error:nil];
 }
 
 - (void)seekToProgress:(CGFloat)p {

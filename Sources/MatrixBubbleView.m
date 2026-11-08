@@ -1,6 +1,7 @@
 #import "MatrixBubbleView.h"
 #import "NeoCompatibility.h"
 #import "ThemeManager.h"
+#import "NeoSkeuoRenderer.h"
 #import <QuartzCore/QuartzCore.h>
 #import <CoreText/CoreText.h>
 
@@ -505,6 +506,14 @@ static bool isEmojiChar(NSString *singleChar) {
             [image drawInRect:bFrame blendMode:kCGBlendModeNormal alpha:0.6f];
         } else {
             [image drawInRect:bFrame];
+        }
+
+        if ([self isNeoStyle] && !self.isRedacted) {
+            CGContextRef ctx = UIGraphicsGetCurrentContext();
+            [NeoSkeuoRenderer drawClassicBubbleGlossInContext:ctx
+                                                       bounds:bFrame
+                                                   isOutgoing:(self.type == MatrixBubbleMessageTypeOutgoing)
+                                                      hasTail:YES];
         }
     }
 

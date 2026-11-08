@@ -24,6 +24,12 @@
 + (UIImage *)classicDisclosureIndicatorImage;
 + (UIView *)classicDisclosureIndicator;
 
+// Chat Bubble Gloss
++ (void)drawClassicBubbleGlossInContext:(CGContextRef)context
+                                 bounds:(CGRect)bounds
+                             isOutgoing:(BOOL)outgoing
+                                hasTail:(BOOL)tail;
+
 // Color Helpers
 + (UIColor *)darkTabTintColorForThemeColor:(UIColor *)themeColor;
 + (UIImage *)clearPixelImage;

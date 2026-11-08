@@ -1,9 +1,11 @@
 #import "NeoMessageContextMenuView.h"
+#import "NeoSymbol.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface _NeoContextMenuItem : NSObject
 @property (nonatomic, copy) NSString *title;
 @property (nonatomic, assign) BOOL isDestructive;
+@property (nonatomic, strong) UIImage *icon;
 @property (nonatomic, copy) void (^action)(void);
 @end
 
@@ -13,6 +15,7 @@
 @interface NeoMessageContextMenuView ()
 @property (nonatomic, strong) UIView *dimmingView;
 @property (nonatomic, strong) UIView *menuContainer;
+@property (nonatomic, strong) UIImageView *snapshotView;
 @property (nonatomic, strong) NSArray *menuItems;
 @property (nonatomic, copy) void (^onReactionSelected)(NSString *emoji);
 @property (nonatomic, copy) void (^onCustomReaction)(void);
@@ -23,6 +26,38 @@
 + (void)showForMessage:(MatrixMessage *)msg
                 inView:(UIView *)parentView
           bubbleCenter:(CGPoint)bubbleCenter
+                isSelf:(BOOL)isSelf
+    onReactionSelected:(void(^)(NSString *emoji))onReaction
+      onCustomReaction:(void(^)(void))onCustomReaction
+               onReply:(void(^)(void))onReply
+                onCopy:(void(^)(void))onCopy
+             onForward:(void(^)(void))onForward
+           onSaveMedia:(void(^)(void))onSaveMedia
+              onOpenIn:(void(^)(void))onOpenIn
+            onDownload:(void(^)(void))onDownload
+                onEdit:(void(^)(void))onEdit
+              onDelete:(void(^)(void))onDelete {
+    [self showForMessage:msg
+                  inView:parentView
+            bubbleCenter:bubbleCenter
+              targetView:nil
+                  isSelf:isSelf
+      onReactionSelected:onReaction
+        onCustomReaction:onCustomReaction
+                 onReply:onReply
+                  onCopy:onCopy
+               onForward:onForward
+             onSaveMedia:onSaveMedia
+                onOpenIn:onOpenIn
+              onDownload:onDownload
+                  onEdit:onEdit
+                onDelete:onDelete];
+}
+
++ (void)showForMessage:(MatrixMessage *)msg
+                inView:(UIView *)parentView
+          bubbleCenter:(CGPoint)bubbleCenter
+            targetView:(UIView *)targetView
                 isSelf:(BOOL)isSelf
     onReactionSelected:(void(^)(NSString *emoji))onReaction
       onCustomReaction:(void(^)(void))onCustomReaction
@@ -53,6 +88,26 @@
     overlay.onReactionSelected = onReaction;
     overlay.onCustomReaction = onCustomReaction;
 
+    if (targetView && targetView.bounds.size.width > 0 && targetView.bounds.size.height > 0) {
+        UIGraphicsBeginImageContextWithOptions(targetView.bounds.size, NO, 0.0f);
+        [targetView.layer renderInContext:UIGraphicsGetCurrentContext()];
+        UIImage *snap = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        if (snap) {
+            CGRect snapFrame = [parentView convertRect:targetView.bounds fromView:targetView];
+            UIImageView *snapView = [[UIImageView alloc] initWithFrame:snapFrame];
+            snapView.image = snap;
+            snapView.userInteractionEnabled = NO;
+            snapView.layer.shadowColor = [UIColor blackColor].CGColor;
+            snapView.layer.shadowOpacity = 0.35f;
+            snapView.layer.shadowRadius = 5.0f;
+            snapView.layer.shadowOffset = CGSizeMake(0, 2);
+            snapView.layer.shadowPath = [UIBezierPath bezierPathWithRect:snapView.bounds].CGPath;
+            [overlay addSubview:snapView];
+            overlay.snapshotView = snapView;
+        }
+    }
+
     BOOL isImage = [msg.msgType isEqualToString:@"m.image"] || [msg.body hasPrefix:@"mxc://"];
     BOOL isVideo = [msg.msgType isEqualToString:@"m.video"];
     BOOL isFile = [msg.msgType isEqualToString:@"m.file"];
@@ -65,6 +120,7 @@
     if (onReply) {
         _NeoContextMenuItem *reply = [[_NeoContextMenuItem alloc] init];
         reply.title = NSLocalizedString(@"Reply", nil);
+        reply.icon = [NeoSymbol imageForType:NeoSymbolReply size:18.0f color:[UIColor colorWithWhite:0.75 alpha:1.0]];
         reply.action = onReply;
         [items addObject:reply];
     }
@@ -73,6 +129,7 @@
     if (onCopy && (isText || [msg.body length] > 0)) {
         _NeoContextMenuItem *copy = [[_NeoContextMenuItem alloc] init];
         copy.title = NSLocalizedString(@"Copy", nil);
+        copy.icon = [NeoSymbol imageForType:NeoSymbolShare size:18.0f color:[UIColor colorWithWhite:0.75 alpha:1.0]];
         copy.action = onCopy;
         [items addObject:copy];
     }
@@ -81,6 +138,7 @@
     if (onForward) {
         _NeoContextMenuItem *fwd = [[_NeoContextMenuItem alloc] init];
         fwd.title = NSLocalizedString(@"Forward", nil);
+        fwd.icon = [NeoSymbol imageForType:NeoSymbolForward size:18.0f color:[UIColor colorWithWhite:0.75 alpha:1.0]];
         fwd.action = onForward;
         [items addObject:fwd];
     }
@@ -89,6 +147,7 @@
     if (onSaveMedia && (isImage || isVideo)) {
         _NeoContextMenuItem *save = [[_NeoContextMenuItem alloc] init];
         save.title = isVideo ? NSLocalizedString(@"Save Video", nil) : NSLocalizedString(@"Save Photo", nil);
+        save.icon = [NeoSymbol imageForType:NeoSymbolPin size:18.0f color:[UIColor colorWithWhite:0.75 alpha:1.0]];
         save.action = onSaveMedia;
         [items addObject:save];
     }
@@ -98,11 +157,13 @@
         if (fileDownloaded && onOpenIn) {
             _NeoContextMenuItem *open = [[_NeoContextMenuItem alloc] init];
             open.title = NSLocalizedString(@"Open in...", nil);
+            open.icon = [NeoSymbol imageForType:NeoSymbolShare size:18.0f color:[UIColor colorWithWhite:0.75 alpha:1.0]];
             open.action = onOpenIn;
             [items addObject:open];
         } else if (onDownload) {
             _NeoContextMenuItem *down = [[_NeoContextMenuItem alloc] init];
             down.title = NSLocalizedString(@"Download", nil);
+            down.icon = [NeoSymbol imageForType:NeoSymbolPaperclip size:18.0f color:[UIColor colorWithWhite:0.75 alpha:1.0]];
             down.action = onDownload;
             [items addObject:down];
         }
@@ -112,6 +173,7 @@
     if (isSelf && isText && onEdit && !msg.isRedacted) {
         _NeoContextMenuItem *edit = [[_NeoContextMenuItem alloc] init];
         edit.title = NSLocalizedString(@"Edit", nil);
+        edit.icon = [NeoSymbol imageForType:NeoSymbolSettings size:18.0f color:[UIColor colorWithWhite:0.75 alpha:1.0]];
         edit.action = onEdit;
         [items addObject:edit];
     }
@@ -121,6 +183,7 @@
         _NeoContextMenuItem *del = [[_NeoContextMenuItem alloc] init];
         del.title = NSLocalizedString(@"Delete", nil);
         del.isDestructive = YES;
+        del.icon = [NeoSymbol imageForType:NeoSymbolTrash size:18.0f color:[UIColor colorWithRed:1.0f green:0.3f blue:0.3f alpha:1.0]];
         del.action = onDelete;
         [items addObject:del];
     }
@@ -180,6 +243,7 @@
     pill.layer.shadowOpacity = 0.35f;
     pill.layer.shadowRadius = 8.0f;
     pill.layer.shadowOffset = CGSizeMake(0, 3);
+    pill.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:pill.bounds cornerRadius:22.0f].CGPath;
     [_menuContainer addSubview:pill];
 
     NSArray *quickEmojis = @[@"👍", @"❤️", @"😂", @"😮", @"😢", @"🙏"];
@@ -221,7 +285,7 @@
     card.layer.shadowOpacity = 0.35f;
     card.layer.shadowRadius = 8.0f;
     card.layer.shadowOffset = CGSizeMake(0, 4);
-    card.clipsToBounds = YES;
+    card.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:card.bounds cornerRadius:14.0f].CGPath;
     [_menuContainer addSubview:card];
 
     CGFloat scale = [UIScreen mainScreen].scale;
@@ -244,7 +308,7 @@
         [btn addTarget:self action:@selector(buttonTouchDown:) forControlEvents:UIControlEventTouchDown];
         [btn addTarget:self action:@selector(buttonTouchUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
 
-        UILabel *titleLbl = [[UILabel alloc] initWithFrame:CGRectMake(18.0f, 0, cardW - 36.0f, rowH)];
+        UILabel *titleLbl = [[UILabel alloc] initWithFrame:CGRectMake(18.0f, 0, cardW - 60.0f, rowH)];
         titleLbl.text = item.title;
         titleLbl.backgroundColor = [UIColor clearColor];
         titleLbl.font = [UIFont systemFontOfSize:16.0f];
@@ -253,6 +317,14 @@
             [UIColor whiteColor];
         titleLbl.userInteractionEnabled = NO;
         [btn addSubview:titleLbl];
+
+        if (item.icon) {
+            UIImageView *iconView = [[UIImageView alloc] initWithFrame:CGRectMake(cardW - 18.0f - 18.0f, (rowH - 18.0f) / 2.0f, 18.0f, 18.0f)];
+            iconView.image = item.icon;
+            iconView.contentMode = UIViewContentModeScaleAspectFit;
+            iconView.userInteractionEnabled = NO;
+            [btn addSubview:iconView];
+        }
 
         [card addSubview:btn];
     }
@@ -326,16 +398,19 @@
     if (!animated) {
         _dimmingView.alpha = 1.0f;
         _menuContainer.alpha = 1.0f;
+        _snapshotView.alpha = 1.0f;
         return;
     }
 
     _dimmingView.alpha = 0.0f;
     _menuContainer.alpha = 0.0f;
+    _snapshotView.alpha = 0.0f;
     _menuContainer.transform = CGAffineTransformMakeScale(0.88f, 0.88f);
 
     [UIView animateWithDuration:0.22 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
         self.dimmingView.alpha = 1.0f;
         self.menuContainer.alpha = 1.0f;
+        self.snapshotView.alpha = 1.0f;
         self.menuContainer.transform = CGAffineTransformIdentity;
     } completion:nil];
 }
@@ -354,6 +429,7 @@
     [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
         self.dimmingView.alpha = 0.0f;
         self.menuContainer.alpha = 0.0f;
+        self.snapshotView.alpha = 0.0f;
         self.menuContainer.transform = CGAffineTransformMakeScale(0.92f, 0.92f);
     } completion:^(BOOL finished) {
         [self removeFromSuperview];

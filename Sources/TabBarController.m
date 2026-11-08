@@ -5,6 +5,7 @@
 #import "LoginViewController.h"
 #import "ThemeManager.h"
 #import "NeoCompatibility.h"
+#import "NeoBackSwipe.h"
 
 @implementation TabBarController {
     UINavigationController *_chatsNav;
@@ -22,6 +23,7 @@
     allVC.spaceFilter = nil;
     _chatsNav = [[UINavigationController alloc]
         initWithRootViewController:allVC];
+    [_chatsNav neo_enableBackSwipe];
     UIImage *chatsIcon = [UIImage imageNamed:@"TabIconMessages_Gray"];
     if (!chatsIcon) chatsIcon = [UIImage imageNamed:@"Balloon_WhiteSolid"];
     _chatsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:NSLocalizedString(@"Chats", nil)
@@ -37,6 +39,7 @@
     NetworksViewController *networksVC = [[NetworksViewController alloc] init];
     _networksNav = [[UINavigationController alloc]
         initWithRootViewController:networksVC];
+    [_networksNav neo_enableBackSwipe];
     UIImage *redesIcon = [UIImage imageNamed:@"TabIconContacts_Gray"];
     if (!redesIcon) redesIcon = [UIImage imageNamed:@"Balloon_GreenSolid"];
     _networksNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:NSLocalizedString(@"Networks", nil)
@@ -52,6 +55,7 @@
     SettingsViewController *settingsVC = [[SettingsViewController alloc] init];
     _settingsNav = [[UINavigationController alloc]
         initWithRootViewController:settingsVC];
+    [_settingsNav neo_enableBackSwipe];
     UIImage *settingsIcon = [UIImage imageNamed:@"TabIconSettings_Gray"];
     if (!settingsIcon) settingsIcon = [UIImage imageNamed:@"Settings"];
     _settingsNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:NSLocalizedString(@"Settings", nil)

@@ -22,6 +22,7 @@
     _iconContainer.layer.shadowOpacity = 0.25f;
     _iconContainer.layer.shadowOffset = CGSizeMake(0, 3.0f);
     _iconContainer.layer.shadowRadius = 5.0f;
+    _iconContainer.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:_iconContainer.bounds cornerRadius:16.0f].CGPath;
     _iconContainer.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin |
                                      UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
     [self.view addSubview:_iconContainer];

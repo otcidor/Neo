@@ -28,6 +28,8 @@
 #import "UIImage+WebP.h"
 #import "NeoProgressSpinnerView.h"
 #import "NeoMessageContextMenuView.h"
+#import "NeoSymbol.h"
+#import "NeoTypingBubbleView.h"
 #import "NeoMentionAutocompleteView.h"
 
 @interface NeoDisplayAdapter : NSObject <TGTableItem>
@@ -218,6 +220,8 @@
     NSMutableArray *_recordingWaveformSamples;
     NSString *_autoPlayTargetAudioURL;
     NSInteger _scrollDownUnreadCount;
+    NeoTypingBubbleView *_typingBubble;
+    UIView *_typingFooterView;
 }
 
 static const CGFloat kNeoInputBarBaseH = 44.0f;
@@ -477,6 +481,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
     [NeoMessageContextMenuView showForMessage:msg
                                        inView:hostView
                                  bubbleCenter:bubbleCenter
+                                   targetView:cell
                                        isSelf:_selectedIsSelf
                            onReactionSelected:^(NSString *emoji) {
         typeof(weakSelf) strongSelf = weakSelf;
@@ -840,7 +845,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 }
 
 - (void)savePhoto:(MatrixMessage *)msg {
-    if ([msg.imageURL length] == 0) return;
+    if (!msg) return;
 
     void (^save)(UIImage *) = ^(UIImage *img) {
         UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil);
@@ -850,16 +855,28 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                          controller:self];
     };
 
-    if (msg.cachedImage) {
+    UIImage *fullImage = [[MatrixAPIClient sharedClient] cachedFullImageForMXC:msg.imageURL];
+    if (fullImage) {
+        save(fullImage);
+        return;
+    }
+    if (msg.cachedImage && (msg.cachedImage.size.width >= 1200 || msg.cachedImage.size.height >= 1200)) {
         save(msg.cachedImage);
         return;
     }
 
-    [[MatrixAPIClient sharedClient] downloadImageFromMXC:msg.imageURL
-                                              completion:^(UIImage *img, NSError *err) {
+    if ([msg.imageURL length] == 0) {
+        if (msg.cachedImage) save(msg.cachedImage);
+        return;
+    }
+
+    [[MatrixAPIClient sharedClient] downloadFullImageFromMXC:msg.imageURL
+                                                  completion:^(UIImage *img, NSError *err) {
         if (img) {
             msg.cachedImage = img;
             save(img);
+        } else if (msg.cachedImage) {
+            save(msg.cachedImage);
         } else {
             [NeoAlert showAlertWithTitle:NSLocalizedString(@"Error", nil)
                                 message:[err localizedDescription]
@@ -1424,19 +1441,64 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (void)updateTypingIndicator {
     if (_recordingState != 0) return;
-    // NSString *baseName = [MatrixAPIClient localNameForRoomId:self.room.roomId] ?: (self.room.name ?: self.room.roomId);
     UIView *titleView = self.navigationItem.titleView;
     UILabel *subLabel = (UILabel *)[titleView viewWithTag:2001];
-    if (!subLabel) return;
 
     if ([_typingUserIds count] == 0) {
-        NSInteger count = [self.room memberCount];
-        subLabel.text = count > 0 ? [NSString stringWithFormat:NSLocalizedString(@"%d members", nil), (int)count] : @"";
-    } else if ([_typingUserIds count] == 1) {
-        subLabel.text = [NSString stringWithFormat:NSLocalizedString(@"%@ is typing…", nil),
-                         [self displayNameForSender:[_typingUserIds objectAtIndex:0]]];
+        if (subLabel) {
+            NSInteger count = [self.room memberCount];
+            subLabel.text = count > 0 ? [NSString stringWithFormat:NSLocalizedString(@"%d members", nil), (int)count] : @"";
+        }
+        if (self.tableView.tableFooterView == _typingFooterView) {
+            [_typingBubble stopAnimating];
+            [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
+                self->_typingBubble.alpha = 0.0f;
+            } completion:^(BOOL finished) {
+                if ([self->_typingUserIds count] == 0) {
+                    self.tableView.tableFooterView = nil;
+                    self->_typingBubble.alpha = 1.0f;
+                }
+            }];
+        }
     } else {
-        subLabel.text = NSLocalizedString(@"Several people are typing…", nil);
+        if (subLabel) {
+            if ([_typingUserIds count] == 1) {
+                subLabel.text = [NSString stringWithFormat:NSLocalizedString(@"%@ is typing…", nil),
+                                 [self displayNameForSender:[_typingUserIds objectAtIndex:0]]];
+            } else {
+                subLabel.text = NSLocalizedString(@"Several people are typing…", nil);
+            }
+        }
+
+        if (!_typingBubble) {
+            _typingBubble = [[NeoTypingBubbleView alloc] initWithFrame:CGRectZero];
+        }
+        if (!_typingFooterView) {
+            _typingFooterView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.tableView.bounds.size.width, 38.0f)];
+            _typingFooterView.backgroundColor = [UIColor clearColor];
+            _typingFooterView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+            _typingBubble.frame = CGRectMake(10.0f, 4.0f, 52.0f, 30.0f);
+            [_typingFooterView addSubview:_typingBubble];
+        }
+
+        [_typingBubble applyTheme];
+
+        if (self.tableView.tableFooterView != _typingFooterView) {
+            _typingBubble.alpha = 0.0f;
+            _typingBubble.transform = CGAffineTransformConcat(CGAffineTransformMakeScale(0.85f, 0.85f), CGAffineTransformMakeTranslation(0, 15.0f));
+            self.tableView.tableFooterView = _typingFooterView;
+
+            [UIView animateWithDuration:0.25 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+                self->_typingBubble.alpha = 1.0f;
+                self->_typingBubble.transform = CGAffineTransformIdentity;
+            } completion:nil];
+            [_typingBubble startAnimating];
+
+            CGFloat bottomOffset = self.tableView.contentSize.height - self.tableView.bounds.size.height + self.tableView.contentInset.bottom;
+            if (self.tableView.contentOffset.y >= bottomOffset - 80.0f && bottomOffset > 0) {
+                [self.tableView setContentOffset:CGPointMake(0, bottomOffset) animated:YES];
+            }
+        }
     }
 }
 
@@ -1650,7 +1712,25 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 - (void)finalizeLocalMessage:(MatrixMessage *)localMsg withEventId:(NSString *)realEventId {
     MatrixMessage *synced = [realEventId isKindOfClass:[NSString class]] ? [_messagesByEventId objectForKey:realEventId] : nil;
     if (synced && synced != localMsg) {
-        // Sync already delivered the real message — drop optimistic copy
+        // Sync already delivered the real message — preserve local media caches before dropping
+        if (localMsg.cachedImage && !synced.cachedImage) {
+            synced.cachedImage = localMsg.cachedImage;
+        }
+        if (localMsg.imageWidth > 0 && synced.imageWidth <= 0) {
+            synced.imageWidth = localMsg.imageWidth;
+        }
+        if (localMsg.imageHeight > 0 && synced.imageHeight <= 0) {
+            synced.imageHeight = localMsg.imageHeight;
+        }
+        if (localMsg.cachedVideoThumbnail && !synced.cachedVideoThumbnail) {
+            synced.cachedVideoThumbnail = localMsg.cachedVideoThumbnail;
+        }
+        if (localMsg.videoWidth > 0 && synced.videoWidth <= 0) {
+            synced.videoWidth = localMsg.videoWidth;
+        }
+        if (localMsg.videoHeight > 0 && synced.videoHeight <= 0) {
+            synced.videoHeight = localMsg.videoHeight;
+        }
         [self.messages removeObject:localMsg];
         [_messagesByEventId removeObjectForKey:localMsg.eventId];
     } else {
@@ -1711,7 +1791,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         NSString *filePath = msg.pendingLocalPath;
         if ([filePath length] == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
             if (msg.cachedImage) {
-                NSData *data = UIImageJPEGRepresentation(msg.cachedImage, 0.85);
+                NSData *data = UIImageJPEGRepresentation(msg.cachedImage, 0.88);
                 if (data) {
                     filePath = [self savePendingData:data extension:@"jpg"];
                     msg.pendingLocalPath = filePath;
@@ -1740,6 +1820,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                 return;
             }
             msg.imageURL = contentURI;
+            NSData *uploadData = [NSData dataWithContentsOfFile:filePath];
+            [client cacheImage:msg.cachedImage data:uploadData forMXC:contentURI];
+
             [client sendImageMessage:contentURI
                               roomId:self.room.roomId
                              caption:msg.body
@@ -2521,23 +2604,33 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 }
 
 - (UIImage *)resizeImageForUpload:(UIImage *)image {
-    CGFloat maxDim = 2560.0f;
-    CGSize size = image.size;
-    CGFloat width = size.width;
-    CGFloat height = size.height;
+    if (!image) return nil;
 
-    if (width <= maxDim && height <= maxDim && image.imageOrientation == UIImageOrientationUp) {
+    CGImageRef cgImage = image.CGImage;
+    CGFloat pixelWidth = cgImage ? (CGFloat)CGImageGetWidth(cgImage) : (image.size.width * image.scale);
+    CGFloat pixelHeight = cgImage ? (CGFloat)CGImageGetHeight(cgImage) : (image.size.height * image.scale);
+
+    if (pixelWidth <= 0.0f || pixelHeight <= 0.0f) {
+        return image;
+    }
+
+    CGFloat maxDim = 1600.0f;
+    if (pixelWidth <= maxDim && pixelHeight <= maxDim && image.imageOrientation == UIImageOrientationUp) {
         return image;
     }
 
     CGFloat ratio = 1.0f;
-    if (width > maxDim || height > maxDim) {
-        ratio = MIN(maxDim / width, maxDim / height);
+    if (pixelWidth > maxDim || pixelHeight > maxDim) {
+        ratio = MIN(maxDim / pixelWidth, maxDim / pixelHeight);
     }
-    CGSize newSize = CGSizeMake(roundf(width * ratio), roundf(height * ratio));
+    CGSize targetPixelSize = CGSizeMake(roundf(pixelWidth * ratio), roundf(pixelHeight * ratio));
 
-    UIGraphicsBeginImageContextWithOptions(newSize, NO, 1.0f);
-    [image drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
+    UIGraphicsBeginImageContextWithOptions(targetPixelSize, NO, 1.0f);
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (ctx) {
+        CGContextSetInterpolationQuality(ctx, kCGInterpolationHigh);
+    }
+    [image drawInRect:CGRectMake(0.0f, 0.0f, targetPixelSize.width, targetPixelSize.height)];
     UIImage *resized = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
 
@@ -2705,9 +2798,9 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
         UIImage *image = info[UIImagePickerControllerOriginalImage];
         if (!image) return;
         UIImage *resized = [self resizeImageForUpload:image];
-        NSData *imageData = UIImageJPEGRepresentation(resized, 0.85);
+        NSData *imageData = UIImageJPEGRepresentation(resized, 0.88);
         if (!imageData) {
-            imageData = UIImageJPEGRepresentation(resized, 0.60);
+            imageData = UIImageJPEGRepresentation(resized, 0.70);
         }
 
         MatrixMessage *localMsg = [[MatrixMessage alloc] init];
@@ -3204,7 +3297,6 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
             }
 
             if (localVidPath) {
-                NSIndexPath *cellPath = indexPath;
                 dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                     UIImage *thumb = [ChatViewController generateThumbnailForVideoURL:[NSURL fileURLWithPath:localVidPath]];
                     if (thumb) {
@@ -3213,7 +3305,10 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                             msg.videoWidth = thumb.size.width;
                             msg.videoHeight = thumb.size.height;
                             msg.cachedRowHeight = 0;
-                            [tableView reloadRowsAtIndexPaths:@[cellPath] withRowAnimation:UITableViewRowAnimationNone];
+                            NSUInteger currentIdx = [self->_displayItems indexOfObject:msg];
+                            if (currentIdx != NSNotFound) {
+                                [tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:currentIdx inSection:0]] withRowAnimation:UITableViewRowAnimationNone];
+                            }
                         });
                     }
                 });
@@ -3221,7 +3316,6 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                 NSString *thumbMXC = [msg.videoThumbnailURL length] > 0 ? msg.videoThumbnailURL : msg.videoURL;
                 if ([thumbMXC length] > 0) {
                     [videoView.spinner startAnimating];
-                    NSIndexPath *cellPath = indexPath;
                     [[MatrixAPIClient sharedClient] downloadImageFromMXC:thumbMXC completion:^(UIImage *thumbImg, NSError *thumbErr) {
                         if (thumbImg) {
                             msg.cachedVideoThumbnail = thumbImg;
@@ -3229,7 +3323,10 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                             msg.videoHeight = thumbImg.size.height;
                             msg.cachedRowHeight = 0;
                             dispatch_async(dispatch_get_main_queue(), ^{
-                                [tableView reloadRowsAtIndexPaths:@[cellPath] withRowAnimation:UITableViewRowAnimationNone];
+                                NSUInteger currentIdx = [self->_displayItems indexOfObject:msg];
+                                if (currentIdx != NSNotFound) {
+                                    [tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:currentIdx inSection:0]] withRowAnimation:UITableViewRowAnimationNone];
+                                }
                             });
                         }
                     }];
@@ -3283,20 +3380,31 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
                 preview.image = msg.cachedImage;
             }
         } else {
-            NSIndexPath *cellPath = indexPath;
-            [[MatrixAPIClient sharedClient] downloadImageFromMXC:msg.imageURL
-                completion:^(UIImage *img, NSError *err) {
-                if (img) {
-                    msg.cachedImage = img;
-                    msg.imageWidth = img.size.width;
-                    msg.imageHeight = img.size.height;
-                    msg.cachedRowHeight = 0;
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        [tableView reloadRowsAtIndexPaths:@[cellPath]
-                                         withRowAnimation:UITableViewRowAnimationNone];
-                    });
-                }
-            }];
+            UIImage *cached = [[MatrixAPIClient sharedClient] cachedImageForMXC:msg.imageURL];
+            if (!cached) cached = [[MatrixAPIClient sharedClient] cachedFullImageForMXC:msg.imageURL];
+            if (cached) {
+                msg.cachedImage = cached;
+                msg.imageWidth = cached.size.width;
+                msg.imageHeight = cached.size.height;
+                preview.image = cached;
+            } else {
+                [[MatrixAPIClient sharedClient] downloadImageFromMXC:msg.imageURL
+                    completion:^(UIImage *img, NSError *err) {
+                    if (img) {
+                        msg.cachedImage = img;
+                        msg.imageWidth = img.size.width;
+                        msg.imageHeight = img.size.height;
+                        msg.cachedRowHeight = 0;
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            NSUInteger currentIdx = [self->_displayItems indexOfObject:msg];
+                            if (currentIdx != NSNotFound) {
+                                [tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:currentIdx inSection:0]]
+                                                 withRowAnimation:UITableViewRowAnimationNone];
+                            }
+                        });
+                    }
+                }];
+            }
         }
         mediaView = preview;
     }
@@ -3527,17 +3635,20 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
     if ([msg.imageURL length] == 0) return;
 
-    PhotoViewerController *viewer = [[PhotoViewerController alloc] init];
-    viewer.title = @"Photo";
+    NSMutableArray *imageMessages = [NSMutableArray array];
+    NSUInteger currentIndex = 0;
+    for (MatrixMessage *m in self.messages) {
+        if ([m.msgType isEqualToString:@"m.image"] || [m.body hasPrefix:@"mxc://"]) {
+            if (m == msg || (m.eventId && [m.eventId isEqualToString:msg.eventId])) {
+                currentIndex = [imageMessages count];
+            }
+            [imageMessages addObject:m];
+        }
+    }
 
+    PhotoViewerController *viewer = [[PhotoViewerController alloc] initWithMessages:imageMessages initialIndex:currentIndex];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:viewer];
     [self presentViewController:nav animated:YES completion:nil];
-
-    [[MatrixAPIClient sharedClient] downloadImageFromMXC:msg.imageURL completion:^(UIImage *image, NSError *err) {
-        if (image) {
-            [viewer updateImage:image];
-        }
-    }];
 }
 
 - (void)downloadAndOpenFile:(MatrixMessage *)msg {
@@ -3714,7 +3825,7 @@ static const CGFloat kNeoInputFieldMaxH = 68.0f;
 
 - (NSString *)fileCachePathForMXC:(NSString *)mxcURL fileName:(NSString *)fileName {
     NSString *cacheDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES)[0]
-                          stringByAppendingPathComponent:@"FileCache"];
+                          stringByAppendingPathComponent:@"com.neo.FileCache"];
     [[NSFileManager defaultManager] createDirectoryAtPath:cacheDir
                               withIntermediateDirectories:YES
                                                attributes:nil

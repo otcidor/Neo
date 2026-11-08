@@ -173,12 +173,13 @@ static const NSInteger kMaxNotifPerRoom = 3;
                 if ([eventId isKindOfClass:[NSString class]] && [eventId length] > 0) {
                     if ([self.processedEventIds containsObject:eventId]) continue;
                     [self.processedEventIds addObject:eventId];
-                    if ([self.processedEventIds count] > 1000) {
-                        [self.processedEventIds removeAllObjects];
+                    if ([self.processedEventIds count] > 1200) {
+                        NSArray *recent = [[self.processedEventIds allObjects] subarrayWithRange:NSMakeRange([self.processedEventIds count] - 600, 600)];
+                        [self.processedEventIds setSet:[NSSet setWithArray:recent]];
                     }
                 }
 
-                if (!isOwn) {
+                if (!isOwn && !isInitial) {
                 NSNumber *count = self.unreadCounts[roomId] ?: @0;
                 self.unreadCounts[roomId] = @([count intValue] + 1);
                 self.totalUnread++;
@@ -258,11 +259,22 @@ static const NSInteger kMaxNotifPerRoom = 3;
                 [[NSNotificationCenter defaultCenter] postNotificationName:MatrixSyncNewMessageNotification object:nil userInfo:userInfo];
             }
 
-            // Persist unread counts
-            [[NSUserDefaults standardUserDefaults] setObject:self.unreadCounts forKey:kUnreadCountsKey];
-            [[NSUserDefaults standardUserDefaults] setInteger:self.totalUnread forKey:kTotalUnreadKey];
-            [[NSUserDefaults standardUserDefaults] synchronize];
+            if (isInitial) {
+                NSDictionary *unreadNotifs = roomData[@"unread_notifications"];
+                if ([unreadNotifs isKindOfClass:[NSDictionary class]]) {
+                    NSNumber *notifCount = unreadNotifs[@"notification_count"];
+                    if (notifCount && [notifCount integerValue] > 0) {
+                        self.unreadCounts[roomId] = notifCount;
+                        self.totalUnread += [notifCount integerValue];
+                    }
+                }
+            }
         }];
+
+        // Persist unread counts once after all rooms are processed
+        [[NSUserDefaults standardUserDefaults] setObject:self.unreadCounts forKey:kUnreadCountsKey];
+        [[NSUserDefaults standardUserDefaults] setInteger:self.totalUnread forKey:kTotalUnreadKey];
+        [[NSUserDefaults standardUserDefaults] synchronize];
 
         [[UIApplication sharedApplication] setApplicationIconBadgeNumber:self.totalUnread];
 

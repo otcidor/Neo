@@ -84,7 +84,9 @@ static SpaceTheme themeForSpaceName(NSString *name) {
 - (void)buildSpaceMapFromSyncResponse:(NSDictionary *)syncResponse {
     if (!syncResponse) return;
 
-    [self.roomSpaceMap removeAllObjects];
+    if (!self.roomSpaceMap) {
+        self.roomSpaceMap = [NSMutableDictionary dictionary];
+    }
     NSDictionary *join = syncResponse[@"rooms"][@"join"];
     if (![join isKindOfClass:[NSDictionary class]]) return;
 
@@ -104,7 +106,8 @@ static SpaceTheme themeForSpaceName(NSString *name) {
             if (![evt isKindOfClass:[NSDictionary class]]) continue;
             NSString *type = evt[@"type"];
             NSDictionary *content = evt[@"content"];
-            if ([type isEqualToString:@"m.room.type"] && [content[@"type"] isEqualToString:@"m.space"]) {
+            if (([type isEqualToString:@"m.room.create"] || [type isEqualToString:@"m.room.type"]) &&
+                [content[@"type"] isEqualToString:@"m.space"]) {
                 isSpace = YES;
             }
             if ([type isEqualToString:@"m.room.name"]) {
@@ -123,7 +126,8 @@ static SpaceTheme themeForSpaceName(NSString *name) {
                     if (![evt isKindOfClass:[NSDictionary class]]) continue;
                     NSString *type = evt[@"type"];
                     NSDictionary *content = evt[@"content"];
-                    if ([type isEqualToString:@"m.room.type"] && [content[@"type"] isEqualToString:@"m.space"]) {
+                    if (([type isEqualToString:@"m.room.create"] || [type isEqualToString:@"m.room.type"]) &&
+                        [content[@"type"] isEqualToString:@"m.space"]) {
                         isSpace = YES;
                         break;
                     }
@@ -154,10 +158,19 @@ static SpaceTheme themeForSpaceName(NSString *name) {
         }
     }];
 
-    self.spaces = foundSpaces;
-    self.hasData = YES;
-    NSLog(@"SpaceManager: built map with %d spaces, %d room mappings", (int)[foundSpaces count], (int)[self.roomSpaceMap count]);
-    [self saveSpaceState];
+    if ([foundSpaces count] > 0) {
+        NSMutableDictionary *spaceById = [NSMutableDictionary dictionary];
+        for (MatrixSpace *s in self.spaces) {
+            if (s.spaceId) spaceById[s.spaceId] = s;
+        }
+        for (MatrixSpace *s in foundSpaces) {
+            if (s.spaceId) spaceById[s.spaceId] = s;
+        }
+        self.spaces = [spaceById allValues];
+        self.hasData = YES;
+        NSLog(@"SpaceManager: updated map with %d total spaces, %d room mappings", (int)[self.spaces count], (int)[self.roomSpaceMap count]);
+        [self saveSpaceState];
+    }
 
     // Pre-fetch members for small rooms (<50 members) to populate disk cache
     static const NSInteger kMemberFetchThreshold = 50;

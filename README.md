@@ -27,16 +27,21 @@ This is not a serious, polished project. I just want to make the most out of wha
 
 ## What it does
 
-- Log into any Matrix homeserver
+- Log into any Matrix homeserver (with optional SOCKS5/HTTP proxy support)
+- Universal app: Native iPhone UI and iPad Master-Detail Split View (portrait & landscape)
 - Room list with avatars, last message, timestamps, unread badges, swipe-to-archive
 - Chat bubbles, grouped like a real messaging app, with date separators
-- Send/receive images, voice messages, videos
+- Authentic bubble themes: Telegram Classic (Onegram port), WhatsApp, Neo, and color accents
+- Send/receive images, voice messages (with interactive waveforms and tap-to-record), videos, and files
+- Native WebP sticker and attachment decoding
 - Edit and delete your own messages
-- Emoji reactions
-- Local notifications while the app's open or backgrounded
+- Emoji reactions with interactive reaction pills
+- Uninterrupted background sync (`Background Keep-Alive`) for continuous real-time notifications
+- In-app notification banners with tap-to-open
 - Auto-detects mautrix bridge bots (WhatsApp/Telegram/Discord/Instagram) and sorts rooms into per-network tabs
 - Local-only contact renaming, chat archiving
-- Several bubble styles, custom wallpapers, a handful of light/dark themes
+- Custom wallpapers, a handful of light/dark themes
+- SQLite-backed local cache (FMDB) for instant offline access
 
 ---
 

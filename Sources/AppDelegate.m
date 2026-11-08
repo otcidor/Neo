@@ -7,6 +7,8 @@
 #import "ThemeManager.h"
 #import "NeoBackgroundKeeper.h"
 #import "NeoSplitViewController.h"
+#import "NeoBackSwipe.h"
+#import "NeoSystemNotifications.h"
 
 @implementation AppDelegate
 
@@ -34,10 +36,12 @@
     } else {
         self.loginViewController = [[LoginViewController alloc] init];
         self.navigationController = [[UINavigationController alloc] initWithRootViewController:self.loginViewController];
+        [self.navigationController neo_enableBackSwipe];
         self.window.rootViewController = self.navigationController;
     }
 
     [self.window makeKeyAndVisible];
+    [NeoSystemNotifications setupSystemNotificationsIfNeeded];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
         [MatrixAPIClient cleanupMediaCacheOlderThanDays:14];
@@ -104,6 +108,9 @@
     if (self.tabBarController) {
         self.tabBarController.selectedIndex = 0;
         UINavigationController *nav = (UINavigationController *)self.tabBarController.selectedViewController;
+        if (![nav.topViewController isKindOfClass:[RoomListViewController class]]) {
+            [nav popToRootViewControllerAnimated:NO];
+        }
         if ([nav.topViewController isKindOfClass:[RoomListViewController class]]) {
             RoomListViewController *list = (RoomListViewController *)nav.topViewController;
             [list navigateToRoom:roomId];

@@ -75,6 +75,7 @@
         NSInteger destIndex = -1;
         if (destructiveTitle) {
             destIndex = [as addButtonWithTitle:destructiveTitle];
+            as.destructiveButtonIndex = destIndex;
         }
         for (NSString *other in otherTitles) {
             [as addButtonWithTitle:other];

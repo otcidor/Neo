@@ -1,4 +1,5 @@
 #import "NeoNotificationBanner.h"
+#import "NeoCompatibility.h"
 #import "AppDelegate.h"
 #import <QuartzCore/QuartzCore.h>
 
@@ -23,6 +24,7 @@
         self.layer.shadowOffset = CGSizeMake(0, 3);
         self.layer.shadowOpacity = 0.5f;
         self.layer.shadowRadius = 4.0f;
+        self.layer.shadowPath = [UIBezierPath bezierPathWithRect:frame].CGPath;
 
         UIView *bottomSep = [[UIView alloc] initWithFrame:CGRectMake(0, frame.size.height - 0.5f, frame.size.width, 0.5f)];
         bottomSep.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.18];
@@ -68,6 +70,11 @@
         [self addGestureRecognizer:_panGesture];
     }
     return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    self.layer.shadowPath = [UIBezierPath bezierPathWithRect:self.bounds].CGPath;
 }
 
 - (void)updateWithMessage:(NSString *)message sender:(NSString *)sender roomName:(NSString *)roomName roomId:(NSString *)roomId {
@@ -136,6 +143,15 @@
 
 @end
 
+@interface NeoBannerRootViewController : UIViewController
+@end
+
+@implementation NeoBannerRootViewController
+- (BOOL)shouldAutorotate { return YES; }
+- (NeoOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation { return YES; }
+@end
+
 @interface NeoNotificationBanner () {
     UIWindow *_bannerWindow;
     NeoNotificationBannerView *_bannerView;
@@ -166,8 +182,13 @@
         _bannerWindow.backgroundColor = [UIColor clearColor];
         _bannerWindow.hidden = YES;
 
+        NeoBannerRootViewController *rootVC = [[NeoBannerRootViewController alloc] init];
+        rootVC.view.backgroundColor = [UIColor clearColor];
+        _bannerWindow.rootViewController = rootVC;
+
         _bannerView = [[NeoNotificationBannerView alloc] initWithFrame:frame];
-        [_bannerWindow addSubview:_bannerView];
+        _bannerView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [rootVC.view addSubview:_bannerView];
     }
     return self;
 }
@@ -181,10 +202,11 @@
 
     [_bannerView updateWithMessage:message sender:sender roomName:roomName roomId:roomId];
 
-    CGFloat screenW = [UIScreen mainScreen].bounds.size.width;
+    CGFloat bannerW = _bannerWindow.rootViewController.view.bounds.size.width;
+    if (bannerW <= 0) bannerW = [UIScreen mainScreen].bounds.size.width;
     CGFloat bannerH = 64.0f;
-    _bannerWindow.frame = CGRectMake(0, 0, screenW, bannerH);
-    _bannerView.frame = CGRectMake(0, 0, screenW, bannerH);
+    _bannerWindow.frame = CGRectMake(0, 0, bannerW, bannerH);
+    _bannerView.frame = CGRectMake(0, 0, bannerW, bannerH);
     _bannerView.transform = CGAffineTransformMakeTranslation(0, -bannerH);
 
     _bannerWindow.hidden = NO;
